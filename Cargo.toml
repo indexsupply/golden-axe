@@ -1,0 +1,43 @@
+[package]
+    description = "index ethereum logs"
+    edition     = "2021"
+    license     = "MIT"
+    name        = "golden-axe"
+    version     = "0.1.0"
+
+[[bin]]
+    name = "ga"
+    path = "src/main.rs"
+
+[dependencies]
+    alloy = { version = "0.1", features = [
+        "contract",
+        "dyn-abi",
+        "json-abi",
+        "network",
+        "postgres",
+        "provider-http",
+        "providers",
+        "rpc",
+        "rpc-client",
+        "rpc-types-eth",
+        "serde",
+        "sol-types",
+    ] }
+    clap = { version = "4.5.7", features = ["derive", "env"] }
+    deadpool-postgres = "0.14"
+    eyre = "0.6.12"
+    futures = "0.3"
+    openssl = "0.10.64"
+    postgres-openssl = "0.5"
+    serde_json = "1"
+    sqlformat = "0.2.4"
+    sqlparser = "0.47"
+    tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+    tokio-postgres = { version = "0.7.10", features = ["array-impls"] }
+    tracing = { version = "0.1", features = ["attributes"] }
+    tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+    url = "2.5"
+
+[dev-dependencies]
+    postgresql_embedded = "0.12"
