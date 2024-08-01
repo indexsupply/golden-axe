@@ -1,0 +1,35 @@
+- authentication
+- index multiple chains
+- sql api
+- live updates
+
+
+SQL API
+
+- validate user query
+- enhance user query
+
+> POST /query
+
+> {
+>     "chain_id": 84532,
+>     "schemas": [{"signature": "Transfer(address indexed from,address indexed to, uint tokens)"}]
+>     "query": "select value from, tokens transfer limit 1",
+> }
+
+< {
+<     "block_height": XXX,
+<     "result": [
+<         ["from", "tokens"],
+<         ["0xaaa", "123"],
+<         ["0xbbb", "456"]
+<     ]
+< }
+
+Live Update API
+
+> {
+>     "schemas": [{"signature": "Transfer(address indexed from,address indexed to, uint tokens)"}]
+>     "query": "select value from, tokens transfer limit 1",
+>     "block_height": XXX,
+> }

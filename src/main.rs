@@ -1,5 +1,5 @@
+mod abi_sql;
 mod sync;
-mod view;
 
 use std::fs::File;
 use std::io::{self, BufRead};
@@ -92,7 +92,7 @@ async fn main() -> Result<()> {
 fn print_view(args: &Args) -> Result<()> {
     if let Some(events) = parse_events(args)? {
         for event in events {
-            println!("{}", view::fmt_sql(&view::create(&event)?)?);
+            println!("{}", abi_sql::fmt_sql(&abi_sql::create_view(&event)?)?);
         }
     }
     Ok(())
@@ -164,7 +164,7 @@ async fn sync(args: &Args) -> Result<()> {
             for event in events {
                 tracing::info!("indexing: {:x}", event.selector());
                 tracing::info!("indexing: {}", event.signature());
-                let view = view::create(&event)?;
+                let view = abi_sql::create_view(&event)?;
                 pg_pool
                     .get()
                     .await

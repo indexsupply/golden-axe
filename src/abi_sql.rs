@@ -5,7 +5,7 @@ use alloy::{
 };
 use eyre::{eyre, Ok, Result};
 
-pub fn create(event: &Event) -> Result<String> {
+pub fn create_view(event: &Event) -> Result<String> {
     let mut projections: Vec<String> = Vec::new();
     projections.push("block_num, tx_hash, log_idx, address".to_string());
     projections.push(indexed_sql(&event.inputs)?);
@@ -38,6 +38,16 @@ fn indexed_sql(inputs: &[EventParam]) -> Result<String> {
             DynSolType::FixedBytes(_) => Ok(format!("topics[{}] as {}", i + 2, inp.name)),
             _ => Err(eyre!("unable to generate sql for: {:?}", inp)),
         })
+        .collect::<Result<Vec<String>>>()?
+        .join(","))
+}
+
+fn abi_sql(inputs: &[EventParam]) -> Result<String> {
+    Ok(inputs
+        .iter()
+        .filter(|i| !i.indexed)
+        .enumerate()
+        .map(|(i, input)| abi_type_sql(i, &input.name, &input.resolve()?))
         .collect::<Result<Vec<String>>>()?
         .join(","))
 }
@@ -107,16 +117,6 @@ fn abi_type_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
     }
 }
 
-fn abi_sql(inputs: &[EventParam]) -> Result<String> {
-    Ok(inputs
-        .iter()
-        .filter(|i| !i.indexed)
-        .enumerate()
-        .map(|(i, input)| abi_type_sql(i, &input.name, &input.resolve()?))
-        .collect::<Result<Vec<String>>>()?
-        .join(","))
-}
-
 const PG: &sqlparser::dialect::PostgreSqlDialect = &sqlparser::dialect::PostgreSqlDialect {};
 
 pub fn fmt_sql(sql: &str) -> Result<String> {
@@ -140,8 +140,8 @@ mod tests {
             .replace('\n', "")
             .parse()
             .unwrap_or_else(|_| panic!("unable to parse {}", event_sig));
-        let got =
-            create(&event).unwrap_or_else(|_| panic!("unable to create sql for {}", event_sig));
+        let got = create_view(&event)
+            .unwrap_or_else(|_| panic!("unable to create sql for {}", event_sig));
         let (got, want) = (
             fmt_sql(&got).unwrap_or_else(|_| panic!("unable to format got: {}", got)),
             fmt_sql(want).unwrap_or_else(|_| panic!("unable to format want: {}", want)),
