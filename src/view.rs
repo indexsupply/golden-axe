@@ -157,6 +157,10 @@ mod tests {
             r#"
                 create or replace view transfer as
                     select
+                        block_num,
+                        tx_hash,
+                        log_idx,
+                        address,
                         abi_address(topics[2]) as "from",
                         abi_address(topics[3]) as "to",
                         abi_uint(abi_fixed_bytes(data, 0, 32)) as tokens
@@ -173,6 +177,10 @@ mod tests {
             r#"
                 create or replace view store_setrecord as
                     select
+                        block_num,
+                        tx_hash,
+                        log_idx,
+                        address,
                         topics[2] as tableid,
                         abi_fixed_bytes_array(abi_dynamic(data, 0), 32) as keytuple,
                         abi_bytes(abi_dynamic(data, 32)) as staticdata,
@@ -191,6 +199,10 @@ mod tests {
             r#"
                 create or replace view orderfulfilled as
                 select
+                    block_num,
+                    tx_hash,
+                    log_idx,
+                    address,
                     abi_address(topics[2]) as "offerer",
                     abi_address(topics[3]) as "zone",
                     abi_fixed_bytes(data, 0, 32) as orderhash,
