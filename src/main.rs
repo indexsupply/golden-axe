@@ -67,7 +67,7 @@ struct Args {
     #[command(subcommand)]
     command: Option<Commands>,
 }
-static SCHEMA: &'static str = include_str!("./schema.sql");
+static SCHEMA: &str = include_str!("./schema.sql");
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -90,7 +90,7 @@ async fn main() -> Result<()> {
 }
 
 fn print_view(args: &Args) -> Result<()> {
-    for event in parse_events(&args)? {
+    for event in parse_events(args)? {
         println!("{}", view::fmt_sql(&view::create(&event)?)?);
     }
     Ok(())
@@ -100,7 +100,7 @@ fn parse_events(args: &Args) -> Result<Vec<Event>> {
     let mut events: Vec<Event> = Vec::new();
     if let Some(path) = &args.events_file {
         let path = Path::new(&path);
-        let file = File::open(&path)?;
+        let file = File::open(path)?;
         let reader = io::BufReader::new(file);
         for line in reader.lines() {
             let data = line?;
@@ -114,7 +114,7 @@ fn parse_events(args: &Args) -> Result<Vec<Event>> {
                 .wrap_err(eyre!("unable to abi parse: {}", &event))?,
         );
     }
-    if events.len() == 0 {
+    if events.is_empty() {
         return Err(eyre!("must provide 1 event via -a or -f"));
     }
     Ok(events)

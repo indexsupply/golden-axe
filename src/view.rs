@@ -24,7 +24,7 @@ pub fn create(event: &Event) -> Result<String> {
     ))
 }
 
-fn indexed_sql(inputs: &Vec<EventParam>) -> Result<String> {
+fn indexed_sql(inputs: &[EventParam]) -> Result<String> {
     Ok(inputs
         .iter()
         .filter(|inp| inp.indexed)
@@ -54,7 +54,7 @@ fn abi_type_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
             pos * 32,
             alias,
         )),
-        DynSolType::Bool => Ok(format!("")),
+        DynSolType::Bool => Ok(String::new()),
         DynSolType::Bytes => Ok(format!(
             "abi_bytes(abi_dynamic(data, {})) {}",
             pos * 32,
@@ -95,9 +95,9 @@ fn abi_type_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
                     alias
                 ))
             }
-            _ => Ok(format!("")),
+            _ => Ok(String::new()),
         },
-        DynSolType::Int(_) => Ok(format!("")),
+        DynSolType::Int(_) => Ok(String::new()),
         DynSolType::Uint(_) => Ok(format!(
             "abi_uint(abi_fixed_bytes(data, {}, 32)) {}",
             pos * 32,
@@ -107,7 +107,7 @@ fn abi_type_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
     }
 }
 
-fn abi_sql(inputs: &Vec<EventParam>) -> Result<String> {
+fn abi_sql(inputs: &[EventParam]) -> Result<String> {
     Ok(inputs
         .iter()
         .filter(|i| !i.indexed)
@@ -139,11 +139,12 @@ mod tests {
             .collect::<String>()
             .replace('\n', "")
             .parse()
-            .expect(&format!("unable to parse {}", event_sig));
-        let got = create(&event).expect(&format!("unable to create sql for {}", event_sig));
+            .unwrap_or_else(|_| panic!("unable to parse {}", event_sig));
+        let got =
+            create(&event).unwrap_or_else(|_| panic!("unable to create sql for {}", event_sig));
         let (got, want) = (
-            fmt_sql(&got).expect(&format!("unable to format got: {}", got)),
-            fmt_sql(&want).expect(&format!("unable to format want: {}", want)),
+            fmt_sql(&got).unwrap_or_else(|_| panic!("unable to format got: {}", got)),
+            fmt_sql(want).unwrap_or_else(|_| panic!("unable to format want: {}", want)),
         );
         if got.to_lowercase().ne(&want.to_lowercase()) {
             panic!("got:\n{}\n\nwant:\n{}\n", got, want);

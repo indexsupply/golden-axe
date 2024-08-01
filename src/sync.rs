@@ -75,8 +75,7 @@ impl Downloader {
         loop {
             match self.download(batch_size).await {
                 Err(Error::Retry(err)) => {
-                    batch_size = std::cmp::max(1, batch_size / 10);
-                    tracing::debug!("retry. downloading error: {}", err);
+                    tracing::debug!("downloading error: {}", err);
                     tokio::time::sleep(Duration::from_secs(1)).await;
                 }
                 Err(Error::Fatal(err)) => {
@@ -120,7 +119,7 @@ impl Downloader {
             .wrap_err("unable to init blocks table")
     }
 
-    #[tracing::instrument(skip_all fields(start, end, logs))]
+    #[tracing::instrument(level="debug" skip_all fields(start, end, logs))]
     async fn download(&self, batch_size: u64) -> Result<u64, Error> {
         let mut pg = self.pg_pool.get().await.wrap_err("pg pool")?;
         let pgtx = pg.transaction().await?;
@@ -154,10 +153,11 @@ impl Downloader {
         .await?;
         pgtx.commit().await.wrap_err("unable to commit tx")?;
         tracing::Span::current().record("logs", num_copied);
+        tracing::info!(local = start, logs = num_copied);
         Ok(num_copied)
     }
 
-    #[tracing::instrument(skip_all fields(local, remote))]
+    #[tracing::instrument(level = "debug" skip_all fields(local, remote))]
     async fn next(&self, pgtx: &Transaction<'_>, batch_size: u64) -> Result<Range<Block>, Error> {
         let mut removed = 0;
         for _ in 0..100 {
@@ -168,7 +168,7 @@ impl Downloader {
                 .wrap_err("requesting latest block")?
                 .ok_or(eyre!("missing latest block"))?;
             let mut remote_num = latest_remote.header.number.unwrap();
-            let (local_num, local_hash) = self.get_local_latest(&pgtx).await?;
+            let (local_num, local_hash) = self.get_local_latest(pgtx).await?;
             let local_num: u64 = local_num.to();
 
             tracing::Span::current()
@@ -234,7 +234,7 @@ impl Downloader {
         return Err(Error::Fatal(eyre!("reorg too deep")));
     }
 
-    #[tracing::instrument(skip_all fields(start, end))]
+    #[tracing::instrument(level="debug" skip_all fields(start, end))]
     async fn single(&self, filter: Filter) -> Result<Vec<Log>, Error> {
         let mut batch = BatchRequest::new(self.eth_client.client());
         let block: Waiter<Block> = batch
@@ -251,7 +251,7 @@ impl Downloader {
         logs.await.map_err(|e| Error::Retry(eyre!("logs {e}")))
     }
 
-    #[tracing::instrument(skip_all fields(start, end))]
+    #[tracing::instrument(level="debug" skip_all fields(start, end))]
     async fn batch(&self, batch_size: u64, filter: Filter) -> Result<Vec<Log>, Error> {
         let part_size = (batch_size / self.concurrency).max(1);
         let mut tasks = Vec::new();
@@ -274,7 +274,7 @@ impl Downloader {
             logs.extend(
                 task.await
                     .wrap_err("async download task")?
-                    .map_err(Error::Retry)?,
+                    .map_err(Error::Fatal)?,
             );
         }
         Ok(logs)
@@ -286,7 +286,7 @@ impl Downloader {
                 return topic;
             }
         }
-        return FixedBytes::<32>::ZERO;
+        FixedBytes::<32>::ZERO
     }
 
     async fn get_local_latest(&self, tx: &Transaction<'_>) -> Result<(U64, BlockHash), Error> {
@@ -295,11 +295,11 @@ impl Downloader {
             .query_one(q, &[&self.topic()])
             .await
             .wrap_err("getting local latest")?;
-        return Ok((row.try_get("num")?, row.try_get("hash")?));
+        Ok((row.try_get("num")?, row.try_get("hash")?))
     }
 }
 
-#[tracing::instrument(fields(logs) skip_all)]
+#[tracing::instrument(level="debug" fields(logs) skip_all)]
 async fn copy(pgtx: &Transaction<'_>, logs: Vec<Log>) -> Result<u64> {
     tracing::Span::current().record("logs", logs.len());
     const Q: &str = "
