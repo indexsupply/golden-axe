@@ -90,34 +90,32 @@ async fn main() -> Result<()> {
 }
 
 fn print_view(args: &Args) -> Result<()> {
-    for event in parse_events(args)? {
-        println!("{}", view::fmt_sql(&view::create(&event)?)?);
+    if let Some(events) = parse_events(args)? {
+        for event in events {
+            println!("{}", view::fmt_sql(&view::create(&event)?)?);
+        }
     }
     Ok(())
 }
 
-fn parse_events(args: &Args) -> Result<Vec<Event>> {
-    let mut events: Vec<Event> = Vec::new();
+fn parse_events(args: &Args) -> Result<Option<Vec<Event>>> {
     if let Some(path) = &args.events_file {
         let path = Path::new(&path);
         let file = File::open(path)?;
         let reader = io::BufReader::new(file);
+        let mut events: Vec<Event> = Vec::new();
         for line in reader.lines() {
             let data = line?;
             events.push(Event::parse(&data).wrap_err(format!("unable to abi parse: {}", data))?);
         }
+        Ok(Some(events))
+    } else if let Some(event) = &args.event {
+        Ok(Some(vec![event
+            .parse()
+            .wrap_err(eyre!("unable to abi parse: {}", &event))?]))
+    } else {
+        Ok(None)
     }
-    if let Some(event) = &args.event {
-        events.push(
-            event
-                .parse()
-                .wrap_err(eyre!("unable to abi parse: {}", &event))?,
-        );
-    }
-    if events.is_empty() {
-        return Err(eyre!("must provide 1 event via -a or -f"));
-    }
-    Ok(events)
 }
 
 fn log_filter(filter: &Filter) {
@@ -161,27 +159,38 @@ async fn sync(args: &Args) -> Result<()> {
         None => BlockNumberOrTag::Latest,
     };
 
-    let events = parse_events(args)?;
-    {
-        for event in events {
-            tracing::info!("indexing: {:x}", event.selector());
-            tracing::info!("indexing: {}", event.signature());
-            let view = view::create(&event)?;
-            pg_pool
-                .get()
-                .await
-                .expect("getting conn from pool")
-                .execute(&view, &[])
-                .await?;
-            tracing::info!("create-view: {}", event.name.to_lowercase());
-
-            let addrs = args.address.clone().unwrap_or_default();
-            let filter = Filter::new().event(&event.signature()).address(addrs);
-            log_filter(&filter);
-
+    match parse_events(args)? {
+        Some(events) => {
+            for event in events {
+                tracing::info!("indexing: {:x}", event.selector());
+                tracing::info!("indexing: {}", event.signature());
+                let view = view::create(&event)?;
+                pg_pool
+                    .get()
+                    .await
+                    .expect("getting conn from pool")
+                    .execute(&view, &[])
+                    .await?;
+                tracing::info!("create-view: {}", event.name.to_lowercase());
+                let addrs = args.address.clone().unwrap_or_default();
+                let filter = Filter::new().event(&event.signature()).address(addrs);
+                log_filter(&filter);
+                let dl = Downloader {
+                    filter,
+                    start,
+                    pg_pool: pg_pool.clone(),
+                    eth_client: eth_client.clone(),
+                    batch_size: args.batch_size,
+                    concurrency: args.concurrency,
+                    stop: args.stop_block,
+                };
+                tokio::spawn(async move { dl.run().await });
+            }
+        }
+        None => {
+            tracing::info!("indexing all logs");
             let dl = Downloader {
-                event,
-                filter,
+                filter: Filter::new(),
                 start,
                 pg_pool: pg_pool.clone(),
                 eth_client: eth_client.clone(),

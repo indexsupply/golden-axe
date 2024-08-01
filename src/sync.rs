@@ -4,7 +4,6 @@ use tokio::task;
 
 use alloy::{
     hex,
-    json_abi::Event,
     primitives::{BlockHash, FixedBytes, U64},
     providers::{Provider, ReqwestProvider},
     rpc::{
@@ -39,7 +38,6 @@ impl From<tokio_postgres::Error> for Error {
 }
 
 pub struct Downloader {
-    pub event: Event,
     pub pg_pool: Pool,
     pub eth_client: ReqwestProvider,
     pub batch_size: u64,
@@ -52,7 +50,6 @@ pub struct Downloader {
 impl Downloader {
     #[tracing::instrument(skip_all fields(event))]
     pub async fn run(&self) {
-        tracing::Span::current().record("event", self.event.name.to_string());
         {
             let pg = self
                 .pg_pool
