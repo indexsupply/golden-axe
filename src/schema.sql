@@ -6,7 +6,7 @@ create table if not exists blocks(
 	primary key (num, topic)
 );
 
-create table if not exists logs (
+create unlogged table if not exists logs (
 	chain_id bigint,
 	block_num numeric,
 	tx_hash bytea,

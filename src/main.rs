@@ -1,35 +1,85 @@
-mod abi_sql;
+mod api;
+mod api_sql;
+mod sql_generate;
+mod sql_validate;
 mod sync;
 
-use std::fs::File;
-use std::io::{self, BufRead};
-use std::path::Path;
+use std::time::Duration;
 
-use alloy::primitives::Address;
-use alloy::providers::ProviderBuilder;
-use alloy::rpc::types::eth::BlockNumberOrTag;
-use alloy::{json_abi::Event, rpc::types::eth::Filter};
+use alloy::{
+    primitives::Address,
+    providers::ProviderBuilder,
+    rpc::types::eth::{BlockNumberOrTag, Filter},
+};
+use axum::routing::{get, post, Router};
 use clap::{Parser, Subcommand};
 use deadpool_postgres::{Manager, ManagerConfig, Pool};
-use eyre::{eyre, Context, Result};
+use eyre::{Context, Result};
 use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
 use postgres_openssl::MakeTlsConnector;
+use std::str::FromStr;
 use sync::Downloader;
+use tower_http::{compression::CompressionLayer, cors::CorsLayer, timeout::TimeoutLayer};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 use url::Url;
 
 #[derive(Debug, Subcommand)]
 enum Commands {
-    Sync,
-    PrintView,
+    #[command(name = "server", about = "Serve API requests for decoded logs")]
+    Server(ServerArgs),
+
+    #[command(name = "sync", about = "Sync blocks from the API to PG")]
+    Sync(ServerArgs),
+
+    #[command(name = "view", about = "Print SQL VIEW for events")]
+    PrintView(api_sql::cli::Request),
+
+    #[command(name = "query", about = "Query decoded logs", long_about = Some(api_sql::cli::HELP))]
+    Query(api_sql::cli::Request),
+}
+
+#[derive(Parser)]
+#[command(name = "ga", about = "The final indexer", version = "0.1")]
+struct GlobalArgs {
+    #[command(subcommand)]
+    command: Option<Commands>,
+
+    #[arg(short, long, global = true, env = "ADDRESS")]
+    address: Option<Vec<Address>>,
+
+    #[arg(short, long, global = true, help = "human readable abi signature")]
+    event: Option<String>,
+
+    #[arg(
+        long,
+        short = 'f',
+        env = "EVENTS_FILE",
+        global = true,
+        help = "newline separated, human-readable abi signatures"
+    )]
+    events_file: Option<String>,
+
+    #[clap(
+        long = "url",
+        global = true,
+        env = "GA_URL",
+        help = "url to golden axe http api",
+        default_value = "http://golden-axe-1:8000"
+    )]
+    url: Url,
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "ga", about = "GOLDEN AXE: eth logs indexer", version = "0.1")]
-struct Args {
-    #[arg(short, long, global = true, env = "ADDRESS")]
+struct ServerArgs {
+    #[arg(from_global)]
     address: Option<Vec<Address>>,
+
+    #[arg(from_global)]
+    events_file: Option<String>,
+
+    #[arg(from_global)]
+    event: Option<String>,
 
     #[arg(long, env = "START_BLOCK")]
     start_block: Option<u64>,
@@ -46,31 +96,27 @@ struct Args {
     #[arg(long = "pg", env = "PG_URL", default_value = "postgres://localhost/ga")]
     pg_url: String,
 
+    #[arg(short = 'l', env = "LISTEN", default_value = "0.0.0.0:8000")]
+    listen: String,
+
+    #[arg(
+        long = "pg-read-only-password",
+        env = "PG_RO_PASSWORD",
+        default_value = ""
+    )]
+    ro_password: String,
+
     #[arg(
         long = "eth",
         env = "ETH_URL",
         default_value = "https://base-rpc.publicnode.com"
     )]
     eth_url: Url,
-
-    #[arg(short, long, global = true, help = "human readable abi signature")]
-    event: Option<String>,
-
-    #[arg(
-        long,
-        short = 'f',
-        global = true,
-        help = "newline separated, human-readable abi signatures"
-    )]
-    events_file: Option<String>,
-
-    #[command(subcommand)]
-    command: Option<Commands>,
 }
 static SCHEMA: &str = include_str!("./schema.sql");
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), api::Error> {
     tracing_subscriber::fmt()
         .compact()
         .with_env_filter(
@@ -81,41 +127,15 @@ async fn main() -> Result<()> {
         .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
         .init();
 
-    let args = Args::parse();
+    let args = GlobalArgs::parse();
     match args.command {
-        Some(Commands::PrintView) => print_view(&args)?,
-        Some(Commands::Sync) | None => sync(&args).await?,
+        Some(Commands::PrintView(args)) => api_sql::cli::print_view(&args)?,
+        Some(Commands::Query(args)) => api_sql::cli::request(&reqwest::Client::new(), args).await?,
+        Some(Commands::Sync(args)) => sync(args).await?,
+        Some(Commands::Server(args)) => server(args).await?,
+        None => server(ServerArgs::parse()).await?,
     }
     Ok(())
-}
-
-fn print_view(args: &Args) -> Result<()> {
-    if let Some(events) = parse_events(args)? {
-        for event in events {
-            println!("{}", abi_sql::fmt_sql(&abi_sql::create_view(&event)?)?);
-        }
-    }
-    Ok(())
-}
-
-fn parse_events(args: &Args) -> Result<Option<Vec<Event>>> {
-    if let Some(path) = &args.events_file {
-        let path = Path::new(&path);
-        let file = File::open(path)?;
-        let reader = io::BufReader::new(file);
-        let mut events: Vec<Event> = Vec::new();
-        for line in reader.lines() {
-            let data = line?;
-            events.push(Event::parse(&data).wrap_err(format!("unable to abi parse: {}", data))?);
-        }
-        Ok(Some(events))
-    } else if let Some(event) = &args.event {
-        Ok(Some(vec![event
-            .parse()
-            .wrap_err(eyre!("unable to abi parse: {}", &event))?]))
-    } else {
-        Ok(None)
-    }
 }
 
 fn log_filter(filter: &Filter) {
@@ -129,7 +149,7 @@ fn log_filter(filter: &Filter) {
     tracing::info!("topics={:?}", topics);
 }
 
-async fn sync(args: &Args) -> Result<()> {
+async fn sync(args: ServerArgs) -> Result<()> {
     let mut builder = SslConnector::builder(SslMethod::tls()).expect("tls builder");
     builder.set_verify(SslVerifyMode::NONE);
     let connector = MakeTlsConnector::new(builder.build());
@@ -159,12 +179,12 @@ async fn sync(args: &Args) -> Result<()> {
         None => BlockNumberOrTag::Latest,
     };
 
-    match parse_events(args)? {
+    match api_sql::cli::parse_events(&args.events_file, &args.event)? {
         Some(events) => {
             for event in events {
                 tracing::info!("indexing: {:x}", event.selector());
                 tracing::info!("indexing: {}", event.signature());
-                let view = abi_sql::create_view(&event)?;
+                let view = sql_generate::view(&event)?;
                 pg_pool
                     .get()
                     .await
@@ -201,6 +221,46 @@ async fn sync(args: &Args) -> Result<()> {
             tokio::spawn(async move { dl.run().await });
         }
     }
-    tokio::signal::ctrl_c().await.expect("handling exit signal");
     Ok(())
+}
+
+fn api_ro_pg(cstr: &str, ro_password: &str) -> Pool {
+    let mut pg_config = tokio_postgres::Config::from_str(cstr).expect("unable to connect to ro pg");
+    pg_config.user("uapi");
+    pg_config.password(ro_password);
+    let mut builder = SslConnector::builder(SslMethod::tls()).expect("tls builder");
+    builder.set_verify(SslVerifyMode::NONE);
+    let connector = MakeTlsConnector::new(builder.build());
+    let pg_mgr = Manager::from_config(
+        pg_config,
+        connector,
+        ManagerConfig {
+            recycling_method: deadpool_postgres::RecyclingMethod::Fast,
+        },
+    );
+    Pool::builder(pg_mgr)
+        .max_size(16)
+        .build()
+        .expect("unable to build new ro pool")
+}
+
+async fn server(args: ServerArgs) -> Result<()> {
+    let config = api::Config {
+        pool: api_ro_pg(&args.pg_url, &args.ro_password),
+    };
+    let service = tower::ServiceBuilder::new()
+        .layer(TimeoutLayer::new(Duration::from_secs(10)))
+        .layer(CompressionLayer::new());
+    let app = Router::new()
+        .route("/", get(|| async { "hello\n" }))
+        .route("/query", post(api_sql::handle))
+        .layer(service)
+        .layer(CorsLayer::permissive())
+        .with_state(config.clone());
+    let listener = tokio::net::TcpListener::bind(&args.listen)
+        .await
+        .expect("binding to tcp for http server");
+
+    tokio::spawn(sync(args));
+    axum::serve(listener, app).await.wrap_err("serving http")
 }

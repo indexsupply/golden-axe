@@ -3,13 +3,15 @@ use alloy::{
     hex,
     json_abi::{Event, EventParam},
 };
-use eyre::{eyre, Ok, Result};
+use eyre::{eyre, Context, Result};
 
-pub fn create_view(event: &Event) -> Result<String> {
+use crate::{api, sql_validate};
+
+pub fn view(event: &Event) -> Result<String> {
     let mut projections: Vec<String> = Vec::new();
     projections.push("block_num, tx_hash, log_idx, address".to_string());
-    projections.push(indexed_sql(&event.inputs)?);
-    projections.push(abi_sql(&event.inputs)?);
+    projections.push(topics_sql_all(&event.inputs)?);
+    projections.push(abi_sql_all(&event.inputs)?);
 
     Ok(format!(
         r#"
@@ -24,35 +26,93 @@ pub fn create_view(event: &Event) -> Result<String> {
     ))
 }
 
-fn indexed_sql(inputs: &[EventParam]) -> Result<String> {
+pub fn query(user_query: &str, event_sigs: Vec<&str>) -> Result<String, api::Error> {
+    let selections = sql_validate::validate(user_query, event_sigs)?;
+    let query: Vec<String> = vec![
+        "with".to_string(),
+        selections
+            .iter()
+            .map(selection_cte_sql)
+            .collect::<Result<Vec<_>, _>>()?
+            .join(","),
+        user_query.to_string(),
+    ];
+    Ok(query.join(" "))
+}
+
+fn selection_cte_sql(selection: &sql_validate::Selection) -> Result<String, api::Error> {
+    let mut res: Vec<String> = Vec::new();
+    res.push(format!("{} as (", selection.user_event_name));
+    res.push("select".to_string());
+
+    let mut select_list = Vec::new();
+    let indexed_inputs = selection
+        .event
+        .inputs
+        .iter()
+        .filter(|inp| inp.indexed)
+        .enumerate();
+    for (i, inp) in indexed_inputs {
+        if selection.selected_field(&inp.name) {
+            let t = inp.resolve().wrap_err("unable to resolve input")?;
+            let name = selection.quoted_field_name(&inp.name)?;
+            select_list.push(topic_sql(i, &name, &t)?)
+        }
+    }
+    let abi_inputs = selection
+        .event
+        .inputs
+        .iter()
+        .filter(|inp| !inp.indexed)
+        .enumerate();
+    for (i, inp) in abi_inputs {
+        if selection.selected_field(&inp.name) {
+            let t = inp.resolve().wrap_err("unable to resolve input")?;
+            let name = selection.quoted_field_name(&inp.name)?;
+            select_list.push(abi_sql(i, &name, &t)?)
+        }
+    }
+    res.push(select_list.join(","));
+    res.push(format!(
+        r#"from logs where topics[1] = '\x{}'"#,
+        hex::encode(selection.event.selector())
+    ));
+    res.push(")".to_string());
+    Ok(res.join(" "))
+}
+
+fn topics_sql_all(inputs: &[EventParam]) -> Result<String> {
     Ok(inputs
         .iter()
         .filter(|inp| inp.indexed)
         .enumerate()
-        .map(|(i, inp)| match inp.resolve()? {
-            DynSolType::Address => Ok(format!(
-                "abi_address(topics[{}]) as \"{}\"",
-                i + 2,
-                inp.name,
-            )),
-            DynSolType::FixedBytes(_) => Ok(format!("topics[{}] as {}", i + 2, inp.name)),
-            _ => Err(eyre!("unable to generate sql for: {:?}", inp)),
-        })
+        .map(|(i, input)| topic_sql(i, &format!("\"{}\"", &input.name), &input.resolve()?))
         .collect::<Result<Vec<String>>>()?
         .join(","))
 }
 
-fn abi_sql(inputs: &[EventParam]) -> Result<String> {
+fn topic_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
+    // postgres arrays are 1-indexed and the first element is
+    // the event signature hash
+    let pos = pos + 2;
+    match t {
+        DynSolType::Address => Ok(format!("abi_address(topics[{}]) as {}", pos, name,)),
+        DynSolType::FixedBytes(_) => Ok(format!("topics[{}] as {}", pos, name)),
+        _ => Err(eyre!("unable to generate sql for: {:?}", t)),
+    }
+}
+
+fn abi_sql_all(inputs: &[EventParam]) -> Result<String> {
     Ok(inputs
         .iter()
         .filter(|i| !i.indexed)
         .enumerate()
-        .map(|(i, input)| abi_type_sql(i, &input.name, &input.resolve()?))
+        .map(|(i, input)| abi_sql(i, &format!("\"{}\"", &input.name), &input.resolve()?))
         .collect::<Result<Vec<String>>>()?
         .join(","))
 }
 
-fn abi_type_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
+fn abi_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
     let alias = if name.is_empty() {
         "".to_string()
     } else {
@@ -64,7 +124,7 @@ fn abi_type_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
             pos * 32,
             alias,
         )),
-        DynSolType::Bool => Ok(String::new()),
+        DynSolType::Bool => todo!(),
         DynSolType::Bytes => Ok(format!(
             "abi_bytes(abi_dynamic(data, {})) {}",
             pos * 32,
@@ -85,7 +145,7 @@ fn abi_type_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
                 let values = fields
                     .iter()
                     .enumerate()
-                    .map(|(i, field)| abi_type_sql(i, "", field));
+                    .map(|(i, field)| abi_sql(i, "", field));
                 let combined = key_names
                     .zip(values)
                     .try_fold(Vec::new(), |mut acc, (k, v)| {
@@ -105,9 +165,9 @@ fn abi_type_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
                     alias
                 ))
             }
-            _ => Ok(String::new()),
+            _ => todo!(),
         },
-        DynSolType::Int(_) => Ok(String::new()),
+        DynSolType::Int(_) => todo!(),
         DynSolType::Uint(_) => Ok(format!(
             "abi_uint(abi_fixed_bytes(data, {}, 32)) {}",
             pos * 32,
@@ -132,16 +192,9 @@ pub fn fmt_sql(sql: &str) -> Result<String> {
 mod tests {
     use super::*;
 
-    fn check_sql(event_sig: &str, want: &str) {
-        let event: Event = event_sig
-            .chars()
-            .filter(|c| c.is_ascii())
-            .collect::<String>()
-            .replace('\n', "")
-            .parse()
-            .unwrap_or_else(|_| panic!("unable to parse {}", event_sig));
-        let got = create_view(&event)
-            .unwrap_or_else(|_| panic!("unable to create sql for {}", event_sig));
+    fn check_sql(event_sigs: Vec<&str>, user_query: &str, want: &str) {
+        let got = query(user_query, event_sigs)
+            .unwrap_or_else(|e| panic!("unable to create sql for {:?} {:?}", user_query, e));
         let (got, want) = (
             fmt_sql(&got).unwrap_or_else(|_| panic!("unable to format got: {}", got)),
             fmt_sql(want).unwrap_or_else(|_| panic!("unable to format want: {}", want)),
@@ -152,8 +205,42 @@ mod tests {
     }
 
     #[test]
-    fn test_create_erc20() {
+    fn test_erc20_sql() {
         check_sql(
+            vec!["Transfer(address indexed from, address indexed to, uint tokens)"],
+            r#"select "from", "to", tokens from transfer"#,
+            r#"with transfer as (
+                    select
+                        abi_address(topics[2]) as "from",
+                        abi_address(topics[3]) as "to",
+                        abi_uint(abi_fixed_bytes(data, 64, 32)) AS tokens
+                    from logs
+                ) select "from", "to", tokens from transfer
+            "#,
+        );
+    }
+
+    fn check_view(event_sig: &str, want: &str) {
+        let event: Event = event_sig
+            .chars()
+            .filter(|c| c.is_ascii())
+            .collect::<String>()
+            .replace('\n', "")
+            .parse()
+            .unwrap_or_else(|_| panic!("unable to parse {}", event_sig));
+        let got = view(&event).unwrap_or_else(|_| panic!("unable to create sql for {}", event_sig));
+        let (got, want) = (
+            fmt_sql(&got).unwrap_or_else(|_| panic!("unable to format got: {}", got)),
+            fmt_sql(want).unwrap_or_else(|_| panic!("unable to format want: {}", want)),
+        );
+        if got.to_lowercase().ne(&want.to_lowercase()) {
+            panic!("got:\n{}\n\nwant:\n{}\n", got, want);
+        }
+    }
+
+    #[test]
+    fn test_erc20_view() {
+        check_view(
             "Transfer(address indexed from, address indexed to, uint tokens)",
             r#"
                 create or replace view transfer as
@@ -164,7 +251,7 @@ mod tests {
                         address,
                         abi_address(topics[2]) as "from",
                         abi_address(topics[3]) as "to",
-                        abi_uint(abi_fixed_bytes(data, 0, 32)) as tokens
+                        abi_uint(abi_fixed_bytes(data, 0, 32)) as "tokens"
                     from logs
                     where topics[1] = '\xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
             "#,
@@ -172,8 +259,8 @@ mod tests {
     }
 
     #[test]
-    fn test_create_mud() {
-        check_sql(
+    fn test_mud_view() {
+        check_view(
             "Store_SetRecord(bytes32 indexed tableId, bytes32[] keyTuple, bytes staticData, bytes32 encodedLengths, bytes dynamicData)",
             r#"
                 create or replace view store_setrecord as
@@ -182,11 +269,11 @@ mod tests {
                         tx_hash,
                         log_idx,
                         address,
-                        topics[2] as tableid,
-                        abi_fixed_bytes_array(abi_dynamic(data, 0), 32) as keytuple,
-                        abi_bytes(abi_dynamic(data, 32)) as staticdata,
-                        abi_fixed_bytes(data, 64, 32) as encodedlengths,
-                        abi_bytes(abi_dynamic(data, 96)) as dynamicdata
+                        topics[2] as "tableid",
+                        abi_fixed_bytes_array(abi_dynamic(data, 0), 32) as "keytuple",
+                        abi_bytes(abi_dynamic(data, 32)) as "staticdata",
+                        abi_fixed_bytes(data, 64, 32) as "encodedlengths",
+                        abi_bytes(abi_dynamic(data, 96)) as "dynamicdata"
                     from logs
                     where topics[1] = '\x8dbb3a9672eebfd3773e72dd9c102393436816d832c7ba9e1e1ac8fcadcac7a9'
             "#,
@@ -194,8 +281,8 @@ mod tests {
     }
 
     #[test]
-    fn test_seaport() {
-        check_sql(
+    fn test_seaport_view() {
+        check_view(
             "OrderFulfilled(bytes32 orderHash, address indexed offerer, address indexed zone, address recipient, (uint8, address, uint256, uint256)[] offer, (uint8, address, uint256, uint256, address)[] consideration)",
             r#"
                 create or replace view orderfulfilled as
@@ -206,8 +293,8 @@ mod tests {
                     address,
                     abi_address(topics[2]) as "offerer",
                     abi_address(topics[3]) as "zone",
-                    abi_fixed_bytes(data, 0, 32) as orderhash,
-                    abi_address(abi_fixed_bytes(data, 32, 32)) as recipient,
+                    abi_fixed_bytes(data, 0, 32) as "orderhash",
+                    abi_address(abi_fixed_bytes(data, 32, 32)) as "recipient",
                     (
                         select json_agg(json_build_object(
                             '0', abi_uint(abi_fixed_bytes(data, 0, 32)),
@@ -215,7 +302,7 @@ mod tests {
                             '2', abi_uint(abi_fixed_bytes(data, 64, 32)),
                             '3', abi_uint(abi_fixed_bytes(data, 96, 32))
                         )) from unnest(abi_fixed_bytes_array(abi_dynamic(data, 64), 128)) as data
-                    ) as offer,
+                    ) as "offer",
                     (
                         select json_agg(json_build_object(
                             '0', abi_uint(abi_fixed_bytes(data, 0, 32)),
@@ -224,7 +311,7 @@ mod tests {
                             '3', abi_uint(abi_fixed_bytes(data, 96, 32)),
                             '4', abi_address(abi_fixed_bytes(data, 128, 32))
                         )) from unnest(abi_fixed_bytes_array(abi_dynamic(data, 96), 160)) as data
-                    ) as consideration
+                    ) as "consideration"
                 from logs
                 where topics[1] = '\x9d9af8e38d66c62e2c12f0225249fd9d721c54b83f48d9352c97c6cacdcb6f31'
             "#

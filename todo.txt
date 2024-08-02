@@ -1,21 +1,21 @@
 - authentication
 - index multiple chains
-- sql api
+x sql api
 - live updates
-
+- web view for issuing queries
 
 SQL API
 
 - validate user query
-- enhance user query
+- generate ctes based on schema/user query
 
 > POST /query
 
-> {
+> [{
 >     "chain_id": 84532,
->     "schemas": [{"signature": "Transfer(address indexed from,address indexed to, uint tokens)"}]
->     "query": "select value from, tokens transfer limit 1",
-> }
+>     "schemas": [{"signature": "Transfer(address indexed from,address indexed to, uint tokens)", "address": "0xabc"}]
+>     "query": "select "from", tokens from transfer limit 1",
+> }]
 
 < {
 <     "block_height": XXX,
@@ -27,6 +27,8 @@ SQL API
 < }
 
 Live Update API
+
+> SSE /live-query
 
 > {
 >     "schemas": [{"signature": "Transfer(address indexed from,address indexed to, uint tokens)"}]
