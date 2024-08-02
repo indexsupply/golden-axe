@@ -216,10 +216,15 @@ mod tests {
             r#"select "from", "to", tokens from transfer"#,
             r#"with transfer as (
                     select
+                        block_num,
+                        tx_hash,
+                        log_idx,
+                        address,
                         abi_address(topics[2]) as "from",
                         abi_address(topics[3]) as "to",
-                        abi_uint(abi_fixed_bytes(data, 64, 32)) AS tokens
+                        abi_uint(abi_fixed_bytes(data, 0, 32)) AS tokens
                     from logs
+                    where topics [1] = '\xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
                 ) select "from", "to", tokens from transfer
             "#,
         );
