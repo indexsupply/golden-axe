@@ -103,6 +103,7 @@ fn topic_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
     match t {
         DynSolType::Address => Ok(format!("abi_address(topics[{}]) as {}", pos, name,)),
         DynSolType::FixedBytes(_) => Ok(format!("topics[{}] as {}", pos, name)),
+        DynSolType::Uint(_) => Ok(format!("abi_uint(topics[{}]) as {}", pos, name)),
         _ => Err(eyre!("unable to generate sql for: {:?}", t)),
     }
 }

@@ -83,7 +83,7 @@ $$ language plpgsql immutable strict;
 
 create or replace function abi_address(input bytea) returns bytea as $$
 begin
-	return substring(input from 12 for 20);
+	return substring(input from 13 for 20);
 end;
 $$ language plpgsql immutable strict;
 
