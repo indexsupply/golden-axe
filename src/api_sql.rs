@@ -82,7 +82,15 @@ async fn handle_one(pgtx: &Transaction<'_>, req: Request) -> Result<Rows, api::E
                     let n: U256 = row.get(idx);
                     Value::String(n.to_string())
                 }
-                Type::INT2 | Type::INT4 | Type::INT8 => {
+                Type::INT2 => {
+                    let n: i16 = row.get(idx);
+                    Value::Number(n.into())
+                }
+                Type::INT4 => {
+                    let n: i32 = row.get(idx);
+                    Value::Number(n.into())
+                }
+                Type::INT8 => {
                     let n: i64 = row.get(idx);
                     Value::Number(n.into())
                 }
