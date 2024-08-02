@@ -48,6 +48,9 @@ impl Selection {
     }
 
     fn has_field(&self, field_name: &str) -> bool {
+        if ["block_num", "tx_hash", "log_idx", "address"].contains(&field_name) {
+            return true;
+        }
         let unquoted = field_name.replace('"', "");
         self.event.inputs.iter().any(|inp| inp.name == unquoted)
     }

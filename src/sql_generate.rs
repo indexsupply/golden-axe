@@ -45,7 +45,12 @@ fn selection_cte_sql(selection: &sql_validate::Selection) -> Result<String, api:
     res.push(format!("{} as (", selection.user_event_name));
     res.push("select".to_string());
 
-    let mut select_list = Vec::new();
+    let mut select_list = vec![
+        String::from("block_num"),
+        String::from("tx_hash"),
+        String::from("log_idx"),
+        String::from("address"),
+    ];
     let indexed_inputs = selection
         .event
         .inputs
