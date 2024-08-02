@@ -51,6 +51,10 @@ tower-http = { version = "0.5.0", features = [
 itertools = "0.13.0"
 reqwest = "0.12.5"
 tabwriter = "1.4.0"
+metrics = "0.23"
+metrics-exporter-prometheus = "0.15"
+metrics-tracing-context = "0.16"
+metrics-util = "0.17"
 
 [dev-dependencies]
 postgresql_embedded = "0.12"

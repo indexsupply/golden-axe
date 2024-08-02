@@ -4,24 +4,34 @@ mod sql_generate;
 mod sql_validate;
 mod sync;
 
-use std::time::Duration;
+use std::{future::ready, time::Duration};
 
 use alloy::{
     primitives::Address,
     providers::ProviderBuilder,
     rpc::types::eth::{BlockNumberOrTag, Filter},
 };
-use axum::routing::{get, post, Router};
+use axum::{
+    body::Body,
+    extract::MatchedPath,
+    routing::{get, post, Router},
+};
 use clap::{Parser, Subcommand};
 use deadpool_postgres::{Manager, ManagerConfig, Pool};
 use eyre::{Context, Result};
+use metrics_exporter_prometheus::PrometheusBuilder;
+use metrics_tracing_context::{MetricsLayer, TracingContextLayer};
+use metrics_util::layers::Layer as MetricsUtilLayer;
 use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
 use postgres_openssl::MakeTlsConnector;
 use std::str::FromStr;
 use sync::Downloader;
-use tower_http::{compression::CompressionLayer, cors::CorsLayer, timeout::TimeoutLayer};
+use tower_http::{
+    classify::ServerErrorsFailureClass, compression::CompressionLayer, cors::CorsLayer,
+    timeout::TimeoutLayer, trace::TraceLayer,
+};
 use tracing::level_filters::LevelFilter;
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use url::Url;
 
 #[derive(Debug, Subcommand)]
@@ -117,14 +127,16 @@ static SCHEMA: &str = include_str!("./schema.sql");
 
 #[tokio::main]
 async fn main() -> Result<(), api::Error> {
-    tracing_subscriber::fmt()
-        .compact()
-        .with_env_filter(
-            EnvFilter::builder()
-                .with_default_directive(LevelFilter::INFO.into())
-                .from_env_lossy(),
-        )
+    let fmt_layer = fmt::layer()
         .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
+        .compact();
+    let filter_layer = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy();
+    tracing_subscriber::registry()
+        .with(MetricsLayer::new())
+        .with(fmt_layer)
+        .with(filter_layer)
         .init();
 
     let args = GlobalArgs::parse();
@@ -248,11 +260,46 @@ async fn server(args: ServerArgs) -> Result<()> {
     let config = api::Config {
         pool: api_ro_pg(&args.pg_url, &args.ro_password),
     };
+
+    let prom_record = PrometheusBuilder::new()
+        .add_global_label("name", "ga")
+        .build_recorder();
+    let prom_handler = prom_record.handle();
+    metrics::set_global_recorder(TracingContextLayer::all().layer(prom_record))
+        .expect("unable to set global metrics recorder");
+
+    let tracing = TraceLayer::new_for_http()
+        .make_span_with(|req: &axum::http::Request<Body>| {
+            let path = req
+                .extensions()
+                .get::<MatchedPath>()
+                .map(MatchedPath::as_str);
+            tracing::info_span!("http", path, status = tracing::field::Empty)
+        })
+        .on_response(
+            |resp: &axum::http::Response<_>, d: Duration, span: &tracing::Span| {
+                span.record("status", resp.status().as_str());
+                let _guard = span.enter();
+                metrics::counter!("api.requests").increment(1);
+                metrics::histogram!("api.latency").record(d.as_millis() as f64);
+                if !resp.status().is_success() {
+                    metrics::counter!("api.errors").increment(1);
+                }
+            },
+        )
+        .on_failure(
+            |error: ServerErrorsFailureClass, _latency: Duration, _span: &tracing::Span| {
+                tracing::error!(error = %error)
+            },
+        );
     let service = tower::ServiceBuilder::new()
+        .layer(tracing)
         .layer(TimeoutLayer::new(Duration::from_secs(10)))
         .layer(CompressionLayer::new());
+
     let app = Router::new()
         .route("/", get(|| async { "hello\n" }))
+        .route("/metrics", get(move || ready(prom_handler.render())))
         .route("/query", post(api_sql::handle))
         .layer(service)
         .layer(CorsLayer::permissive())
