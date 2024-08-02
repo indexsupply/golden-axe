@@ -1,9 +1,17 @@
+use std::{convert::Infallible, sync::Arc};
+
 use alloy::{
     hex,
     primitives::{Bytes, U256, U64},
 };
-use axum::{extract::State, Json};
+use axum::{
+    extract::State,
+    response::{sse::KeepAlive, Html, Sse},
+    Json,
+};
+use axum_extra::extract::Form;
 use eyre::{Context, Result};
+use futures::Stream;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -11,10 +19,53 @@ use tokio_postgres::{types::Type, Transaction};
 
 use crate::{api, sql_generate};
 
-#[derive(Deserialize, Serialize)]
+pub const UI: &str = include_str!("./query.html");
+pub async fn handle_ui() -> Result<Html<String>, api::Error> {
+    Ok(Html(UI.to_string()))
+}
+
+pub async fn handle_sse(
+    State(conf): State<Arc<api::Config>>,
+    Form(req): Form<Request>,
+) -> axum::response::Sse<impl Stream<Item = Result<axum::response::sse::Event, Infallible>>> {
+    let res: U64 = conf
+        .pool
+        .get()
+        .await
+        .expect("unable to get pg conn")
+        .query_one("select max(num) from blocks", &[])
+        .await
+        .expect("unable to query for latest block")
+        .get(0);
+    let mut pos = req.block_height.unwrap_or_else(|| res.to());
+
+    let mut rx = conf.broadcaster.add();
+    let stream = async_stream::stream! {
+        loop {
+            let query = sql_generate::query(
+                &req.query,
+                req.event_signatures.iter().map(|s| s.as_str()).collect(),
+                Some(pos),
+            ).expect("unable to query for new logs");
+            let pg = conf.pool.get().await.expect("unable to get pg conn");
+            let rows = pg
+                .query(dbg!(&query), &[])
+                .await
+                .expect("unable to query for latest");
+            let resp = handle_rows(rows).expect("unable to marshal response");
+            let event = axum::response::sse::Event::default().data(serde_json::to_string(&resp).expect("unable to serialize"));
+            yield Ok(event);
+            pos = rx.recv().await.unwrap();
+        }
+    };
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Request {
     pub event_signatures: Vec<String>,
     pub query: String,
+    pub block_height: Option<u64>,
 }
 
 type Row = Vec<Value>;
@@ -27,7 +78,7 @@ pub struct Response {
 }
 
 pub async fn handle(
-    State(state): State<api::Config>,
+    State(state): State<Arc<api::Config>>,
     api::Json(req): api::Json<Vec<Request>>,
 ) -> Result<Json<Response>, api::Error> {
     let mut pg = state.pool.get().await.wrap_err("getting conn from pool")?;
@@ -55,11 +106,16 @@ async fn handle_one(pgtx: &Transaction<'_>, req: Request) -> Result<Rows, api::E
     let query = sql_generate::query(
         &req.query,
         req.event_signatures.iter().map(|s| s.as_str()).collect(),
+        req.block_height,
     )?;
-    let rows = pgtx
-        .query(&dbg!(query), &[])
-        .await
-        .wrap_err("querying logs")?;
+    handle_rows(
+        pgtx.query(&dbg!(query), &[])
+            .await
+            .wrap_err("querying logs")?,
+    )
+}
+
+fn handle_rows(rows: Vec<tokio_postgres::Row>) -> Result<Rows, api::Error> {
     let mut result: Rows = Vec::new();
     if let Some(first) = rows.first() {
         result.push(
@@ -204,6 +260,7 @@ pub mod cli {
         let req_body = super::Request {
             event_signatures,
             query: args.query,
+            block_height: None,
         };
 
         let mut req_path = args.url.clone();

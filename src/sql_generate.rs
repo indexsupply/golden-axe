@@ -26,10 +26,15 @@ pub fn view(event: &Event) -> Result<String> {
     ))
 }
 
-pub fn query(user_query: &str, event_sigs: Vec<&str>) -> Result<String, api::Error> {
+pub fn query(
+    user_query: &str,
+    event_sigs: Vec<&str>,
+    from: Option<u64>,
+) -> Result<String, api::Error> {
     let selections = sql_validate::validate(user_query, event_sigs)?;
     let query: Vec<String> = vec![
         "with".to_string(),
+        limit_block_range(from),
         selections
             .iter()
             .map(selection_cte_sql)
@@ -38,6 +43,13 @@ pub fn query(user_query: &str, event_sigs: Vec<&str>) -> Result<String, api::Err
         user_query.to_string(),
     ];
     Ok(query.join(" "))
+}
+
+fn limit_block_range(from: Option<u64>) -> String {
+    match from {
+        Some(n) => format!("logs as (select * from logs where block_num >= {}),", n),
+        None => String::new(),
+    }
 }
 
 fn selection_cte_sql(selection: &sql_validate::Selection) -> Result<String, api::Error> {
@@ -199,7 +211,7 @@ mod tests {
     use super::*;
 
     fn check_sql(event_sigs: Vec<&str>, user_query: &str, want: &str) {
-        let got = query(user_query, event_sigs)
+        let got = query(user_query, event_sigs, None)
             .unwrap_or_else(|e| panic!("unable to create sql for {:?} {:?}", user_query, e));
         let (got, want) = (
             fmt_sql(&got).unwrap_or_else(|_| panic!("unable to format got: {}", got)),

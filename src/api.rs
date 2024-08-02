@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use axum::{
     extract::{rejection::JsonRejection, FromRequest},
     http::StatusCode,
@@ -7,10 +9,12 @@ use serde::{Deserialize, Serialize};
 
 use deadpool_postgres::Pool;
 use serde_json::{json, Value};
+use tokio::sync::broadcast;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Config {
     pub pool: Pool,
+    pub broadcaster: Arc<Broadcaster>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -110,4 +114,25 @@ where
         return Err(eyre!("status: {}", status));
     }
     Err(eyre!("status: {} body:\n{}", status, body))
+}
+
+pub struct Broadcaster {
+    clients: broadcast::Sender<u64>,
+}
+
+impl Broadcaster {
+    pub fn new() -> Arc<Broadcaster> {
+        let (tx, _) = broadcast::channel(16);
+        Arc::new(Broadcaster { clients: tx })
+    }
+    pub fn add(&self) -> broadcast::Receiver<u64> {
+        self.clients.subscribe()
+    }
+
+    pub fn broadcast(&self, block: u64) {
+        match self.clients.send(block) {
+            Ok(_) => {}
+            Err(e) => tracing::error!(broadcast_error = %e),
+        }
+    }
 }

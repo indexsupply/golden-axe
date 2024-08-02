@@ -1,5 +1,5 @@
 use deadpool_postgres::Pool;
-use std::{cmp, ops::Range, time::Duration};
+use std::{cmp, ops::Range, sync::Arc, time::Duration};
 use tokio::task;
 
 use alloy::{
@@ -17,6 +17,8 @@ use alloy::{
 use eyre::{eyre, Context, OptionExt, Result};
 use futures::pin_mut;
 use tokio_postgres::{binary_copy::BinaryCopyInWriter, Transaction};
+
+use crate::api;
 
 #[derive(Debug)]
 pub enum Error {
@@ -49,7 +51,7 @@ pub struct Downloader {
 
 impl Downloader {
     #[tracing::instrument(skip_all fields(event))]
-    pub async fn run(&self) {
+    pub async fn run(&self, broadcaster: Arc<api::Broadcaster>) {
         {
             let pg = self
                 .pg_pool
@@ -84,7 +86,10 @@ impl Downloader {
                     println!("all done");
                     return;
                 }
-                Ok(_) => batch_size = self.batch_size,
+                Ok(last) => {
+                    broadcaster.broadcast(last);
+                    batch_size = self.batch_size
+                }
             }
         }
     }
@@ -122,9 +127,10 @@ impl Downloader {
         let pgtx = pg.transaction().await?;
         let next = self.next(&pgtx, batch_size).await?;
 
-        let (start, end) = (
+        let (start, end, end_hash) = (
             next.start.header.number.unwrap(),
             next.end.header.number.unwrap(),
+            next.end.header.hash.unwrap(),
         );
         let filter = self.filter.clone().select(start..end);
 
@@ -141,17 +147,13 @@ impl Downloader {
         let num_copied = copy(&pgtx, logs).await?;
         pgtx.execute(
             "insert into blocks(num, hash, topic) values ($1, $2, $3)",
-            &[
-                &U64::from(next.end.header.number.unwrap()),
-                &next.end.header.hash.unwrap(),
-                &self.topic(),
-            ],
+            &[&U64::from(end), &end_hash, &self.topic()],
         )
         .await?;
         pgtx.commit().await.wrap_err("unable to commit tx")?;
         tracing::Span::current().record("logs", num_copied);
         tracing::info!(local = start, logs = num_copied);
-        Ok(num_copied)
+        Ok(end)
     }
 
     #[tracing::instrument(level = "debug" skip_all fields(local, remote))]
@@ -169,8 +171,8 @@ impl Downloader {
             let local_num: u64 = local_num.to();
 
             tracing::Span::current()
-                .record("remote", remote_num)
-                .record("local", local_num);
+                .record("local", local_num)
+                .record("remote", remote_num);
 
             if local_num >= remote_num {
                 return Err(Error::Retry(eyre!("nothing new")));
@@ -185,25 +187,23 @@ impl Downloader {
                 }
             }
 
-            let delta = cmp::min(remote_num - local_num, batch_size);
+            let mut delta = cmp::min(remote_num - local_num, batch_size);
+            if delta < batch_size {
+                delta = 1;
+            }
+            let (from, to) = (local_num + 1, local_num + delta);
             let (from, to) = (
                 self.eth_client
-                    .get_block_by_number(BlockNumberOrTag::Number(local_num + 1), false)
+                    .get_block_by_number(BlockNumberOrTag::Number(from), false)
                     .await
                     .map_err(|e| Error::Retry(eyre!("downloading block: {}", e)))?
-                    .ok_or_else(|| Error::Retry(eyre!("missing block: {}", local_num + 1)))?,
+                    .ok_or_else(|| Error::Retry(eyre!("missing block: {}", from)))?,
                 self.eth_client
-                    .get_block_by_number(BlockNumberOrTag::Number(local_num + 1 + delta), false)
+                    .get_block_by_number(BlockNumberOrTag::Number(to), false)
                     .await
                     .map_err(|e| Error::Retry(eyre!("downloading block: {}", e)))?
-                    .ok_or_else(|| {
-                        Error::Retry(eyre!(
-                            "missing block: {}",
-                            (local_num + delta).min(remote_num)
-                        ))
-                    })?,
+                    .ok_or_else(|| Error::Retry(eyre!("missing block: {}", to)))?,
             );
-            tracing::debug!(remote_num, local_num, delta);
             if from.header.parent_hash != local_hash {
                 tracing::error!(
                     "reorg remote={}/{} local={}/{} removed={}",

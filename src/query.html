@@ -1,0 +1,205 @@
+<!doctype html>
+<html>
+    <head>
+        <link
+            rel="icon"
+            href="https://indexsupply.net/ga.ico"
+            type="image/x-icon"
+        />
+        <meta charset="utf-8" />
+        <title>Golden Axe</title>
+        <style>
+            body {
+                font-family: system-ui;
+                max-width: 800px;
+                margin: 0 auto;
+            }
+            .header {
+                display: flex;
+                align-items: center;
+                gap: 5px;
+            }
+            .header h1 a {
+                color: #000000;
+                text-decoration: none;
+            }
+            .header img {
+                height: 30px;
+            }
+            #request {
+                width: 100%;
+            }
+            #events {
+                width: 99%;
+                height: 100px;
+                font-size: large;
+                font-family: monospace;
+            }
+            #query {
+                width: 99%;
+                height: 300px;
+                font-size: large;
+                font-family: monospace;
+            }
+            #request input[type="submit"] {
+                float: right;
+                width: 10%;
+            }
+            #response {
+                width: 100%;
+                overflow-x: auto;
+                font-family: monospace;
+                font-size: medium;
+            }
+            #response table {
+                width: 100%;
+            }
+            #respnose th {
+                text-align: left;
+            }
+            #response td {
+                max-width: 200px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .highlight {
+                background-color: lightyellow;
+                transition: background-color 0.25s ease-in-out;
+            }
+        </style>
+    </head>
+    <body>
+        <main>
+            <div class="header">
+                <img src="https://indexsupply.net/ga.png" />
+                <h1>Golden Axe</h1>
+            </div>
+            <form action="/query" id="request" method="POST">
+                <textarea
+                    id="events"
+                    type="text"
+                    placeholder="Event Signatures"
+                >
+Transfer(address indexed from, address indexed to, uint tokens)</textarea
+                >
+                <textarea
+                    id="query"
+                    type="text"
+                    placeholder="SQL Query"
+                    autofocus
+                >
+select block_num, tx_hash, "from", "to", tokens from transfer limit 5
+                </textarea>
+                <input type="submit" value="Submit" />
+            </form>
+            <div id="response"></div>
+        </main>
+    </body>
+    <script>
+        function encodeForm(form) {
+            const formData = new FormData(form);
+            const params = new URLSearchParams();
+            for (const [key, value] of formData.entries()) {
+                params.append(key, value.trim());
+            }
+            return params.toString();
+        }
+
+        function addHeaderRow(row) {
+            const table = document.querySelector("#response table");
+            let tr = table.insertRow(0);
+            row.forEach((col, i) => {
+                const th = tr.insertCell(i);
+                th.textContent = col;
+                tr.appendChild(th);
+            });
+        }
+
+        function addDataRow(rows) {
+            const table = document.querySelector("#response table");
+            rows.forEach((row) => {
+                let tr = table.insertRow(1);
+                row.forEach((col, i) => {
+                    let td = tr.insertCell(i);
+                    td.textContent = col;
+                });
+                tr.classList.add("highlight");
+                setTimeout(() => {
+                    tr.classList.remove("highlight");
+                }, 500);
+            });
+            while (table.rows.length > 100) {
+                table.deleteRow(-1);
+            }
+        }
+
+        function resetTable() {
+            const response = document.getElementById("response");
+            const table = document.createElement("table");
+            response.innerHTML = "";
+            response.appendChild(table);
+        }
+
+        let sseHandler = {};
+        function resetHandler(blockHeight, eventSigs, query) {
+            const params = new URLSearchParams();
+            params.append("query", query);
+            eventSigs.forEach((sig) => {
+                params.append("event_signatures", sig);
+            });
+            let queryParams = params.toString();
+            if ("close" in sseHandler) {
+                sseHandler.close();
+            }
+            sseHandler = new EventSource(`/query-live?${queryParams}`);
+            sseHandler.onmessage = function (event) {
+                let data = JSON.parse(event.data);
+                data.shift(); //remove column names
+                addDataRow(data);
+            };
+            sseHandler.onerror = function (e) {
+                console.log(e);
+            };
+        }
+
+        function cmdEnterSubmit(event) {
+            if (event.keyCode == 13 && event.metaKey) {
+                document.getElementById("request").dispatchEvent(
+                    new Event("submit", {
+                        bubbles: true,
+                        cancelable: true,
+                    }),
+                );
+            }
+        }
+
+        async function submitQuery(event) {
+            event.preventDefault();
+            const eventSigs = document
+                .getElementById("events")
+                .value.split("\n");
+            const query = document.getElementById("query").value;
+            const response = await fetch("/query", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify([{ event_signatures: eventSigs, query }]),
+            });
+            const { blockHeight, result } = await response.json();
+            resetTable();
+            addHeaderRow(result[0].shift());
+            addDataRow(result[0]);
+            resetHandler(blockHeight, eventSigs, query);
+        }
+
+        document.addEventListener("DOMContentLoaded", function () {
+            document
+                .getElementById("query")
+                .addEventListener("keydown", cmdEnterSubmit);
+            document
+                .getElementById("request")
+                .addEventListener("submit", submitQuery);
+        });
+    </script>
+</html>

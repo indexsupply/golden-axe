@@ -4,7 +4,7 @@ mod sql_generate;
 mod sql_validate;
 mod sync;
 
-use std::{future::ready, time::Duration};
+use std::{future::ready, sync::Arc, time::Duration};
 
 use alloy::{
     primitives::Address,
@@ -36,11 +36,8 @@ use url::Url;
 
 #[derive(Debug, Subcommand)]
 enum Commands {
-    #[command(name = "server", about = "Serve API requests for decoded logs")]
+    #[command(name = "server", about = "Serve API requests and sync decoded logs")]
     Server(ServerArgs),
-
-    #[command(name = "sync", about = "Sync blocks from the API to PG")]
-    Sync(ServerArgs),
 
     #[command(name = "view", about = "Print SQL VIEW for events")]
     PrintView(api_sql::cli::Request),
@@ -143,7 +140,6 @@ async fn main() -> Result<(), api::Error> {
     match args.command {
         Some(Commands::PrintView(args)) => api_sql::cli::print_view(&args)?,
         Some(Commands::Query(args)) => api_sql::cli::request(&reqwest::Client::new(), args).await?,
-        Some(Commands::Sync(args)) => sync(args).await?,
         Some(Commands::Server(args)) => server(args).await?,
         None => server(ServerArgs::parse()).await?,
     }
@@ -161,7 +157,7 @@ fn log_filter(filter: &Filter) {
     tracing::info!("topics={:?}", topics);
 }
 
-async fn sync(args: ServerArgs) -> Result<()> {
+async fn sync(args: ServerArgs, broadcaster: Arc<api::Broadcaster>) -> Result<()> {
     let mut builder = SslConnector::builder(SslMethod::tls()).expect("tls builder");
     builder.set_verify(SslVerifyMode::NONE);
     let connector = MakeTlsConnector::new(builder.build());
@@ -216,7 +212,8 @@ async fn sync(args: ServerArgs) -> Result<()> {
                     concurrency: args.concurrency,
                     stop: args.stop_block,
                 };
-                tokio::spawn(async move { dl.run().await });
+                let broadcaster = broadcaster.clone();
+                tokio::spawn(async move { dl.run(broadcaster).await });
             }
         }
         None => {
@@ -230,7 +227,7 @@ async fn sync(args: ServerArgs) -> Result<()> {
                 concurrency: args.concurrency,
                 stop: args.stop_block,
             };
-            tokio::spawn(async move { dl.run().await });
+            tokio::spawn(async move { dl.run(broadcaster).await });
         }
     }
     Ok(())
@@ -257,9 +254,10 @@ fn api_ro_pg(cstr: &str, ro_password: &str) -> Pool {
 }
 
 async fn server(args: ServerArgs) -> Result<()> {
-    let config = api::Config {
+    let config = Arc::new(api::Config {
         pool: api_ro_pg(&args.pg_url, &args.ro_password),
-    };
+        broadcaster: api::Broadcaster::new(),
+    });
 
     let prom_record = PrometheusBuilder::new()
         .add_global_label("name", "ga")
@@ -301,6 +299,8 @@ async fn server(args: ServerArgs) -> Result<()> {
         .route("/", get(|| async { "hello\n" }))
         .route("/metrics", get(move || ready(prom_handler.render())))
         .route("/query", post(api_sql::handle))
+        .route("/query", get(api_sql::handle_ui))
+        .route("/query-live", get(api_sql::handle_sse))
         .layer(service)
         .layer(CorsLayer::permissive())
         .with_state(config.clone());
@@ -308,6 +308,6 @@ async fn server(args: ServerArgs) -> Result<()> {
         .await
         .expect("binding to tcp for http server");
 
-    tokio::spawn(sync(args));
+    tokio::spawn(sync(args, config.broadcaster.clone()));
     axum::serve(listener, app).await.wrap_err("serving http")
 }
