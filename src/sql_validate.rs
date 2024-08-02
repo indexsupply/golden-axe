@@ -1,7 +1,10 @@
 use alloy::json_abi::Event;
 use eyre::{eyre, Context, Result};
 use itertools::Itertools;
-use sqlparser::{ast, parser::Parser};
+use sqlparser::{
+    ast::{self, Function},
+    parser::Parser,
+};
 use std::collections::{HashMap, HashSet};
 
 use crate::api;
@@ -262,6 +265,14 @@ impl EventRegistry {
                     self.validate_expression(e)?;
                 }
                 self.validate_expression(expr)
+            }
+            ast::Expr::Substring { expr, .. } => self.validate_expression(expr),
+            ast::Expr::Function(Function { name, .. }) => {
+                if name.to_string().to_lowercase() == "sum" {
+                    Ok(())
+                } else {
+                    no!(format!("function {}", name.to_string()))
+                }
             }
             _ => no!(expr),
         }
