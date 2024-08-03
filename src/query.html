@@ -175,17 +175,6 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5
             };
         }
 
-        function cmdEnterSubmit(event) {
-            if (event.keyCode == 13 && event.metaKey) {
-                document.getElementById("request").dispatchEvent(
-                    new Event("submit", {
-                        bubbles: true,
-                        cancelable: true,
-                    }),
-                );
-            }
-        }
-
         async function submitQuery(event) {
             event.preventDefault();
             const eventSigs = document
@@ -212,10 +201,23 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5
             }
         }
 
+        function cmdEnter(event) {
+            if (event.keyCode == 13 && event.metaKey) {
+                let query = document.getElementById("query");
+                query.value = query.value.trim();
+                document.getElementById("request").dispatchEvent(
+                    new Event("submit", {
+                        bubbles: true,
+                        cancelable: true,
+                    }),
+                );
+            }
+        }
+
         document.addEventListener("DOMContentLoaded", function () {
             document
                 .getElementById("query")
-                .addEventListener("keydown", cmdEnterSubmit);
+                .addEventListener("keydown", cmdEnter);
             document
                 .getElementById("request")
                 .addEventListener("submit", submitQuery);
