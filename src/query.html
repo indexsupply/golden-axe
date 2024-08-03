@@ -66,6 +66,11 @@
                 background-color: lightyellow;
                 transition: background-color 0.25s ease-in-out;
             }
+            .error {
+                padding: 20px;
+                font-size: x-large;
+                color: #eb2d3a;
+            }
         </style>
     </head>
     <body>
@@ -133,6 +138,14 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5
             }
         }
 
+        function printError(msg) {
+            const response = document.getElementById("response");
+            const p = document.createElement("p");
+            p.classList.add("error");
+            p.textContent = msg;
+            response.appendChild(p);
+        }
+
         function resetTable() {
             const response = document.getElementById("response");
             const table = document.createElement("table");
@@ -186,11 +199,17 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5
                 },
                 body: JSON.stringify([{ event_signatures: eventSigs, query }]),
             });
-            const { blockHeight, result } = await response.json();
-            resetTable();
-            addHeaderRow(result[0].shift());
-            addDataRow(result[0]);
-            resetHandler(blockHeight, eventSigs, query);
+            if (!response.ok) {
+                const { message } = await response.json();
+                resetTable();
+                printError(message);
+            } else {
+                const { blockHeight, result } = await response.json();
+                resetTable();
+                addHeaderRow(result[0].shift());
+                addDataRow(result[0]);
+                resetHandler(blockHeight, eventSigs, query);
+            }
         }
 
         document.addEventListener("DOMContentLoaded", function () {

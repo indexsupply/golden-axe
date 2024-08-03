@@ -96,7 +96,14 @@ impl EventRegistry {
             selection.user_event_name = event_name.to_string();
             Ok(())
         } else {
-            Err(api::Error::User(format!("event {} not found", event_name)))
+            Err(api::Error::User(format!(
+                r#"
+                You are attempting to query '{}' but it isn't defined.
+                Possible events to query are: '{}'
+                "#,
+                event_name,
+                self.events.keys().join(",")
+            )))
         }
     }
 
@@ -133,7 +140,9 @@ impl EventRegistry {
                 Ok(())
             }
             0 => Err(api::Error::User(format!(
-                "no events contain field: {}",
+                r#"
+                Unable to find an event which contains the field: '{}'
+                "#,
                 field_name
             ))),
             _ => Err(api::Error::User(format!(

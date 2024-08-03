@@ -108,11 +108,8 @@ async fn handle_one(pgtx: &Transaction<'_>, req: Request) -> Result<Rows, api::E
         req.event_signatures.iter().map(|s| s.as_str()).collect(),
         req.block_height,
     )?;
-    handle_rows(
-        pgtx.query(&dbg!(query), &[])
-            .await
-            .wrap_err("querying logs")?,
-    )
+    tracing::debug!("query: {}", query);
+    handle_rows(pgtx.query(&query, &[]).await?)
 }
 
 fn handle_rows(rows: Vec<tokio_postgres::Row>) -> Result<Rows, api::Error> {

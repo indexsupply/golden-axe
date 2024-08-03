@@ -39,13 +39,16 @@ impl From<serde_json::Error> for Error {
 
 impl From<tokio_postgres::Error> for Error {
     fn from(err: tokio_postgres::Error) -> Self {
-        Error::Server(err.into())
+        match err.as_db_error() {
+            Some(e) => Error::User(e.message().to_string()),
+            None => Error::User(err.to_string()),
+        }
     }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ErrorMessage {
-    pub msg: String,
+    pub message: String,
 }
 
 impl axum::response::IntoResponse for Error {
@@ -60,7 +63,7 @@ impl axum::response::IntoResponse for Error {
                 )
             }
         };
-        let m = ErrorMessage { msg: message };
+        let m = ErrorMessage { message };
         (status, axum::Json(m)).into_response()
     }
 }
@@ -108,7 +111,7 @@ where
         return Ok(r);
     }
     if let Ok(err) = serde_json::from_str::<ErrorMessage>(&body) {
-        return Err(eyre!(err.msg));
+        return Err(eyre!(err.message));
     }
     if body.is_empty() {
         return Err(eyre!("status: {}", status));

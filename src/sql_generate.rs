@@ -48,7 +48,7 @@ pub fn query(
 fn limit_block_range(from: Option<u64>) -> String {
     match from {
         Some(n) => format!("logs as (select * from logs where block_num >= {}),", n),
-        None => String::new(),
+        None => String::from("logs as (select * from logs order by block_num desc limit 10000),"),
     }
 }
 
