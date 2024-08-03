@@ -154,8 +154,9 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5
         }
 
         let sseHandler = {};
-        function resetHandler(blockHeight, eventSigs, query) {
+        function resetHandler(block_height, eventSigs, query) {
             const params = new URLSearchParams();
+            params.append("block_height", block_height);
             params.append("query", query);
             eventSigs.forEach((sig) => {
                 params.append("event_signatures", sig);
@@ -193,11 +194,11 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5
                 resetTable();
                 printError(message);
             } else {
-                const { blockHeight, result } = await response.json();
+                const { block_height, result } = await response.json();
                 resetTable();
                 addHeaderRow(result[0].shift());
                 addDataRow(result[0]);
-                resetHandler(blockHeight, eventSigs, query);
+                resetHandler(block_height + 1, eventSigs, query);
             }
         }
 
