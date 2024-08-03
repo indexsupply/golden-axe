@@ -138,7 +138,7 @@ impl Downloader {
             .record("start", start)
             .record("end", end);
 
-        let logs = if end - start >= batch_size {
+        let logs = if end - start + 1 >= batch_size {
             self.batch(batch_size, filter).await?
         } else {
             self.single(filter).await?
