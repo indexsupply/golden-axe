@@ -71,6 +71,11 @@
                 font-size: x-large;
                 color: #eb2d3a;
             }
+            .info {
+                padding: 20px;
+                font-size: x-large;
+                color: #000000;
+            }
         </style>
     </head>
     <body>
@@ -138,6 +143,14 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5
             }
         }
 
+        function printInfo(msg) {
+            const response = document.getElementById("response");
+            const p = document.createElement("p");
+            p.classList.add("info");
+            p.textContent = msg;
+            response.appendChild(p);
+        }
+
         function printError(msg) {
             const response = document.getElementById("response");
             const p = document.createElement("p");
@@ -196,9 +209,13 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5
             } else {
                 const { block_height, result } = await response.json();
                 resetTable();
-                addHeaderRow(result[0].shift());
-                addDataRow(result[0]);
-                resetHandler(block_height + 1, eventSigs, query);
+                if (result[0].length > 0) {
+                    addHeaderRow(result[0].shift());
+                    addDataRow(result[0]);
+                    resetHandler(block_height + 1, eventSigs, query);
+                } else {
+                    printInfo("no rows");
+                }
             }
         }
 
