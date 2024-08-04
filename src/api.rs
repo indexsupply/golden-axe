@@ -133,9 +133,6 @@ impl Broadcaster {
     }
 
     pub fn broadcast(&self, block: u64) {
-        match self.clients.send(block) {
-            Ok(_) => {}
-            Err(e) => tracing::error!(broadcast_error = %e),
-        }
+        let _ = self.clients.send(block);
     }
 }
