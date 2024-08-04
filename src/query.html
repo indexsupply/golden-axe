@@ -167,7 +167,7 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5
         }
 
         let sseHandler = {};
-        function resetHandler(block_height, eventSigs, query) {
+        function startHandler(block_height, eventSigs, query) {
             const params = new URLSearchParams();
             params.append("block_height", block_height);
             params.append("query", query);
@@ -175,9 +175,6 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5
                 params.append("event_signatures", sig);
             });
             let queryParams = params.toString();
-            if ("close" in sseHandler) {
-                sseHandler.close();
-            }
             sseHandler = new EventSource(`/query-live?${queryParams}`);
             sseHandler.onmessage = function (event) {
                 let data = JSON.parse(event.data);
@@ -189,8 +186,15 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5
             };
         }
 
+        function closeHandler() {
+            if ("close" in sseHandler) {
+                sseHandler.close();
+            }
+        }
+
         async function submitQuery(event) {
             event.preventDefault();
+            closeHandler();
             const eventSigs = document
                 .getElementById("events")
                 .value.split("\n");
@@ -212,7 +216,7 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5
                 if (result[0].length > 0) {
                     addHeaderRow(result[0].shift());
                     addDataRow(result[0]);
-                    resetHandler(block_height + 1, eventSigs, query);
+                    startHandler(block_height + 1, eventSigs, query);
                 } else {
                     printInfo("no rows");
                 }
