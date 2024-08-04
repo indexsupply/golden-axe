@@ -28,6 +28,7 @@
             }
             #request {
                 width: 100%;
+                padding-bottom: 10px;
             }
             #events {
                 width: 99%;
@@ -41,20 +42,39 @@
                 font-size: large;
                 font-family: monospace;
             }
+            #live-query {
+                padding-bottom: 1px;
+            }
             #request input[type="submit"] {
                 float: right;
                 width: 10%;
+            }
+            #stats {
+                display: none;
+                width: 100%;
+                padding-top: 5px;
+                padding-bottom: 10px;
+                border-top: 1px dotted gray;
+            }
+            #block-height {
+                font-size: medium;
+                margin-left: auto;
+                font-family: monospace;
+                padding-right: 10px;
             }
             #response {
                 width: 100%;
                 overflow-x: auto;
                 font-family: monospace;
                 font-size: medium;
+                margin-top: 5px;
             }
             #response table {
                 width: 100%;
             }
-            #respnose th {
+            th {
+                font-size: medium;
+                padding-bottom: 5px;
                 text-align: left;
             }
             #response td {
@@ -101,7 +121,15 @@ Transfer(address indexed from, address indexed to, uint tokens)</textarea
 select block_num, tx_hash, "from", "to", tokens from transfer limit 5
                 </textarea>
                 <input type="submit" value="Submit" />
+                <label for="live-query"> Live Query</label>
+                <input type="checkbox" id="live-query" checked />
             </form>
+            <div id="stats">
+                <span>Last Block:</span>
+                <span id="block-height"></span>
+                <span>Num Rows:</span>
+                <span id="num-rows"></span>
+            </div>
             <div id="response"></div>
         </main>
     </body>
@@ -119,7 +147,7 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5
             const table = document.querySelector("#response table");
             let tr = table.insertRow(0);
             row.forEach((col, i) => {
-                const th = tr.insertCell(i);
+                const th = document.createElement("th");
                 th.textContent = col;
                 tr.appendChild(th);
             });
@@ -167,9 +195,12 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5
         }
 
         let sseHandler = {};
-        function startHandler(block_height, eventSigs, query) {
+        function startHandler(height, eventSigs, query) {
+            if (!liveQueryEnabled()) {
+                return;
+            }
             const params = new URLSearchParams();
-            params.append("block_height", block_height);
+            params.append("block_height", height);
             params.append("query", query);
             eventSigs.forEach((sig) => {
                 params.append("event_signatures", sig);
@@ -178,8 +209,14 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5
             sseHandler = new EventSource(`/query-live?${queryParams}`);
             sseHandler.onmessage = function (event) {
                 let data = JSON.parse(event.data);
-                data.shift(); //remove column names
-                addDataRow(data);
+                let newHeight = data["block_height"];
+                let result = data["result"][0];
+                if (newHeight <= blockHeight) {
+                    return;
+                }
+                result.shift(); //remove column names
+                updateStats(newHeight, result.length);
+                addDataRow(result);
             };
             sseHandler.onerror = function (e) {
                 console.log(e);
@@ -192,32 +229,52 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5
             }
         }
 
+        function getEventSigs() {
+            return document.getElementById("events").value.split("\n");
+        }
+
+        function getQuery() {
+            return document.getElementById("query").value;
+        }
+
+        let blockHeight = 0;
+        function updateStats(height, nrows) {
+            document.getElementById("stats").style.display = "block";
+            blockHeight = height;
+            document.querySelector("#block-height").textContent = height;
+            document.querySelector("#num-rows").textContent = nrows;
+        }
+
         async function submitQuery(event) {
             event.preventDefault();
             closeHandler();
-            const eventSigs = document
-                .getElementById("events")
-                .value.split("\n");
-            const query = document.getElementById("query").value;
+            const eventSigs = getEventSigs();
+            const query = getQuery();
             const response = await fetch("/query", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                 },
-                body: JSON.stringify([{ event_signatures: eventSigs, query }]),
+                body: JSON.stringify([
+                    { event_signatures: eventSigs, query: query },
+                ]),
             });
             if (!response.ok) {
                 const { message } = await response.json();
                 resetTable();
                 printError(message);
             } else {
-                const { block_height, result } = await response.json();
-                resetTable();
-                if (result[0].length > 0) {
-                    addHeaderRow(result[0].shift());
-                    addDataRow(result[0]);
-                    startHandler(block_height + 1, eventSigs, query);
+                const data = await response.json();
+                let height = data["block_height"];
+                let result = data["result"][0];
+                if (result.length > 0) {
+                    resetTable();
+                    addHeaderRow(result.shift());
+                    updateStats(height, result.length);
+                    addDataRow(result);
+                    startHandler(height + 1, eventSigs, query);
                 } else {
+                    resetTable();
                     printInfo("no rows");
                 }
             }
@@ -236,6 +293,17 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5
             }
         }
 
+        function liveQueryEnabled() {
+            return document.getElementById("live-query").checked;
+        }
+
+        function changeLiveQuery(event) {
+            closeHandler();
+            if (event.target.checked) {
+                startHandler(blockHeight + 1, getEventSigs(), getQuery());
+            }
+        }
+
         document.addEventListener("DOMContentLoaded", function () {
             document
                 .getElementById("query")
@@ -243,6 +311,9 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5
             document
                 .getElementById("request")
                 .addEventListener("submit", submitQuery);
+            document
+                .getElementById("live-query")
+                .addEventListener("change", changeLiveQuery);
         });
     </script>
 </html>

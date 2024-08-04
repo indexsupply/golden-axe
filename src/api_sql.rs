@@ -6,7 +6,10 @@ use alloy::{
 };
 use axum::{
     extract::State,
-    response::{sse::KeepAlive, Html, Sse},
+    response::{
+        sse::{Event as SSEvent, KeepAlive},
+        Html, Sse,
+    },
     Json,
 };
 use axum_extra::extract::Form;
@@ -27,41 +30,20 @@ pub async fn handle_ui() -> Result<Html<String>, api::Error> {
 pub async fn handle_sse(
     State(conf): State<Arc<api::Config>>,
     Form(req): Form<Request>,
-) -> axum::response::Sse<impl Stream<Item = Result<axum::response::sse::Event, Infallible>>> {
-    let res: U64 = conf
-        .pool
-        .get()
-        .await
-        .expect("unable to get pg conn")
-        .query_one("select max(num) from blocks", &[])
-        .await
-        .expect("unable to query for latest block")
-        .get(0);
-    let mut pos = req.block_height.unwrap_or_else(|| res.to());
-
+) -> axum::response::Sse<impl Stream<Item = Result<SSEvent, Infallible>>> {
+    let mut req = req.clone();
     let mut rx = conf.broadcaster.add();
     let stream = async_stream::stream! {
         loop {
-            let query = sql_generate::query(
-                &req.query,
-                req.event_signatures.iter().map(|s| s.as_str()).collect(),
-                Some(pos),
-            ).expect("unable to query for new logs");
-            let pg = conf.pool.get().await.expect("unable to get pg conn");
-            let rows = pg
-                .query(dbg!(&query), &[])
-                .await
-                .expect("unable to query for latest");
-            let resp = handle_rows(rows).expect("unable to marshal response");
-            let event = axum::response::sse::Event::default().data(serde_json::to_string(&resp).expect("unable to serialize"));
-            yield Ok(event);
-            pos = rx.recv().await.unwrap();
+            let resp = handle(State(conf.clone()), api::Json(vec![req.clone()])).await.expect("unable to make request");
+            yield Ok(SSEvent::default().json_data(resp.0).expect("unable to seralize json"));
+            req.block_height = Some(rx.recv().await.expect("unable to receive new block update"));
         }
     };
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Request {
     pub event_signatures: Vec<String>,
     pub query: String,
