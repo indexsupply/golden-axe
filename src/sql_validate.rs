@@ -280,7 +280,7 @@ impl EventRegistry {
                 if name.to_string().to_lowercase() == "sum" {
                     Ok(())
                 } else {
-                    no!(format!("function {}", name.to_string()))
+                    no!(format!(r#"'{}' function"#, name.to_string()))
                 }
             }
             _ => no!(expr),
