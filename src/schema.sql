@@ -16,6 +16,11 @@ create unlogged table if not exists logs (
 	data bytea
 );
 
+create index if not exists logs_block_num_idx on logs (block_num desc);
+create index if not exists logs_address_topics_idx on logs(address, (topics[1]));
+create extension if not exists btree_gin;
+create index if not exists logs_block_num_address_topics_idx on logs using gin (block_num, address, topics);
+
 create or replace function b2i(data bytea) returns int4 as $$
 declare
 	n int4 = 0;
