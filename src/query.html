@@ -195,12 +195,38 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5
         }
 
         let sseHandler = {};
-        function startHandler(height, eventSigs, query) {
+        let blockHeight = 0;
+
+        function updateStats(height, nrows) {
+            document.getElementById("stats").style.display = "block";
+            blockHeight = height;
+            document.querySelector("#block-height").textContent = height;
+            document.querySelector("#num-rows").textContent = nrows;
+        }
+
+        function changeLiveQuery(event) {
+            closeHandler();
+            if (event.target.checked) {
+                startHandler(getEventSigs(), getQuery());
+            }
+        }
+
+        function closeHandler() {
+            if ("close" in sseHandler) {
+                sseHandler.close();
+            }
+        }
+
+        function startHandler(eventSigs, query) {
+            function liveQueryEnabled() {
+                return document.getElementById("live-query").checked;
+            }
             if (!liveQueryEnabled()) {
                 return;
             }
+            console.log(`sse start: ${blockHeight}`);
             const params = new URLSearchParams();
-            params.append("block_height", height);
+            params.append("block_height", blockHeight);
             params.append("query", query);
             eventSigs.forEach((sig) => {
                 params.append("event_signatures", sig);
@@ -211,22 +237,18 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5
                 let data = JSON.parse(event.data);
                 let newHeight = data["block_height"];
                 let result = data["result"][0];
+                console.log(`sse latest: ${newHeight}`);
                 if (newHeight <= blockHeight) {
+                    console.log("sse nothing new");
                     return;
                 }
                 result.shift(); //remove column names
-                updateStats(newHeight, result.length);
                 addDataRow(result);
+                updateStats(newHeight, result.length);
             };
             sseHandler.onerror = function (e) {
-                console.log(e);
+                console.log(`sse error: `, e);
             };
-        }
-
-        function closeHandler() {
-            if ("close" in sseHandler) {
-                sseHandler.close();
-            }
         }
 
         function getEventSigs() {
@@ -235,14 +257,6 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5
 
         function getQuery() {
             return document.getElementById("query").value;
-        }
-
-        let blockHeight = 0;
-        function updateStats(height, nrows) {
-            document.getElementById("stats").style.display = "block";
-            blockHeight = height;
-            document.querySelector("#block-height").textContent = height;
-            document.querySelector("#num-rows").textContent = nrows;
         }
 
         async function submitQuery(event) {
@@ -270,9 +284,9 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5
                 if (result.length > 0) {
                     resetTable();
                     addHeaderRow(result.shift());
-                    updateStats(height, result.length);
                     addDataRow(result);
-                    startHandler(height + 1, eventSigs, query);
+                    updateStats(height, result.length);
+                    startHandler(eventSigs, query);
                 } else {
                     resetTable();
                     printInfo("no rows");
@@ -290,17 +304,6 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5
                         cancelable: true,
                     }),
                 );
-            }
-        }
-
-        function liveQueryEnabled() {
-            return document.getElementById("live-query").checked;
-        }
-
-        function changeLiveQuery(event) {
-            closeHandler();
-            if (event.target.checked) {
-                startHandler(blockHeight + 1, getEventSigs(), getQuery());
             }
         }
 
