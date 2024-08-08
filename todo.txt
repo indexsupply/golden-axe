@@ -1,3 +1,4 @@
+- pg/pgsql errors
 - stripe payments
 - authentication
 - index multiple chains
