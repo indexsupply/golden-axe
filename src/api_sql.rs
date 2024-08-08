@@ -18,7 +18,7 @@ use futures::Stream;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio_postgres::{types::Type, Transaction};
+use tokio_postgres::types::Type;
 
 use crate::{api, sql_generate};
 
