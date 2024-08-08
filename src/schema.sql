@@ -66,6 +66,44 @@ begin
 end;
 $$ language plpgsql immutable strict;
 
+create or replace function abi_int(b bytea) returns numeric as $$
+declare
+    n numeric := 0;
+    len int;
+    is_neg bool;
+begin
+    len := length(b);
+    if len > 32 then
+        raise exception 'input exceeds maximum length of 32 bytes';
+    end if;
+
+    is_neg := (get_byte(b, 0) & 128) > 0;
+    if is_neg then
+        for i in 1..len loop
+            n := n * 256 + (~get_byte(b, i - 1) & 255);
+        end loop;
+        n := (n + 1) * -1;
+    else
+        for i in 1..length(b) loop
+            n := n * 256 + get_byte(b, i - 1);
+        end loop;
+    end if;
+    return n;
+end;
+$$ language plpgsql strict immutable parallel safe cost 1;
+
+create or replace function abi_int_array(input bytea) returns numeric[] as $$
+declare
+	length int;
+    result numeric[] = array[]::numeric[];
+begin
+	length := b2i(substring(input from 29 for 4));
+    for i in 0..(length - 1) loop
+        result := array_append(result, abi_int(substring(input from (1 + 32) + (i * 32) for 32)));
+    end loop;
+    return result;
+end;
+$$ language plpgsql immutable strict parallel safe cost 1;
 
 create or replace function abi_dynamic(input bytea, pos int) returns bytea as $$
 declare

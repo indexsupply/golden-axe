@@ -157,6 +157,16 @@ fn abi_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
                 pos * 32,
                 alias
             )),
+            DynSolType::Uint(_) => Ok(format!(
+                "abi_uint_array(abi_dynamic(data, {})) {}",
+                pos * 32,
+                alias,
+            )),
+            DynSolType::Int(_) => Ok(format!(
+                "abi_int_array(abi_dynamic(data, {})) {}",
+                pos * 32,
+                alias,
+            )),
             DynSolType::Tuple(fields) => {
                 let size = fields.iter().map(|f| f.minimum_words()).sum::<usize>() * 32;
                 let key_names = (0..fields.iter().len()).map(|i| format!("'{}'", i));
@@ -185,7 +195,11 @@ fn abi_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
             }
             _ => todo!(),
         },
-        DynSolType::Int(_) => todo!(),
+        DynSolType::Int(_) => Ok(format!(
+            "abi_int(abi_fixed_bytes(data, {}, 32)) {}",
+            pos * 32,
+            alias,
+        )),
         DynSolType::Uint(_) => Ok(format!(
             "abi_uint(abi_fixed_bytes(data, {}, 32)) {}",
             pos * 32,

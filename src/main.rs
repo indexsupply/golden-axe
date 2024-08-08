@@ -1,6 +1,7 @@
 mod api;
 mod api_sql;
 mod sql_generate;
+mod sql_test;
 mod sql_validate;
 mod sync;
 
