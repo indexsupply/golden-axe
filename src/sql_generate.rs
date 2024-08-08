@@ -227,7 +227,10 @@ mod tests {
         check_sql(
             vec!["Transfer(address indexed from, address indexed to, uint tokens)"],
             r#"select "from", "to", tokens from transfer"#,
-            r#"with transfer as (
+            r#"
+                with logs as (
+                    select * from logs order by block_num desc limit 10000
+                ), transfer as (
                     select
                         block_num,
                         tx_hash,
