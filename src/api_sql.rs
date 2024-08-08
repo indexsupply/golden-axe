@@ -2,7 +2,7 @@ use std::{convert::Infallible, sync::Arc};
 
 use alloy::{
     hex,
-    primitives::{Bytes, U256, U64},
+    primitives::{Bytes, U64},
 };
 use axum::{
     extract::State,
@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio_postgres::types::Type;
 
-use crate::{api, sql_generate};
+use crate::{api, s256, sql_generate};
 
 pub const UI: &str = include_str!("./query.html");
 pub async fn handle_ui() -> Result<Html<String>, api::Error> {
@@ -110,7 +110,7 @@ fn handle_rows(rows: Vec<tokio_postgres::Row>) -> Result<Rows, api::Error> {
                     Value::Bool(b)
                 }
                 Type::NUMERIC => {
-                    let n: U256 = row.get(idx);
+                    let n: s256::Int = row.get(idx);
                     Value::String(n.to_string())
                 }
                 Type::INT2 => {
@@ -134,7 +134,7 @@ fn handle_rows(rows: Vec<tokio_postgres::Row>) -> Result<Rows, api::Error> {
                     Value::String(s)
                 }
                 Type::NUMERIC_ARRAY => {
-                    let nums: Vec<U256> = row.get(idx);
+                    let nums: Vec<s256::Int> = row.get(idx);
                     serde_json::json!(nums.iter().map(|n| n.to_string()).collect::<Vec<String>>())
                 }
                 Type::BYTEA_ARRAY => {
