@@ -1,31 +1,7 @@
+- stripe payments
 - authentication
 - index multiple chains
+
 x sql api
 x live updates
 x web view for issuing queries
-
-SQL API
-
-- validate user query
-- generate ctes based on schema/user query
-
-> POST /query
-
-> [{
->     "block_height": XXX,
->     "event_signatures": ["Transfer(address indexed from,address indexed to, uint tokens)"]
->     "query": "select "from", tokens from transfer limit 1",
-> }]
-
-< {
-<     "block_height": XXX,
-<     "result": [
-<         ["from", "tokens"],
-<         ["0xaaa", "123"],
-<         ["0xbbb", "456"]
-<     ]
-< }
-
-Live Update API
-
-> GET /query-live?block_height=${}query=${}&event_signatures=${}&event_signatures=${}
