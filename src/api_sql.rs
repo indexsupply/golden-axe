@@ -72,7 +72,13 @@ pub async fn handle(
         .wrap_err("starting sql api read tx")?;
     let mut res: Vec<Rows> = Vec::new();
     for r in req {
-        res.push(handle_one(&pgtx, r).await?)
+        let query = sql_generate::query(
+            &r.query,
+            r.event_signatures.iter().map(|s| s.as_str()).collect(),
+            r.block_height,
+        )?;
+        tracing::debug!("query: {}", query);
+        res.push(handle_rows(pgtx.query(&query, &[]).await?)?);
     }
     Ok(Json(Response {
         block_height: pgtx
@@ -82,16 +88,6 @@ pub async fn handle(
             .to::<u64>(),
         result: res,
     }))
-}
-
-async fn handle_one(pgtx: &Transaction<'_>, req: Request) -> Result<Rows, api::Error> {
-    let query = sql_generate::query(
-        &req.query,
-        req.event_signatures.iter().map(|s| s.as_str()).collect(),
-        req.block_height,
-    )?;
-    tracing::debug!("query: {}", query);
-    handle_rows(pgtx.query(&query, &[]).await?)
 }
 
 fn handle_rows(rows: Vec<tokio_postgres::Row>) -> Result<Rows, api::Error> {
