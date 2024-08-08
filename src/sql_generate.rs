@@ -48,7 +48,7 @@ pub fn query(
 fn limit_block_range(from: Option<u64>) -> String {
     match from {
         Some(n) => format!("logs as (select * from logs where block_num >= {}),", n),
-        None => String::from("logs as (select * from logs order by block_num desc limit 10000),"),
+        None => String::from("logs as (select * from logs),"),
     }
 }
 
@@ -243,7 +243,7 @@ mod tests {
             r#"select "from", "to", tokens from transfer"#,
             r#"
                 with logs as (
-                    select * from logs order by block_num desc limit 10000
+                    select * from logs
                 ), transfer as (
                     select
                         block_num,
