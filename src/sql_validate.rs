@@ -23,7 +23,7 @@ const PG: &sqlparser::dialect::PostgreSqlDialect = &sqlparser::dialect::PostgreS
 /// SQL results in an error.
 pub fn validate(user_query: &str, event_sigs: Vec<&str>) -> Result<Vec<Selection>, api::Error> {
     let mut reg = EventRegistry::new(event_sigs)?;
-    reg.validate(dbg!(user_query))?;
+    reg.validate(user_query)?;
     Ok(reg.selection())
 }
 
