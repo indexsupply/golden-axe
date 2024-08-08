@@ -154,13 +154,20 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5
         }
 
         function addDataRow(rows) {
-            const table = document.querySelector("#response table");
+            let table = document.querySelector("#response table");
             rows.forEach((row) => {
-                let tr = table.insertRow(1);
+                let tr = document.createElement("tr");
                 row.forEach((col, i) => {
-                    let td = tr.insertCell(i);
+                    let td = document.createElement("td");
                     td.textContent = col;
+                    tr.appendChild(td);
                 });
+                console.log(table.rows);
+                if (table.rows.length > 1) {
+                    table.insertBefore(tr, table.rows[1]);
+                } else {
+                    table.appendChild(tr);
+                }
                 tr.classList.add("highlight");
                 setTimeout(() => {
                     tr.classList.remove("highlight");
