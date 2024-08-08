@@ -48,7 +48,7 @@ pub fn query(
 fn limit_block_range(from: Option<u64>) -> String {
     match from {
         Some(n) => format!("logs as (select * from logs where block_num >= {}),", n),
-        None => String::from("logs as (select * from logs),"),
+        None => String::new(),
     }
 }
 
@@ -242,9 +242,7 @@ mod tests {
             vec!["Transfer(address indexed from, address indexed to, uint tokens)"],
             r#"select "from", "to", tokens from transfer"#,
             r#"
-                with logs as (
-                    select * from logs
-                ), transfer as (
+                with transfer as (
                     select
                         block_num,
                         tx_hash,
