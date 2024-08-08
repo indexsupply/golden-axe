@@ -1,9 +1,6 @@
 #[cfg(test)]
 mod pl_pgsql_test {
-    use alloy::{
-        hex,
-        primitives::{fixed_bytes, U256},
-    };
+    use alloy::{hex, primitives::U256};
     use postgresql_embedded::{PostgreSQL, Settings, Version};
     use tokio_postgres::{Client, NoTls};
 
