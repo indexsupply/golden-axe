@@ -1,0 +1,37 @@
+[package]
+name = "gafe"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.7.5"
+axum-extra = { version = "0.9.3", features = ["cookie-signed", "typed-header"] }
+axum-flash = "0.8.0"
+clap = {version = "4.5.13", features = ["derive", "env"]}
+deadpool-postgres = "0.14.0"
+eyre = "0.6.12"
+getrandom = "0.2.15"
+hex = { version = "0.4.3", features = ["serde"] }
+maud = { version = "0.26.0", features = ["axum"] }
+metrics = "0.23.0"
+metrics-exporter-prometheus = "0.15.3"
+metrics-tracing-context = "0.16.0"
+metrics-util = "0.17.0"
+openssl = "0.10.66"
+postgres-openssl = "0.5.0"
+reqwest = { version = "0.12.5", features = ["json"] }
+serde = { version = "1.0.204", features = ["derive"] }
+serde_json = "1.0.122"
+time = "0.3.36"
+tokio = { version = "1.39.2", features = ["rt-multi-thread"] }
+tokio-postgres = "0.7.11"
+tower = "0.4.13"
+tower-http = { version = "0.5.0", features = [
+    "compression-gzip",
+    "compression-zstd",
+    "timeout",
+    "trace",
+] }
+tracing = "0.1.40"
+tracing-appender = "0.2.3"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
