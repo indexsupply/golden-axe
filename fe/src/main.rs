@@ -1,3 +1,4 @@
+mod account;
 mod email;
 mod session;
 mod web;
@@ -5,15 +6,13 @@ mod web;
 use axum::{
     body::Body,
     extract::MatchedPath,
-    response::IntoResponse,
     routing::{get, post},
     Router,
 };
-use axum_extra::extract::{cookie::Key, SignedCookieJar};
+use axum_extra::extract::cookie::Key;
 use clap::{command, Parser};
 use deadpool_postgres::{Manager, ManagerConfig, Pool};
 use eyre::Result;
-use maud::html;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use metrics_tracing_context::{MetricsLayer, TracingContextLayer};
 use metrics_util::layers::Layer as MetricsUtilLayer;
@@ -110,7 +109,7 @@ async fn main() -> Result<()> {
 
     let service = tower::ServiceBuilder::new().layer(tracing);
     let app = Router::new()
-        .route("/", get(index))
+        .route("/", get(account::index))
         .route("/metrics", get(move || ready(prom_handler.render())))
         .route("/login", get(session::try_login))
         .route("/email-login-link", get(session::login))
@@ -126,18 +125,4 @@ async fn main() -> Result<()> {
     )
     .await?;
     Ok(())
-}
-
-async fn index(flash: axum_flash::IncomingFlashes, jar: SignedCookieJar) -> impl IntoResponse {
-    let resp = html! {
-        @for (_level, message) in &flash {
-            p {(message)}
-        }
-        @match session::User::from_jar(jar) {
-            Some(u) => span {"hi: " (u.email)},
-            None => span { "please log in" }
-        }
-
-    };
-    (flash, resp).into_response()
 }
