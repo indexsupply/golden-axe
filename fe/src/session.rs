@@ -33,12 +33,12 @@ pub struct EmailLoginRequest {
 pub async fn email_login_link(
     flash: axum_flash::Flash,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    State(config): State<web::Config>,
+    State(state): State<web::State>,
     Form(req): Form<EmailLoginRequest>,
 ) -> Result<impl IntoResponse, web::Error> {
     let mut secret = vec![0u8; 32];
     getrandom::getrandom(&mut secret).wrap_err("unable to generate secret")?;
-    let mut pg = config.pool.get().await?;
+    let mut pg = state.pool.get().await?;
     let pgtx = pg.transaction().await?;
     pgtx.execute(
         "update login_links set invalidated_at = now() where email = $1",
@@ -51,7 +51,7 @@ pub async fn email_login_link(
     )
     .await?;
     pgtx.commit().await?;
-    config.sendgrid.send_email_login(&req.email, secret).await?;
+    state.sendgrid.send_email_login(&req.email, secret).await?;
     let flash = flash.success("Please check your email to log in.");
     Ok((flash, Redirect::to("/")))
 }
@@ -64,7 +64,7 @@ pub struct LoginRequest {
 
 pub async fn login(
     flash: axum_flash::Flash,
-    State(config): State<web::Config>,
+    State(state): State<web::State>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Form(req): Form<LoginRequest>,
 ) -> Result<impl IntoResponse, web::Error> {
@@ -76,7 +76,7 @@ pub async fn login(
         and completed_at is null
         returning email
     "#;
-    let res = config
+    let res = state
         .pool
         .get()
         .await?
@@ -90,14 +90,14 @@ pub async fn login(
         let email: String = res.get(0);
         let one_week = OffsetDateTime::now_utc() + Duration::weeks(1);
         let cookie = Cookie::build(("email", email)).expires(one_week).build();
-        let jar = SignedCookieJar::new(config.key).add(cookie);
+        let jar = SignedCookieJar::new(state.key).add(cookie);
         Ok((jar, Redirect::to("/")).into_response())
     }
 }
 
-pub async fn logout(State(config): State<web::Config>) -> impl IntoResponse {
+pub async fn logout(State(state): State<web::State>) -> impl IntoResponse {
     let cookie = Cookie::build(("email", "")).removal().build();
-    let jar = SignedCookieJar::new(config.key).add(cookie);
+    let jar = SignedCookieJar::new(state.key).add(cookie);
     (jar, Redirect::to("/"))
 }
 

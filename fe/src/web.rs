@@ -7,22 +7,22 @@ use reqwest::StatusCode;
 use crate::email;
 
 #[derive(Clone)]
-pub struct Config {
+pub struct State {
     pub flash: axum_flash::Config,
     pub pool: Pool,
     pub key: Key,
     pub sendgrid: email::Client,
 }
 
-impl FromRef<Config> for Key {
-    fn from_ref(config: &Config) -> Self {
-        config.key.clone()
+impl FromRef<State> for Key {
+    fn from_ref(state: &State) -> Self {
+        state.key.clone()
     }
 }
 
-impl FromRef<Config> for axum_flash::Config {
-    fn from_ref(config: &Config) -> axum_flash::Config {
-        config.flash.clone()
+impl FromRef<State> for axum_flash::Config {
+    fn from_ref(state: &State) -> axum_flash::Config {
+        state.flash.clone()
     }
 }
 

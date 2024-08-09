@@ -97,7 +97,7 @@ async fn main() -> Result<()> {
         .expect("unable to set global metrics recorder");
 
     let args = Args::parse();
-    let config = web::Config {
+    let state = web::State {
         key: Key::generate(),
         pool: pg_pool(&args.pg_url),
         flash: axum_flash::Config::new(Key::generate()).use_secure_cookies(false),
@@ -106,7 +106,7 @@ async fn main() -> Result<()> {
             key: args.sendgrid_key,
         },
     };
-    config.pool.get().await?.batch_execute(SCHEMA).await?;
+    state.pool.get().await?.batch_execute(SCHEMA).await?;
 
     let service = tower::ServiceBuilder::new().layer(tracing);
     let app = Router::new()
@@ -117,7 +117,7 @@ async fn main() -> Result<()> {
         .route("/email-login-link", post(session::email_login_link))
         .route("/logout", get(session::logout))
         .layer(service)
-        .with_state(config);
+        .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8001").await?;
     axum::serve(
