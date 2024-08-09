@@ -25,6 +25,18 @@ impl User {
     }
 }
 
+pub async fn try_login() -> impl IntoResponse {
+    html! {
+        body {
+            form method="post" action="/email-login-link" {
+                label for="email" { "Email: " }
+                input type="email" id="email" name="email" required {}
+                button type="submit" { "Submit" }
+            }
+        }
+    }
+}
+
 #[derive(Deserialize)]
 pub struct EmailLoginRequest {
     email: String,
@@ -99,16 +111,4 @@ pub async fn logout(State(state): State<web::State>) -> impl IntoResponse {
     let cookie = Cookie::build(("email", "")).removal().build();
     let jar = SignedCookieJar::new(state.key).add(cookie);
     (jar, Redirect::to("/"))
-}
-
-pub async fn try_login() -> impl IntoResponse {
-    html! {
-        body {
-            form method="post" action="/email-login-link" {
-                label for="email" { "Email: " }
-                input type="email" id="email" name="email" required {}
-                button type="submit" { "Submit" }
-            }
-        }
-    }
 }
