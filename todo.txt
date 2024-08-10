@@ -1,3 +1,4 @@
+- sse errors
 - pg/pgsql errors
 - stripe payments
 - authentication

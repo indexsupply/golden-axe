@@ -148,9 +148,24 @@ fn abi_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
             pos * 32,
             alias
         )),
+        DynSolType::String => Ok(format!(
+            r#"convert_from(rtrim(abi_bytes(abi_dynamic(data, {})), '\x00'), 'UTF8') {}"#,
+            pos * 32,
+            alias
+        )),
         DynSolType::FixedBytes(_) => {
             Ok(format!("abi_fixed_bytes(data, {}, 32) {}", pos * 32, alias))
         }
+        DynSolType::Int(_) => Ok(format!(
+            "abi_int(abi_fixed_bytes(data, {}, 32)) {}",
+            pos * 32,
+            alias,
+        )),
+        DynSolType::Uint(_) => Ok(format!(
+            "abi_uint(abi_fixed_bytes(data, {}, 32)) {}",
+            pos * 32,
+            alias,
+        )),
         DynSolType::Array(arr) => match arr.as_ref() {
             DynSolType::FixedBytes(_) => Ok(format!(
                 "abi_fixed_bytes_array(abi_dynamic(data, {}), 32) {}",
@@ -195,16 +210,6 @@ fn abi_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
             }
             _ => todo!(),
         },
-        DynSolType::Int(_) => Ok(format!(
-            "abi_int(abi_fixed_bytes(data, {}, 32)) {}",
-            pos * 32,
-            alias,
-        )),
-        DynSolType::Uint(_) => Ok(format!(
-            "abi_uint(abi_fixed_bytes(data, {}, 32)) {}",
-            pos * 32,
-            alias,
-        )),
         _ => Err(eyre!("unable to generate sql for: {:?}", t)),
     }
 }
