@@ -134,15 +134,6 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5
         </main>
     </body>
     <script>
-        function encodeForm(form) {
-            const formData = new FormData(form);
-            const params = new URLSearchParams();
-            for (const [key, value] of formData.entries()) {
-                params.append(key, value.trim());
-            }
-            return params.toString();
-        }
-
         function addHeaderRow(row) {
             const table = document.querySelector("#response table");
             let tr = table.insertRow(0);
