@@ -4,7 +4,7 @@ use deadpool_postgres::Pool;
 use maud::html;
 use reqwest::StatusCode;
 
-use crate::email;
+use crate::{email, stripe};
 
 #[derive(Clone)]
 pub struct State {
@@ -12,6 +12,7 @@ pub struct State {
     pub pool: Pool,
     pub key: Key,
     pub sendgrid: email::Client,
+    pub stripe: stripe::Client,
 }
 
 impl FromRef<State> for Key {

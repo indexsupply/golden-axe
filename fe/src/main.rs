@@ -1,6 +1,7 @@
 mod account;
 mod email;
 mod session;
+mod stripe;
 mod web;
 
 use axum::{
@@ -12,7 +13,7 @@ use axum::{
 use axum_extra::extract::cookie::Key;
 use clap::{command, Parser};
 use deadpool_postgres::{Manager, ManagerConfig, Pool};
-use eyre::Result;
+use eyre::{Context, Result};
 use metrics_exporter_prometheus::PrometheusBuilder;
 use metrics_tracing_context::{MetricsLayer, TracingContextLayer};
 use metrics_util::layers::Layer as MetricsUtilLayer;
@@ -34,8 +35,14 @@ struct Args {
     #[arg(long, env = "SENDGRID_KEY")]
     sendgrid_key: String,
 
+    #[arg(long, env = "STRIPE_KEY")]
+    stripe_key: String,
+
     #[arg(long, env = "HOST", default_value = "localhost:8001")]
     host: String,
+
+    #[arg(long, env = "SESSION_KEY")]
+    session_key: Option<String>,
 }
 
 fn pg_pool(pg_url: &str) -> Pool {
@@ -96,14 +103,22 @@ async fn main() -> Result<()> {
         .expect("unable to set global metrics recorder");
 
     let args = Args::parse();
+    let session_key = if let Some(key) = &args.session_key {
+        Key::from(&hex::decode(key).wrap_err("unable to hex decode session key")?)
+    } else {
+        let k = Key::generate();
+        tracing::info!("creating new session key: {}", hex::encode(k.master()));
+        k
+    };
     let state = web::State {
-        key: Key::generate(),
+        key: session_key,
         pool: pg_pool(&args.pg_url),
         flash: axum_flash::Config::new(Key::generate()).use_secure_cookies(false),
         sendgrid: email::Client {
             host: args.host,
             key: args.sendgrid_key,
         },
+        stripe: stripe::Client::new(&args.stripe_key),
     };
     state.pool.get().await?.batch_execute(SCHEMA).await?;
 
