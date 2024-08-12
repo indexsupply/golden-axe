@@ -1,0 +1,83 @@
+<!doctype html>
+<html>
+    <head>
+        <link
+            rel="icon"
+            href="https://indexsupply.net/ga.ico"
+            type="image/x-icon"
+        />
+        <meta charset="utf-8" />
+        <title>Golden Axe</title>
+        <style>
+            body {
+                font-family: Times New Roman;
+                max-width: 800px;
+            }
+            a:link,
+            a:visited,
+            a:hover,
+            a:active {
+                color: blue;
+                text-decoration: none;
+            }
+            .navigation {
+                display: flex;
+                flex-direction: row;
+                justify-content: space-between;
+            }
+            .navigation .Success {
+                color: green;
+            }
+            .navigation.Warning,
+            .navigation.Error {
+                color: red;
+            }
+            .header {
+                width: 100%;
+            }
+            .header h1 {
+                width: 100%;
+                font-size: 5.28em;
+                font-weight: bold;
+                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+                letter-spacing: -3px;
+                margin: 5px 0 5px 0;
+            }
+            .header span {
+                font-style: italic;
+            }
+            .header h1 a {
+                color: #000000;
+                text-decoration: none;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="navigation">
+            <div>
+                {{#each flash }}
+                <marquee class="{{level}}">{{ message }}</marquee>
+                {{/each}}
+            </div>
+            <div>
+                {{#with user}}
+                <a href="/account">account</a>
+                {{else}}
+                <a href="/login">log in</a>
+                {{/with}}
+            </div>
+        </div>
+        <div class="header">
+            <h1>Index Supply: SQL API</h1>
+            <span>With live query updates!</span>
+        </div>
+        <main>
+            <p>
+                Index Supply's hosted SQL API (currently on Base and Base
+                Sepolia) provides a familiar SQL interface to decoded Ethereum
+                logs. Provide the event signatures and your query and get
+                instant results.
+            </p>
+        </main>
+    </body>
+</html>

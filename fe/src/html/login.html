@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+    <head>
+        <link
+            rel="icon"
+            href="https://indexsupply.net/ga.ico"
+            type="image/x-icon"
+        />
+        <meta charset="utf-8" />
+        <title>Golden Axe</title>
+        <style>
+            body {
+                font-family: Times New Roman;
+                max-width: 800px;
+            }
+            .header {
+                display: flex;
+                align-items: center;
+                gap: 5px;
+            }
+            .header h1 a {
+                color: #000000;
+                text-decoration: none;
+            }
+            .header img {
+                height: 30px;
+            }
+        </style>
+    </head>
+    <body>
+        <form method="post" action="/email-login-link">
+            <label for="email">Email: </label>
+            <input type="email" id="email" name="email" required>
+            </input>
+            <button type="submit">Submit</button>
+        </form>
+    </body>
+</html>

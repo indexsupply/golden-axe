@@ -38,6 +38,9 @@ struct Args {
     #[arg(long, env = "STRIPE_KEY")]
     stripe_key: String,
 
+    #[arg(long, env = "STRIPE_PUB_KEY")]
+    stripe_pub_key: String,
+
     #[arg(long, env = "HOST", default_value = "localhost:8001")]
     host: String,
 
@@ -110,8 +113,15 @@ async fn main() -> Result<()> {
         tracing::info!("creating new session key: {}", hex::encode(k.master()));
         k
     };
+
+    let mut reg = handlebars::Handlebars::new();
+    reg.register_template_string("index", include_str!("./html/index.html"))?;
+    reg.register_template_string("login", include_str!("./html/login.html"))?;
+    reg.register_template_string("account", include_str!("./html/account.html"))?;
+
     let state = web::State {
         key: session_key,
+        templates: reg,
         pool: pg_pool(&args.pg_url),
         flash: axum_flash::Config::new(Key::generate()).use_secure_cookies(false),
         sendgrid: email::Client {
@@ -119,6 +129,7 @@ async fn main() -> Result<()> {
             key: args.sendgrid_key,
         },
         stripe: stripe::Client::new(&args.stripe_key),
+        stripe_pub_key: args.stripe_pub_key,
     };
     state.pool.get().await?.batch_execute(SCHEMA).await?;
 
@@ -130,6 +141,8 @@ async fn main() -> Result<()> {
         .route("/email-login-link", get(session::login))
         .route("/email-login-link", post(session::email_login_link))
         .route("/logout", get(session::logout))
+        .route("/account", get(account::account))
+        .route("/change-plan", post(account::change_plan))
         .layer(service)
         .with_state(state);
 

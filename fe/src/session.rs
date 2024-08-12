@@ -2,17 +2,17 @@ use std::net::SocketAddr;
 
 use axum::{
     extract::{ConnectInfo, State},
-    response::{IntoResponse, Redirect},
+    response::{Html, IntoResponse, Redirect},
     Form,
 };
 use axum_extra::extract::{cookie::Cookie, SignedCookieJar};
 use eyre::{Context, Result};
-use maud::html;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use time::{Duration, OffsetDateTime};
 
 use crate::web;
 
+#[derive(Serialize)]
 pub struct User {
     pub email: String,
 }
@@ -26,15 +26,8 @@ impl User {
 }
 
 pub async fn try_login() -> impl IntoResponse {
-    html! {
-        body {
-            form method="post" action="/email-login-link" {
-                label for="email" { "Email: " }
-                input type="email" id="email" name="email" required {}
-                button type="submit" { "Submit" }
-            }
-        }
-    }
+    const LOGIN: &str = include_str!("./html/login.html");
+    Html(LOGIN)
 }
 
 #[derive(Deserialize)]

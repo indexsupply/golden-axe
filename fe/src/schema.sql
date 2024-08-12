@@ -18,6 +18,12 @@ create table if not exists accounts(
     primary key (owner_email)
 );
 
+create table if not exists plan_changes (
+    owner_email text not null,
+    name text not null,
+    created_at timestamptz default now()
+);
+
 create table if not exists collabs(
     owner_email text not null,
     email text not null,

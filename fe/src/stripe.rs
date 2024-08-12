@@ -1,10 +1,33 @@
 use eyre::{eyre, Result};
-use serde::Deserialize;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 #[derive(Deserialize)]
 pub struct Customer {
     pub id: String,
     pub email: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SetupIntent {
+    pub client_secret: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Card {
+    pub brand: String,
+    pub exp_month: u64,
+    pub exp_year: u64,
+    pub last4: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PaymentMethod {
+    pub card: Card,
+}
+
+#[derive(Deserialize)]
+struct List<T> {
+    pub data: Vec<T>,
 }
 
 #[derive(Clone)]
@@ -21,6 +44,22 @@ impl Client {
         }
     }
 
+    pub async fn payment_methods(&self, customer_id: &str) -> Result<Option<PaymentMethod>> {
+        // Although the stripe docs do not specify, experimentation
+        // has shown that the order id created_at desc
+        let (path, data) = (
+            format!("v1/customers/{}/payment_methods", customer_id),
+            [("limit", 1)],
+        );
+        let res: List<PaymentMethod> = self.get(&path, &data).await?;
+        Ok(res.data.into_iter().nth(0))
+    }
+
+    pub async fn setup_intent(&self, customer_id: &str) -> Result<SetupIntent> {
+        let (path, data) = ("v1/setup_intents", [("customer", customer_id)]);
+        self.post(path, &data).await
+    }
+
     // It's sad that you cannot provide an id for stripe
     // If you call this multiple times you will end up with
     // multiple stripe customers with the same email.
@@ -29,24 +68,47 @@ impl Client {
     // endpoint meaning that you can't rely on searching for a customer
     // before creating one.
     pub async fn create_customer(&self, email: &str) -> Result<Customer> {
+        let (path, data) = ("v1/customers", [("email", email)]);
+        self.post(path, &data).await
+    }
+
+    pub async fn get<T: DeserializeOwned, D: Serialize + ?Sized>(
+        &self,
+        path: &str,
+        data: &D,
+    ) -> Result<T> {
         let response = self
             .reqwest
-            .post("https://api.stripe.com/v1/customers")
+            .get(format!("https://api.stripe.com/{}", path))
             .basic_auth(&self.key, Some(""))
-            .query(&[("email", email)])
+            .form(data)
             .send()
             .await?;
         if response.status().is_success() {
-            let customer: Customer = response.json().await?;
-            tracing::info!("stripe customer created email");
-            Ok(customer)
+            Ok(response.json().await?)
         } else {
             let resp = response.text().await?;
-            Err(eyre!(
-                "creating stripe customer: {}. response: {}",
-                email,
-                resp
-            ))
+            Err(eyre!("making stripe request: {} {}", path, resp))
+        }
+    }
+
+    pub async fn post<T: DeserializeOwned, D: Serialize + ?Sized>(
+        &self,
+        path: &str,
+        data: &D,
+    ) -> Result<T> {
+        let response = self
+            .reqwest
+            .post(format!("https://api.stripe.com/{}", path))
+            .basic_auth(&self.key, Some(""))
+            .form(data)
+            .send()
+            .await?;
+        if response.status().is_success() {
+            Ok(response.json().await?)
+        } else {
+            let resp = response.text().await?;
+            Err(eyre!("making stripe request: {} {}", path, resp))
         }
     }
 }
