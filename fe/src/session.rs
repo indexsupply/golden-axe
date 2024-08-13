@@ -73,8 +73,7 @@ pub async fn login(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Form(req): Form<LoginRequest>,
 ) -> Result<impl IntoResponse, web::Error> {
-    let mut pg = state.pool.get().await?;
-    let pgtx = pg.transaction().await?;
+    let pg = state.pool.get().await?;
     const Q: &str = r#"
         update login_links
         set completed_at = now(), completed_by = $1
@@ -83,7 +82,7 @@ pub async fn login(
         and completed_at is null
         returning email
     "#;
-    let res = pgtx.query(Q, &[&addr.ip(), &req.secret]).await?;
+    let res = pg.query(Q, &[&addr.ip(), &req.secret]).await?;
     if res.is_empty() {
         let flash = flash.error("Please request a log in link.");
         Ok((flash, Redirect::to("/")).into_response())
