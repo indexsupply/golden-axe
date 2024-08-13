@@ -93,7 +93,7 @@ pub async fn login(
         let one_week = OffsetDateTime::now_utc() + Duration::weeks(1);
         let cookie = Cookie::build(("email", email)).expires(one_week).build();
         let jar = SignedCookieJar::new(state.key).add(cookie);
-        Ok((jar, Redirect::to("/")).into_response())
+        Ok((jar, Redirect::to("/account")).into_response())
     }
 }
 
