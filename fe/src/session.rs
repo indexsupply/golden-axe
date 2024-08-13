@@ -8,9 +8,10 @@ use axum::{
 use axum_extra::extract::{cookie::Cookie, SignedCookieJar};
 use eyre::{Context, Result};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use time::{Duration, OffsetDateTime};
 
-use crate::web;
+use crate::web::{self, FlashMessage};
 
 #[derive(Serialize)]
 pub struct User {
@@ -68,7 +69,6 @@ pub struct LoginRequest {
 }
 
 pub async fn login(
-    flash: axum_flash::Flash,
     State(state): State<web::State>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Form(req): Form<LoginRequest>,
@@ -84,8 +84,17 @@ pub async fn login(
     "#;
     let res = pg.query(Q, &[&addr.ip(), &req.secret]).await?;
     if res.is_empty() {
-        let flash = flash.error("Please request a log in link.");
-        Ok((flash, Redirect::to("/")).into_response())
+        tracing::info!(
+            "failed login attempt by: {} secret: {}",
+            addr.ip(),
+            hex::encode(&req.secret)
+        );
+        let flash = vec![FlashMessage {
+            level: "Error".to_string(),
+            message: "please request new login link".to_string(),
+        }];
+        let resp = Html(state.templates.render("index", &json!({"flash": flash}))?);
+        Ok(resp.into_response())
     } else {
         let res = res.first().expect("no rows found");
         let email: String = res.get(0);
