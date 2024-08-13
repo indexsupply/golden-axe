@@ -41,8 +41,13 @@ struct Args {
     #[arg(long, env = "STRIPE_PUB_KEY")]
     stripe_pub_key: String,
 
-    #[arg(long, env = "HOST", default_value = "localhost:8001")]
-    host: String,
+    #[arg(
+        long,
+        help = "Base url to include in generated links",
+        env = "SITE_URL",
+        default_value = "http://localhost:8001"
+    )]
+    site_url: String,
 
     #[arg(long, env = "SESSION_KEY")]
     session_key: Option<String>,
@@ -125,7 +130,7 @@ async fn main() -> Result<()> {
         pool: pg_pool(&args.pg_url),
         flash: axum_flash::Config::new(Key::generate()).use_secure_cookies(false),
         sendgrid: email::Client {
-            host: args.host,
+            site_url: args.site_url,
             key: args.sendgrid_key,
         },
         stripe: stripe::Client::new(&args.stripe_key),

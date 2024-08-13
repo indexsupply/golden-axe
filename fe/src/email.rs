@@ -2,7 +2,7 @@ use eyre::{eyre, Result};
 
 #[derive(Clone)]
 pub struct Client {
-    pub host: String,
+    pub site_url: String,
     pub key: String,
 }
 
@@ -10,8 +10,8 @@ impl Client {
     pub async fn send_email_login(&self, to: &str, secret: Vec<u8>) -> Result<()> {
         let client = reqwest::Client::new();
         let body = format!(
-            "Click to log in: http://{}/email-login-link?secret={}",
-            self.host,
+            "Click to log in: {}/email-login-link?secret={}",
+            self.site_url,
             hex::encode(secret),
         );
         let request = serde_json::json!({
