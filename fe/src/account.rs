@@ -4,11 +4,12 @@ use axum::{
     Json,
 };
 use axum_extra::extract::SignedCookieJar;
-use eyre::Result;
+use eyre::{Context, Result};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::{
-    session, stripe,
+    api_key, session, stripe,
     web::{self, FlashMessage},
 };
 
@@ -28,23 +29,55 @@ pub async fn index(
     Ok((flash, resp).into_response())
 }
 
+pub async fn delete_api_key(
+    State(state): State<web::State>,
+    flash: axum_flash::Flash,
+    jar: SignedCookieJar,
+    Json(secret): Json<String>,
+) -> Result<impl IntoResponse, web::Error> {
+    let user = session::User::from_jar(jar).unwrap();
+    let pg = state.pool.get().await?;
+    let secret = hex::decode(secret).wrap_err("unable to hex decode secret")?;
+    api_key::delete(&pg, &user.email, secret).await?;
+    let flash = flash.success("endpoint deleted");
+    Ok((flash, axum::http::StatusCode::OK).into_response())
+}
+
+pub async fn create_api_key(
+    State(state): State<web::State>,
+    flash: axum_flash::Flash,
+    jar: SignedCookieJar,
+) -> Result<impl IntoResponse, web::Error> {
+    let user = session::User::from_jar(jar).unwrap();
+    let pg = state.pool.get().await?;
+    api_key::create(&pg, &user.email).await?;
+    let flash = flash.success("api key created");
+    Ok((flash, axum::http::StatusCode::OK).into_response())
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Plan {
+    name: String,
+    chains: Vec<i64>,
+}
+
 pub async fn change_plan(
     State(state): State<web::State>,
     flash: axum_flash::Flash,
     jar: SignedCookieJar,
-    Json(new_plan): Json<String>,
+    Json(change): Json<Plan>,
 ) -> Result<impl IntoResponse, web::Error> {
-    let pg = state.pool.get().await?;
     let user = session::User::from_jar(jar).unwrap();
+    let pg = state.pool.get().await?;
     pg.query(
-        "insert into plan_changes (owner_email, name) values ($1, $2)",
-        &[&user.email, &new_plan],
+        "insert into plan_changes (owner_email, name, chains) values ($1, $2, $3)",
+        &[&user.email, &change.name, &change.chains],
     )
     .await?;
-    let flash = if new_plan == "extreme" {
+    let flash = if &change.name == "extreme" {
         flash.success("⚡️upgraded your plan to: EXTREME⚡️")
     } else {
-        flash.success(format!("changed your plan to: {}", new_plan))
+        flash.success(format!("changed your plan to: {}", &change.name))
     };
     Ok((flash, axum::http::StatusCode::OK).into_response())
 }
@@ -54,12 +87,13 @@ pub async fn account(
     flash: axum_flash::IncomingFlashes,
     jar: SignedCookieJar,
 ) -> Result<impl IntoResponse, web::Error> {
-    let pg = state.pool.get().await?;
     let user = session::User::from_jar(jar).unwrap();
+    let pg = state.pool.get().await?;
     let customer_id = setup_stripe(&pg, &state.stripe, &user.email).await?;
     let intent = state.stripe.setup_intent(&customer_id).await?;
     let payment_method = state.stripe.payment_methods(&customer_id).await?;
     let plan = current_plan(&pg, &user.email).await?;
+    let api_keys = api_key::list(&pg, &user.email).await?;
     let rendered_html = state.templates.render(
         "account",
         &json!({
@@ -69,6 +103,7 @@ pub async fn account(
             "client_secret": intent.client_secret.to_string(),
             "plan": plan,
             "payment_method": payment_method,
+            "api_keys": api_keys,
         }),
     )?;
     Ok((flash, Html(rendered_html)).into_response())
@@ -77,11 +112,11 @@ pub async fn account(
 async fn current_plan(
     pg: &tokio_postgres::Client,
     email: &str,
-) -> Result<Option<String>, web::Error> {
+) -> Result<Option<Plan>, web::Error> {
     let res = pg
         .query(
             "
-            select name
+            select name, chains
             from plan_changes
             where owner_email = $1
             order by created_at desc
@@ -94,7 +129,10 @@ async fn current_plan(
         Ok(None)
     } else {
         let row = res.first().expect("should be at leaset 1 plan_change");
-        Ok(Some(row.get(0)))
+        Ok(Some(Plan {
+            name: row.get(0),
+            chains: row.get(1),
+        }))
     }
 }
 

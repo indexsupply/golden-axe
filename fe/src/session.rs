@@ -26,9 +26,8 @@ impl User {
     }
 }
 
-pub async fn try_login() -> impl IntoResponse {
-    const LOGIN: &str = include_str!("./html/login.html");
-    Html(LOGIN)
+pub async fn try_login(State(state): State<web::State>) -> Result<impl IntoResponse, web::Error> {
+    Ok(Html(state.templates.render("login", &json!(""))?))
 }
 
 #[derive(Deserialize)]
@@ -99,7 +98,11 @@ pub async fn login(
         let res = res.first().expect("no rows found");
         let email: String = res.get(0);
         let one_week = OffsetDateTime::now_utc() + Duration::weeks(1);
-        let cookie = Cookie::build(("email", email)).expires(one_week).build();
+        let cookie = Cookie::build(("email", email))
+            .expires(one_week)
+            .http_only(true)
+            .same_site(axum_extra::extract::cookie::SameSite::Lax)
+            .build();
         let jar = SignedCookieJar::new(state.key).add(cookie);
         Ok((jar, Redirect::to("/account")).into_response())
     }

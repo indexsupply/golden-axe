@@ -1,4 +1,5 @@
 mod account;
+mod api_key;
 mod email;
 mod session;
 mod stripe;
@@ -19,6 +20,7 @@ use metrics_tracing_context::{MetricsLayer, TracingContextLayer};
 use metrics_util::layers::Layer as MetricsUtilLayer;
 use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
 use postgres_openssl::MakeTlsConnector;
+use rust_embed::Embed;
 use std::{future::ready, net::SocketAddr, str::FromStr};
 use tower_http::trace::TraceLayer;
 use tracing::level_filters::LevelFilter;
@@ -119,10 +121,13 @@ async fn main() -> Result<()> {
         k
     };
 
+    #[derive(Embed)]
+    #[folder = "src/html"]
+    #[include = "*.html"]
+    struct Assets;
     let mut reg = handlebars::Handlebars::new();
-    reg.register_template_string("index", include_str!("./html/index.html"))?;
-    reg.register_template_string("login", include_str!("./html/login.html"))?;
-    reg.register_template_string("account", include_str!("./html/account.html"))?;
+    reg.set_dev_mode(true);
+    reg.register_embed_templates_with_extension::<Assets>(".html")?;
 
     let state = web::State {
         key: session_key,
@@ -148,6 +153,8 @@ async fn main() -> Result<()> {
         .route("/logout", get(session::logout))
         .route("/account", get(account::account))
         .route("/change-plan", post(account::change_plan))
+        .route("/create-api-key", post(account::create_api_key))
+        .route("/delete-api-key", post(account::delete_api_key))
         .layer(service)
         .with_state(state);
 

@@ -11,6 +11,7 @@
         body {
             font-family: Times New Roman;
             max-width: 800px;
+            margin: 0 auto;
         }
         a:link,
         a:visited,
@@ -23,12 +24,35 @@
             display: flex;
             flex-direction: row;
             justify-content: space-between;
+            height: 30px;
         }
         .navigation .Success {
             color: green;
         }
         .navigation.Error {
             color: red;
+        }
+        .api-key {
+            width: 100%;
+            display: flex;
+            flex-direction: row;
+        }
+        .api-key .url {
+            font-family: monospace;
+            width: 80%;
+            white-space: nowrap;
+            display: inline-block;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .api-key .delete {
+            text-align: right;
+            width: 20%;
+        }
+        #create-api-key {
+            border-top: 1px solid black;
+            padding: 10px 0 0 0;
+            text-align: right;
         }
         #plan {
             width: 100%;
@@ -73,6 +97,10 @@
         #change-plan {
             text-align: right;
         }
+        #chain-selection {
+            display: flex;
+            gap: 10px;
+        }
         #card {
             height: 100%;
             width: 100%;
@@ -105,6 +133,9 @@
         .hidden {
             visibility: hidden;
         }
+        .highlight {
+            background-color: lightyellow;
+        }
         </style>
     </head>
     <body>
@@ -127,14 +158,26 @@
                 {{/with}}
             </div>
         </div>
+        <div id="api-keys">
+            <h2>API Keys</h2>
+            {{#each api_keys }}
+            <div class="api-key">
+                <div class="url"><span>{{ url }}</span></div>
+                <div class="delete"><a href="{{ url }}">delete</a></div>
+            </div>
+            {{/each}}
+        </div>
+        <div id="create-api-key">
+            <a href="">create api key</a>
+        </div>
         <div id="plan">
             <h2>Plan</h2>
             <div id="menu">
                 <div class="option" name="indie">
                     <h3>Indie</h3>
                     <ul>
-                        <li>2 Endpoints</li>
-                        <li>100 Live Sessions</li>
+                        <li>2 Chains</li>
+                        <li>10 Concurrent Sessions</li>
                         <li>Community Support</li>
                     </ul>
                     <div class="price">$9</div>
@@ -142,8 +185,8 @@
                 <div class="option" name="pro">
                     <h3>Pro</h3>
                     <ul>
-                        <li>10 Endpoints</li>
-                        <li>1,000 Live Sessions</li>
+                        <li>Unlimited Chains</li>
+                        <li>100 Concurrent Sessions</li>
                         <li>Premium Support</li>
                     </ul>
                     <div class="price">$99</div>
@@ -151,11 +194,26 @@
                 <div class="option" name="extreme">
                     <h3>Extreme</h3>
                     <ul>
-                        <li>10 Endpoints</li>
-                        <li>10,000 Live Sessions</li>
+                        <li>Unlimited Chains</li>
+                        <li>1,000 Concurrent Sessions</li>
                         <li>Support with SLA</li>
                     </ul>
                     <div class="price">$499</div>
+                </div>
+            </div>
+            <h3>Chains</h3>
+            <div id="chain-selection">
+                <div>
+                    <input type="checkbox" name="eth" value="1">
+                    <label for="eth">Eth</label>
+                </div>
+                <div>
+                    <input type="checkbox" name="base" value="8543">
+                    <label for="base">Base</label>
+                </div>
+                <div>
+                    <input type="checkbox" name="baseSepolia" value="85432">
+                    <label for="baseSepolia">Base Sepolia</label>
                 </div>
             </div>
             <div id="change-plan">
@@ -219,39 +277,115 @@
         let current = document.querySelector(`div.option[name="${name}"]`);
         if (current) {
           current.classList.add("current");
+          current.classList.add("selected");
         }
       }
 
       function changePlan(event) {
         event.preventDefault();
         const newPlan = document.querySelector(".option.selected").getAttribute("name");
-        if (confirm(`change to ${newPlan}?`)) {
-          fetch("/change-plan", {
-            method: "POST",
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(newPlan),
-          }).then(response => {
-            if (response.ok) {
-              window.location.reload();
-            } else {
-              response.text().then(msg => {
-                document.getElementById("new-card-error").textContent = msg;
-              })
-            }
-          });
+        let chains = [];
+        document.querySelectorAll('#chain-selection input[type="checkbox"]:checked').forEach(cb => {
+          chains.push(Number(cb.value));
+        });
+
+        if (!confirm(`change plan to: ${newPlan} with chains ${chains}`)) {
+          return;
         }
+        fetch("/change-plan", {
+          method: "POST",
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({name: newPlan, chains: chains}),
+        }).then(response => {
+          if (response.ok) {
+            window.location.reload();
+          } else {
+            response.text().then(msg => {
+              document.getElementById("error").textContent = msg;
+            })
+          }
+        });
       }
+
+      function createApiKey(event) {
+        event.preventDefault();
+        fetch("/create-api-key", {
+          method: "POST",
+          headers: {'Content-Type': 'application/json'},
+        }).then(response => {
+          if (response.ok) {
+            window.location.reload();
+          } else {
+            response.text().then(msg => {
+              document.getElementById("error").textContent = msg;
+            });
+          }
+        })
+      }
+
+      function deleteApiKey(event) {
+        event.preventDefault();
+        const href = this.getAttribute('href');
+        const params = new URLSearchParams(new URL(href).search);
+        const secret = params.get("api-key");
+        if (!confirm(`delete api key: ${secret.substring(0,4)}...?`)) {
+          return;
+        }
+        fetch("/delete-api-key", {
+          method: "POST",
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(secret),
+        }).then(response => {
+          if (response.ok) {
+            window.location.reload();
+          } else {
+            response.text().then(msg => {
+              document.getElementById("error").textContent = msg;
+            });
+          }
+        })
+      };
+
+      function selectChain(event) {
+        let selected = document.querySelector(".option.selected");
+        const n = document.querySelectorAll('#chain-selection input[type="checkbox"]:checked').length;
+        const plan = selected.getAttribute("name");
+        let max = n;
+        if (plan == "indie") {
+          max = 2;
+        }
+        if (n > max) {
+          event.target.checked = false;
+          alert("Please upgrade to pro or extreme for more chains.")
+          return
+        }
+      };
 
       function selectOption(optionDiv, event) {
         document.querySelectorAll(".option").forEach(div => {
           div.classList.remove('selected');
         });
         optionDiv.classList.add('selected');
+
+        const newPlan = optionDiv.getAttribute("name");
+        if (newPlan == "indie") {
+          document.querySelectorAll(`#chain-selection input[type="checkbox"]`).forEach((cb, i) => {
+            if (i < 2) {
+              cb.checked = true;
+            } else {
+              cb.checked = false;
+            }
+          });
+        } else {
+          document.querySelectorAll(`#chain-selection input[type="checkbox"]`).forEach(cb => {
+            cb.checked = true;
+          });
+        }
       };
 
       document.addEventListener("DOMContentLoaded", () => {
         addCard();
-        setCurrentPlan("{{ plan }}");
+        setCurrentPlan("{{ plan.name }}");
 
         document
           .getElementById("show-new-card")
@@ -261,11 +395,42 @@
           .getElementById("change-plan")
           .addEventListener("click", changePlan);
 
+        document
+          .querySelector("#create-api-key a")
+          .addEventListener("click", createApiKey);
+
+
+        document.querySelectorAll(".api-key").forEach(div => {
+          div.addEventListener("mouseover", event => {
+            div.classList.add("highlight");
+          });
+          div.addEventListener("mouseout", event => {
+            div.classList.remove("highlight");
+          });
+        });
+        document.querySelectorAll(".api-key .delete a").forEach(div => {
+          div.addEventListener("click", deleteApiKey);
+        });
+
         document.querySelectorAll(".option").forEach(div => {
           div.addEventListener("click", (event) => {
             selectOption(div, event);
           })
         });
+
+        const planChains = {{ plan.chains }};
+        document.querySelectorAll('#chain-selection input[type="checkbox"]').forEach(div => {
+          if (planChains.includes(Number(div.value))) {
+            div.checked = true;
+          }
+          div.addEventListener("change", selectChain);
+        });
+
+        setTimeout(() => {
+          document.querySelectorAll('marquee').forEach(el => {
+            el.style.display = 'none';
+          });
+        }, 10000);
       });
     </script>
 </html>

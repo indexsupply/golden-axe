@@ -14,6 +14,7 @@ where invalidated_at is null;
 create table if not exists accounts(
     owner_email text not null,
     name text,
+    chains bigint[],
     stripe_id text not null,
     primary key (owner_email)
 );
@@ -21,7 +22,15 @@ create table if not exists accounts(
 create table if not exists plan_changes (
     owner_email text not null,
     name text not null,
+    chains bigint[] not null default '{}',
     created_at timestamptz default now()
+);
+
+create table if not exists api_keys (
+    owner_email text not null,
+    secret bytea not null,
+    created_at timestamptz default now(),
+    deleted_at timestamptz
 );
 
 create table if not exists collabs(

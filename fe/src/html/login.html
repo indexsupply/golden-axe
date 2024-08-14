@@ -12,27 +12,27 @@
             body {
                 font-family: Times New Roman;
                 max-width: 800px;
+                margin: 0 auto;
             }
-            .header {
-                display: flex;
-                align-items: center;
-                gap: 5px;
+            form {
+                margin: 100px auto 0 auto;
+                height: 300px;
+                width: 300px;
             }
-            .header h1 a {
-                color: #000000;
-                text-decoration: none;
+            input {
+                font-size: x-large;
+                width: 100%;
             }
-            .header img {
-                height: 30px;
+            button {
+                margin: 10px 0 0 0;
+                width: 100%;
             }
         </style>
     </head>
     <body>
         <form method="post" action="/email-login-link">
-            <label for="email">Email: </label>
-            <input type="email" id="email" name="email" required>
-            </input>
-            <button type="submit">Submit</button>
+            <input type="email" id="email" name="email" placeholder="satoshin@gmx.com" autofocus></input>
+            <button type="submit">Email Log In Link</button>
         </form>
     </body>
 </html>
