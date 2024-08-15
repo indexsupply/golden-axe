@@ -20,6 +20,7 @@ metrics-tracing-context = "0.16.0"
 metrics-util = "0.17.0"
 openssl = "0.10.66"
 postgres-openssl = "0.5.0"
+pulldown-cmark = "0.11.0"
 reqwest = { version = "0.12.5", features = ["json"] }
 rust-embed = "8.5.0"
 serde = { version = "1.0.204", features = ["derive"] }

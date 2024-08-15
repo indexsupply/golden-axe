@@ -1,4 +1,5 @@
 mod account;
+mod api_docs;
 mod api_key;
 mod email;
 mod session;
@@ -150,6 +151,7 @@ async fn main() -> Result<()> {
     let service = tower::ServiceBuilder::new().layer(tracing);
     let app = Router::new()
         .route("/", get(account::index))
+        .route("/docs", get(api_docs::index))
         .route("/query", get(account::index))
         .route("/metrics", get(move || ready(prom_handler.render())))
         .route("/login", get(session::try_login))
