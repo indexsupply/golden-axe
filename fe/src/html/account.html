@@ -420,7 +420,12 @@
           })
         });
 
+        {{#if plan }}
         const planChains = {{ plan.chains }};
+        {{ else }}
+        const planChains = [];
+        {{/if}}
+
         document.querySelectorAll('#chain-selection input[type="checkbox"]').forEach(div => {
           if (planChains.includes(Number(div.value))) {
             div.checked = true;
