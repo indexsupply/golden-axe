@@ -229,6 +229,10 @@
                 <span>{{ brand }} {{ last4 }} {{ exp_month }}/{{ exp_year }} </span>
                 <a id="show-new-card" href="">new card</a>
             </div>
+            {{else}}
+            <div id="current-card">
+                <a id="show-new-card" class="hidden" href="">new card</a>
+            </div>
             {{/with }}
             <div id="new-card" {{#if payment_method.card }} class="hidden" {{/if}}>
                 <div id="card-element"><!-- Stripe card Element --></div>
