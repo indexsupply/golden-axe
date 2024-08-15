@@ -2,7 +2,7 @@ use alloy::json_abi::Event;
 use eyre::{eyre, Context, Result};
 use itertools::Itertools;
 use sqlparser::{
-    ast::{self, Function},
+    ast::{self},
     parser::Parser,
 };
 use std::collections::{HashMap, HashSet};
@@ -276,14 +276,41 @@ impl EventRegistry {
                 self.validate_expression(expr)
             }
             ast::Expr::Substring { expr, .. } => self.validate_expression(expr),
-            ast::Expr::Function(Function { name, .. }) => {
-                if name.to_string().to_lowercase() == "sum" {
-                    Ok(())
-                } else {
-                    no!(format!(r#"'{}' function"#, name.to_string()))
-                }
-            }
+            ast::Expr::Function(f) => self.validate_function(f),
             _ => no!(expr),
+        }
+    }
+
+    fn validate_function(&mut self, function: &ast::Function) -> Result<(), api::Error> {
+        let name = function.name.to_string().to_lowercase();
+        if name != "sum" && name != "count" {
+            return no!(format!(r#"'{}' function"#, name));
+        }
+        match &function.args {
+            ast::FunctionArguments::None => Ok(()),
+            ast::FunctionArguments::Subquery(q) => self.validate_query(q),
+            ast::FunctionArguments::List(l) => {
+                for a in &l.args {
+                    self.validate_function_arg(a)?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn validate_function_arg(&mut self, arg: &ast::FunctionArg) -> Result<(), api::Error> {
+        match arg {
+            ast::FunctionArg::Named { .. } => no!("named function args"),
+            ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Expr(expr)) => {
+                self.validate_expression(expr)
+            }
+            ast::FunctionArg::Unnamed(ast::FunctionArgExpr::QualifiedWildcard(_)) => {
+                no!("qualified wild card function args")
+            }
+
+            ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Wildcard) => {
+                no!("wild card function args")
+            }
         }
     }
 
