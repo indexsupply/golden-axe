@@ -1,10 +1,20 @@
-- sse errors
+- api docs
+- explainer page
+- dev mode for cookies / html templates
+- example queries
+- api auth / rate limiting
+- dashboard dark mode
 - show schema for event
+- sse errors
 - pg/pgsql errors
-- stripe payments
-- authentication
-- index multiple chains
+- llm sql generator
+- add card spinner
+- index OP Main
 
+x domain name
+x stripe payments
+x authentication
+x index multiple chains
 x sql api
 x live updates
 x web view for issuing queries
