@@ -1,4 +1,5 @@
 - sse errors
+- show schema for event
 - pg/pgsql errors
 - stripe payments
 - authentication
