@@ -8,7 +8,7 @@ use axum::{
     extract::State,
     response::{
         sse::{Event as SSEvent, KeepAlive},
-        Html, Sse,
+        Sse,
     },
     Json,
 };
@@ -21,11 +21,6 @@ use serde_json::Value;
 use tokio_postgres::types::Type;
 
 use crate::{api, s256, sql_generate};
-
-pub const UI: &str = include_str!("./query.html");
-pub async fn handle_ui() -> Result<Html<String>, api::Error> {
-    Ok(Html(UI.to_string()))
-}
 
 pub async fn handle_sse(
     State(conf): State<Arc<api::Config>>,

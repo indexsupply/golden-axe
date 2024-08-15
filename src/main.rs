@@ -301,7 +301,6 @@ async fn server(args: ServerArgs) -> Result<()> {
         .route("/", get(|| async { "hello\n" }))
         .route("/metrics", get(move || ready(prom_handler.render())))
         .route("/query", post(api_sql::handle))
-        .route("/query", get(api_sql::handle_ui))
         .route("/query-live", get(api_sql::handle_sse))
         .layer(service)
         .layer(CorsLayer::permissive())
