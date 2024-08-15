@@ -40,7 +40,7 @@
             }
             .header h1 {
                 width: 100%;
-                font-size: 5.20em;
+                font-size: 5.2em;
                 font-weight: bold;
                 text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
                 letter-spacing: -3px;
@@ -161,13 +161,17 @@
                     id="events"
                     type="text"
                     placeholder="Event Signatures"
-                >Transfer(address indexed from, address indexed to, uint tokens)</textarea>
+                >
+Transfer(address indexed from, address indexed to, uint tokens)</textarea
+                >
                 <textarea
                     id="query"
                     type="text"
                     placeholder="SQL Query"
                     autofocus
-                >select block_num, tx_hash, "from", "to", tokens from transfer limit 5</textarea>
+                >
+select block_num, tx_hash, "from", "to", tokens from transfer limit 5</textarea
+                >
                 <div id="query-options">
                     <div class="query-options-left">
                         <div>
@@ -183,7 +187,9 @@
                             </select>
                         </div>
                     </div>
-                    <div class="query-options-right"><div><input type="submit" value="Submit" /></div></div>
+                    <div class="query-options-right">
+                        <div><input type="submit" value="Submit" /></div>
+                    </div>
                 </div>
             </form>
             <div id="stats">
@@ -257,10 +263,12 @@
         let blockHeight = 0;
 
         function apiURL(path, params = new URLSearchParams()) {
-          let chain = document.querySelector('select[name="chain-selection"]').value;
-          params.set("chain", chain);
-          return `https://api.indexsupply.net${path}?${params}`
-        };
+            let chain = document.querySelector(
+                'select[name="chain-selection"]',
+            ).value;
+            params.set("chain", chain);
+            return `{{ api_url }}${path}?${params}`;
+        }
 
         function updateStats(height, nrows) {
             document.getElementById("stats").style.display = "block";
@@ -282,7 +290,7 @@
             }
         }
 
-        function startHandler(eventSigs, query) {
+        function startHandler() {
             function liveQueryEnabled() {
                 return document.getElementById("live-query").checked;
             }
@@ -290,13 +298,9 @@
                 return;
             }
             console.log(`sse start: ${blockHeight}`);
-            const params = new URLSearchParams();
-            params.append("block_height", blockHeight);
-            params.append("query", query);
-            eventSigs.forEach((sig) => {
-                params.append("event_signatures", sig);
-            });
-            sseHandler = new EventSource(apiURL("/query-live", params));
+            sseHandler = new EventSource(
+                apiURL("/query-live", form2queryParams()),
+            );
             sseHandler.onmessage = function (event) {
                 let data = JSON.parse(event.data);
                 let newHeight = data["block_height"];
@@ -319,16 +323,10 @@
             event.preventDefault();
             closeHandler();
             form2url();
-            const eventSigs = getEventSigs();
-            const query = getQuery();
             const response = await fetch(apiURL("/query"), {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify([
-                    { event_signatures: eventSigs, query: query },
-                ]),
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(form2JSON()),
             });
             if (!response.ok) {
                 const { message } = await response.json();
@@ -343,7 +341,7 @@
                     addHeaderRow(result.shift());
                     addDataRow(result);
                     updateStats(height, result.length);
-                    startHandler(eventSigs, query);
+                    startHandler();
                 } else {
                     resetTable();
                     printInfo("no rows");
@@ -364,53 +362,61 @@
             }
         }
 
-        function getEventSigs() {
-            return document.getElementById("events").value.split("\n");
+        function form2JSON() {
+            let query = document.getElementById("query").value;
+            let eventSigs = document.getElementById("events").value.split("\n");
+            return [{ event_signatures: eventSigs, query: query }];
         }
 
-        function getQuery() {
-            return document.getElementById("query").value;
+        function form2queryParams() {
+            let query = document.getElementById("query").value;
+            let eventSigs = document.getElementById("events").value.split("\n");
+            let params = new URLSearchParams();
+            params.append("query", query);
+            eventSigs.forEach((sig) => {
+                params.append("event_signatures", sig);
+            });
+            return params;
         }
 
         function form2url() {
-          const eventSigs = getEventSigs();
-          const query = getQuery();
-          const params = new URLSearchParams();
-          params.append("query", query);
-          eventSigs.forEach((sig) => {
-              params.append("event_signatures", sig);
-          });
-          const newUrl = `${window.location.pathname}?${params.toString()}`;
-          history.replaceState(null, '', newUrl);
-          return params.toString();
-        };
+            let url = new URL(window.location.href);
+            url.pathname = "query";
+            url.search = form2queryParams().toString();
+            history.pushState(null, "", url);
+            return url.searchParams.toString();
+        }
 
         function url2form() {
-          const params = new URLSearchParams(window.location.search);
-          let eventSigs = params.getAll("event_signatures");
-          let query = params.get("query");
+            const params = new URLSearchParams(window.location.search);
+            let eventSigs = params.getAll("event_signatures");
+            let query = params.get("query");
+            if (query) {
+                document.getElementById("query").value = query;
+            }
+            if (eventSigs.length > 0) {
+                document.getElementById("events").value = eventSigs.join("\n");
+            }
+        }
 
-          if (query) {
-            document.getElementById("query").value = query;
-          }
-          if (eventSigs.length > 0) {
-            document.getElementById("events").value = eventSigs.join("\n");
-          }
-        };
+        window.addEventListener("popstate", function (event) {
+            url2form();
+        });
+        window.addEventListener("pushstate", function (event) {
+            url2form();
+        });
 
         document.addEventListener("DOMContentLoaded", function () {
-          url2form();
-          document
-            .getElementById("query")
-            .addEventListener("keydown", cmdEnter);
-          document
-            .getElementById("request")
-            .addEventListener("submit", submitQuery);
-          document
-            .getElementById("live-query")
-            .addEventListener("change", changeLiveQuery);
+            url2form();
+            document
+                .getElementById("query")
+                .addEventListener("keydown", cmdEnter);
+            document
+                .getElementById("request")
+                .addEventListener("submit", submitQuery);
+            document
+                .getElementById("live-query")
+                .addEventListener("change", changeLiveQuery);
         });
     </script>
-        </main>
-    </body>
 </html>

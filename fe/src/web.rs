@@ -9,6 +9,7 @@ use crate::{email, stripe};
 
 #[derive(Clone)]
 pub struct State {
+    pub api_url: String,
     pub flash: axum_flash::Config,
     pub templates: handlebars::Handlebars<'static>,
     pub pool: Pool,

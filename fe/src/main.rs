@@ -34,6 +34,9 @@ struct Args {
     #[arg(long, env = "PG_URL", default_value = "postgres://localhost/gafe")]
     pg_url: String,
 
+    #[arg(long, env = "API_URL", default_value = "https://api.indexsupply.net")]
+    api_url: String,
+
     #[arg(long, env = "SENDGRID_KEY")]
     sendgrid_key: String,
 
@@ -130,6 +133,7 @@ async fn main() -> Result<()> {
     reg.register_embed_templates_with_extension::<Assets>(".html")?;
 
     let state = web::State {
+        api_url: args.api_url,
         key: session_key,
         templates: reg,
         pool: pg_pool(&args.pg_url),
@@ -146,6 +150,7 @@ async fn main() -> Result<()> {
     let service = tower::ServiceBuilder::new().layer(tracing);
     let app = Router::new()
         .route("/", get(account::index))
+        .route("/query", get(account::index))
         .route("/metrics", get(move || ready(prom_handler.render())))
         .route("/login", get(session::try_login))
         .route("/email-login-link", get(session::login))

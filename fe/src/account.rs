@@ -22,6 +22,7 @@ pub async fn index(
     let resp = Html(state.templates.render(
         "index",
         &json!({
+            "api_url": state.api_url,
             "user": user,
             "flash": FlashMessage::from(flash.clone()),
         }),
