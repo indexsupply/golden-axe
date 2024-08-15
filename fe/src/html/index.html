@@ -183,11 +183,7 @@
                             </select>
                         </div>
                     </div>
-                    <div class="query-options-right">
-                        <div>
-                            <input type="submit" value="Submit" />
-                        </div>
-                    </div>
+                    <div class="query-options-right"><div><input type="submit" value="Submit" /></div></div>
                 </div>
             </form>
             <div id="stats">
@@ -219,7 +215,6 @@
                     td.textContent = col;
                     tr.appendChild(td);
                 });
-                console.log(table.rows);
                 if (table.rows.length > 1) {
                     table.insertBefore(tr, table.rows[1]);
                 } else {
@@ -320,17 +315,10 @@
             };
         }
 
-        function getEventSigs() {
-            return document.getElementById("events").value.split("\n");
-        }
-
-        function getQuery() {
-            return document.getElementById("query").value;
-        }
-
         async function submitQuery(event) {
             event.preventDefault();
             closeHandler();
+            form2url();
             const eventSigs = getEventSigs();
             const query = getQuery();
             const response = await fetch(apiURL("/query"), {
@@ -376,16 +364,51 @@
             }
         }
 
+        function getEventSigs() {
+            return document.getElementById("events").value.split("\n");
+        }
+
+        function getQuery() {
+            return document.getElementById("query").value;
+        }
+
+        function form2url() {
+          const eventSigs = getEventSigs();
+          const query = getQuery();
+          const params = new URLSearchParams();
+          params.append("query", query);
+          eventSigs.forEach((sig) => {
+              params.append("event_signatures", sig);
+          });
+          const newUrl = `${window.location.pathname}?${params.toString()}`;
+          history.replaceState(null, '', newUrl);
+          return params.toString();
+        };
+
+        function url2form() {
+          const params = new URLSearchParams(window.location.search);
+          let eventSigs = params.getAll("event_signatures");
+          let query = params.get("query");
+
+          if (query) {
+            document.getElementById("query").value = query;
+          }
+          if (eventSigs.length > 0) {
+            document.getElementById("events").value = eventSigs.join("\n");
+          }
+        };
+
         document.addEventListener("DOMContentLoaded", function () {
-            document
-                .getElementById("query")
-                .addEventListener("keydown", cmdEnter);
-            document
-                .getElementById("request")
-                .addEventListener("submit", submitQuery);
-            document
-                .getElementById("live-query")
-                .addEventListener("change", changeLiveQuery);
+          url2form();
+          document
+            .getElementById("query")
+            .addEventListener("keydown", cmdEnter);
+          document
+            .getElementById("request")
+            .addEventListener("submit", submitQuery);
+          document
+            .getElementById("live-query")
+            .addEventListener("change", changeLiveQuery);
         });
     </script>
         </main>
