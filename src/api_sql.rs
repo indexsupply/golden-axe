@@ -22,6 +22,13 @@ use tokio_postgres::types::Type;
 
 use crate::{api, s256, sql_generate};
 
+pub async fn handle(
+    State(state): State<Arc<api::Config>>,
+    Form(req): Form<Request>,
+) -> Result<Json<Response>, api::Error> {
+    handle_json(State(state.clone()), api::Json(vec![req.clone()])).await
+}
+
 pub async fn handle_sse(
     State(conf): State<Arc<api::Config>>,
     Form(req): Form<Request>,
@@ -30,7 +37,7 @@ pub async fn handle_sse(
     let mut rx = conf.broadcaster.add();
     let stream = async_stream::stream! {
         loop {
-            let resp = handle(State(conf.clone()), api::Json(vec![req.clone()])).await.expect("unable to make request");
+            let resp = handle_json(State(conf.clone()), api::Json(vec![req.clone()])).await.expect("unable to make request");
             yield Ok(SSEvent::default().json_data(resp.0).expect("unable to seralize json"));
             req.block_height = Some(rx.recv().await.expect("unable to receive new block update"));
         }
@@ -54,7 +61,7 @@ pub struct Response {
     pub result: Vec<Rows>,
 }
 
-pub async fn handle(
+pub async fn handle_json(
     State(state): State<Arc<api::Config>>,
     api::Json(req): api::Json<Vec<Request>>,
 ) -> Result<Json<Response>, api::Error> {
