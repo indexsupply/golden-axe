@@ -66,12 +66,24 @@
                 font-size: large;
                 font-family: monospace;
             }
+            #query-options {
+                display: flex;
+                flex-direction: row;
+                justify-content: space-between;
+            }
+            .query-options-left {
+                display: flex;
+                flex-direction: row;
+                gap: 20px;
+            }
+            .query-options-right {
+                width: 10%;
+            }
+            .query-options-right input {
+                width: 100%;
+            }
             #live-query {
                 padding-bottom: 1px;
-            }
-            #request input[type="submit"] {
-                float: right;
-                width: 10%;
             }
             #stats {
                 display: none;
@@ -153,9 +165,27 @@
                     placeholder="SQL Query"
                     autofocus
                 >select block_num, tx_hash, "from", "to", tokens from transfer limit 5</textarea>
-                <input type="submit" value="Submit" />
-                <label for="live-query"> Live Query</label>
-                <input type="checkbox" id="live-query" checked />
+                <div id="query-options">
+                    <div class="query-options-left">
+                        <div>
+                            <label for="live-query">Live Query</label>
+                            <input type="checkbox" id="live-query" checked />
+                        </div>
+                        <div>
+                            <label for="chain-selection">Chain</label>
+                            <select name="chain-selection">
+                                <option value="8543">Base</option>
+                                <option value="85432">Base Sepolia</option>
+                                <option value="1">Eth</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="query-options-right">
+                        <div>
+                            <input type="submit" value="Submit" />
+                        </div>
+                    </div>
+                </div>
             </form>
             <div id="stats">
                 <span>Last Block:</span>
@@ -228,6 +258,12 @@
         let sseHandler = {};
         let blockHeight = 0;
 
+        function apiURL(path, params = new URLSearchParams()) {
+          let chain = document.querySelector('select[name="chain-selection"]').value;
+          params.set("chain", chain);
+          return `https://api.indexsupply.net${path}?${params}`
+        };
+
         function updateStats(height, nrows) {
             document.getElementById("stats").style.display = "block";
             blockHeight = height;
@@ -262,8 +298,7 @@
             eventSigs.forEach((sig) => {
                 params.append("event_signatures", sig);
             });
-            let queryParams = params.toString();
-            sseHandler = new EventSource(`https://api.indexsupply.net/query-live?${queryParams}`);
+            sseHandler = new EventSource(apiURL("/query-live", params));
             sseHandler.onmessage = function (event) {
                 let data = JSON.parse(event.data);
                 let newHeight = data["block_height"];
@@ -295,7 +330,7 @@
             closeHandler();
             const eventSigs = getEventSigs();
             const query = getQuery();
-            const response = await fetch("https://api.indexsupply.net/query", {
+            const response = await fetch(apiURL("/query"), {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
