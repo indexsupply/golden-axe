@@ -175,7 +175,7 @@
         <div id="plan">
             <h2>Plan</h2>
             <div id="menu">
-                <div class="option selected" name="indie">
+                <div class="option" name="indie">
                     <h3>Indie</h3>
                     <ul>
                         <li>2 Chains</li>
@@ -391,7 +391,15 @@
 
       document.addEventListener("DOMContentLoaded", () => {
         addCard();
+
+        {{#if plan }}
+        const planChains = {{ plan.chains }};
         setCurrentPlan("{{ plan.name }}");
+        {{ else }}
+        const planChains = [];
+        setCurrentPlan("indie");
+        {{/if}}
+
 
         document
           .getElementById("show-new-card")
@@ -423,12 +431,6 @@
             selectOption(div, event);
           })
         });
-
-        {{#if plan }}
-        const planChains = {{ plan.chains }};
-        {{ else }}
-        const planChains = [];
-        {{/if}}
 
         document.querySelectorAll('#chain-selection input[type="checkbox"]').forEach(div => {
           if (planChains.includes(Number(div.value))) {
