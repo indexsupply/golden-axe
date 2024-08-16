@@ -20,6 +20,12 @@
             color: blue;
             text-decoration: none;
         }
+        .header img {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 30px;
+        }
         .navigation {
             padding-top: 5px;
             font-size: large;
@@ -141,6 +147,9 @@
         </style>
     </head>
     <body>
+        <div class="header">
+            <img src="https://indexsupply.net/beta.png" />
+        </div>
         <div class="navigation">
             <div>
                 {{#each flash }}

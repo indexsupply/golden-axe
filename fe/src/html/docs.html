@@ -25,6 +25,12 @@
                 flex-wrap: wrap;
                 flex-direction: row;
             }
+            a,
+            a:link,
+            a:visited {
+                color: blue;
+                text-decoration: none;
+            }
             nav {
                 position: fixed;
                 width: 200px;
@@ -38,12 +44,6 @@
                 display: flex;
                 flex-direction: row;
                 justify-content: space-between;
-            }
-            header a,
-            header a:link,
-            header a:visited {
-                color: blue;
-                text-decoration: none;
             }
             footer {
                 font-size: small;
@@ -71,12 +71,6 @@
             h3.reference {
                 border-top: 0.5px solid black;
                 padding-top: 5px;
-            }
-            a:link {
-                color: #24303d;
-            }
-            a:visited {
-                color: #24303d;
             }
             img {
                 background: transparent;
@@ -121,33 +115,6 @@
             #config-object-list li a {
                 text-decoration: none;
             }
-            @media (prefers-color-scheme: dark) {
-                body {
-                    background-color: rgb(40, 40, 41);
-                    color: rgb(220, 220, 220);
-                }
-                a:link {
-                    color: rgb(220, 220, 220);
-                }
-                a:visited {
-                    color: rgb(220, 220, 220);
-                }
-                img {
-                    background-color: whitesmoke;
-                }
-                pre {
-                    background-color: #202020;
-                }
-                th {
-                    background-color: #202020;
-                }
-                tr:nth-child(even) {
-                    background-color: #202020;
-                }
-                h3.reference {
-                    border-top: 0.5px solid whitesmoke;
-                }
-            }
             @media only screen and (max-width: 700px) {
                 nav {
                     position: static;
@@ -157,9 +124,18 @@
                     margin: 0;
                 }
             }
+            .header img {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 30px;
+            }
         </style>
     </head>
     <body>
+        <div class="header">
+            <img src="https://indexsupply.net/beta.png" />
+        </div>
         <nav>
             <header><h1>SQL API</h1></header>
             <span>Overview</span>
