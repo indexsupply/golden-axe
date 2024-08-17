@@ -121,7 +121,7 @@ impl Downloader {
             .wrap_err("unable to init blocks table")
     }
 
-    #[tracing::instrument(level="debug" skip_all fields(start, end, logs))]
+    #[tracing::instrument(level="info" skip_all fields(start, end, logs))]
     async fn download(&self, batch_size: u64) -> Result<u64, Error> {
         let mut pg = self.pg_pool.get().await.wrap_err("pg pool")?;
         let pgtx = pg.transaction().await?;
@@ -152,7 +152,6 @@ impl Downloader {
         .await?;
         pgtx.commit().await.wrap_err("unable to commit tx")?;
         tracing::Span::current().record("logs", num_copied);
-        tracing::info!(local = start, logs = num_copied);
         Ok(end)
     }
 

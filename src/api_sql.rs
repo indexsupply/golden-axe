@@ -79,7 +79,7 @@ pub async fn handle_json(
             r.event_signatures.iter().map(|s| s.as_str()).collect(),
             r.block_height,
         )?;
-        tracing::debug!("query: {}", query);
+        tracing::info!("query: {}", query);
         res.push(handle_rows(pgtx.query(&query, &[]).await?)?);
     }
     Ok(Json(Response {
