@@ -180,7 +180,7 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5</textarea
                         </div>
                         <div>
                             <label for="chain-selection">Chain</label>
-                            <select name="chain-selection">
+                            <select id="chain-selection">
                                 <option value="8543">Base</option>
                                 <option value="85432">Base Sepolia</option>
                             </select>
@@ -262,9 +262,7 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5</textarea
         let blockHeight = 0;
 
         function apiURL(path, params = new URLSearchParams()) {
-            let chain = document.querySelector(
-                'select[name="chain-selection"]',
-            ).value;
+            let chain = document.getElementById("chain-selection").value;
             params.set("chain", chain);
             return `{{ api_url }}${path}?${params}`;
         }
@@ -368,13 +366,15 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5</textarea
         }
 
         function form2queryParams() {
-            let query = document.getElementById("query").value;
-            let eventSigs = document.getElementById("events").value.split("\n");
             let params = new URLSearchParams();
+            let query = document.getElementById("query").value;
             params.append("query", query);
+            let eventSigs = document.getElementById("events").value.split("\n");
             eventSigs.forEach((sig) => {
                 params.append("event_signatures", sig);
             });
+            let chain = document.getElementById("chain-selection").value;
+            params.set("chain", chain);
             return params;
         }
 
@@ -386,15 +386,34 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5</textarea
             return url.searchParams.toString();
         }
 
+        function setOrAddChain(chain) {
+            let select = document.getElementById("chain-selection");
+            Array.from(select.options).forEach((opt, i) => {
+                if (opt.value === chain) {
+                    select.selectedIndex = i;
+                    return;
+                }
+            });
+            let opt = document.createElement("option");
+            opt.value = chain;
+            opt.text = chain;
+            select.add(opt);
+            select.value = chain;
+        }
+
         function url2form() {
             const params = new URLSearchParams(window.location.search);
-            let eventSigs = params.getAll("event_signatures");
             let query = params.get("query");
             if (query) {
                 document.getElementById("query").value = query;
             }
+            let eventSigs = params.getAll("event_signatures");
             if (eventSigs.length > 0) {
                 document.getElementById("events").value = eventSigs.join("\n");
+            }
+            let chain = params.get("chain");
+            if (chain) {
+                setOrAddChain(chain);
             }
         }
 
