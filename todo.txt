@@ -10,6 +10,7 @@
 - llm sql generator
 - add card spinner
 - index OP Main
+- identify spam logs
 
 x domain name
 x stripe payments
