@@ -1,5 +1,6 @@
 ssh ubuntu@ga-base-sep-1 'bash -l -c "cd golden-axe && git pull && cargo build --release"'
 ssh ubuntu@ga-base-sep-1 'sudo systemctl restart ga'
+ssh ubuntu@ga-base-sep-1 'sudo systemctl status ga'
 
 read -p "continue?: " input
 if [ "$input" != "y" ]; then
@@ -8,3 +9,4 @@ fi
 
 ssh ubuntu@ga-base-1 'bash -l -c "cd golden-axe && git pull && cargo build --release"'
 ssh ubuntu@ga-base-1 'sudo systemctl restart ga'
+ssh ubuntu@ga-base-1 'sudo systemctl status ga'
