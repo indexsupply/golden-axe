@@ -283,7 +283,9 @@ impl EventRegistry {
 
     fn validate_function(&mut self, function: &ast::Function) -> Result<(), api::Error> {
         let name = function.name.to_string().to_lowercase();
-        if name != "sum" && name != "count" {
+        const VALID_FUNCS: [&str; 5] =
+            ["sum", "count", "abi_fixed_bytes", "abi_address", "abi_uint"];
+        if !VALID_FUNCS.contains(&name.as_str()) {
             return no!(format!(r#"'{}' function"#, name));
         }
         match &function.args {
