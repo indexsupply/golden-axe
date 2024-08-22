@@ -71,6 +71,8 @@ pub async fn restore(pg_url: &str, args: &Args) -> eyre::Result<()> {
         .ok_or_eyre("unable to createdb")?;
     tracing::info!("restoring database: {}", db_name);
     std::process::Command::new("pg_restore")
+        .arg("-j")
+        .arg("4")
         .arg("-d")
         .arg(db_name)
         .arg(Path::new(&args.dir).join(to_filename(id)))
