@@ -1,5 +1,6 @@
 mod api;
 mod api_sql;
+mod backup;
 mod s256;
 mod sql_generate;
 mod sql_test;
@@ -38,6 +39,11 @@ use url::Url;
 
 #[derive(Debug, Subcommand)]
 enum Commands {
+    #[command(name = "backup", about = "Pg_dump then upload to s3")]
+    Backup(ServerArgs),
+    #[command(name = "restore", about = "Download from s3 and then pg_restore")]
+    Restore(ServerArgs),
+
     #[command(name = "server", about = "Serve API requests and sync decoded logs")]
     Server(ServerArgs),
 
@@ -83,6 +89,9 @@ struct GlobalArgs {
 struct ServerArgs {
     #[arg(from_global)]
     address: Option<Vec<Address>>,
+
+    #[command(flatten)]
+    backup: backup::Args,
 
     #[arg(from_global)]
     events_file: Option<String>,
@@ -140,6 +149,8 @@ async fn main() -> Result<(), api::Error> {
 
     let args = GlobalArgs::parse();
     match args.command {
+        Some(Commands::Backup(args)) => backup::run(&args.pg_url, &args.backup).await?,
+        Some(Commands::Restore(args)) => backup::restore(&args.pg_url, &args.backup).await?,
         Some(Commands::PrintView(args)) => api_sql::cli::print_view(&args)?,
         Some(Commands::Query(args)) => api_sql::cli::request(&reqwest::Client::new(), args).await?,
         Some(Commands::Server(args)) => server(args).await?,
