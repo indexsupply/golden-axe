@@ -334,10 +334,9 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5</textarea
                 let height = data["block_height"];
                 let result = data["result"][0];
                 if (result.length > 0) {
-                    result = result.slice(0, 100);
                     resetTable();
                     addHeaderRow(result.shift());
-                    addDataRow(result);
+                    addDataRow(result.slice(0, 100));
                     updateStats(height, result.length);
                     startHandler();
                 } else {
