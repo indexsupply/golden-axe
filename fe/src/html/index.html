@@ -375,6 +375,7 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5</textarea
             });
             let chain = document.getElementById("chain-selection").value;
             params.set("chain", chain);
+            params.set("block_height", blockHeight);
             return params;
         }
 
