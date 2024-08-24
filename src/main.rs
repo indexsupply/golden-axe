@@ -87,6 +87,9 @@ struct GlobalArgs {
 
 #[derive(Parser, Debug)]
 struct ServerArgs {
+    #[arg(long, default_value = "false")]
+    skip_migrations: bool,
+
     #[arg(from_global)]
     address: Option<Vec<Address>>,
 
@@ -186,13 +189,15 @@ async fn sync(args: ServerArgs, broadcaster: Arc<api::Broadcaster>) -> Result<()
         .build()
         .expect("unable to build new ro pool");
 
-    pg_pool
-        .get()
-        .await
-        .wrap_err("getting pg conn from pool")?
-        .batch_execute(SCHEMA)
-        .await
-        .unwrap();
+    if !args.skip_migrations {
+        pg_pool
+            .get()
+            .await
+            .wrap_err("getting pg conn from pool")?
+            .batch_execute(SCHEMA)
+            .await
+            .unwrap();
+    }
 
     let eth_client = ProviderBuilder::new().on_http(args.eth_url.clone());
     let start = match args.start_block {
