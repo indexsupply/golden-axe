@@ -1,3 +1,6 @@
+create table if not exists config (chain_id bigint);
+create unique index on config(chain_id);
+
 create table if not exists blocks(
 	chain_id bigint,
 	num numeric,

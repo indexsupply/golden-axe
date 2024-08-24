@@ -5,6 +5,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use alloy::primitives::U64;
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::{
     primitives::ByteStream,
@@ -39,17 +40,23 @@ pub struct Args {
     window: humantime::Duration,
 
     key: Option<String>,
+
+    #[clap(long = "chain-id", help = "used for restoring a particular chain")]
+    chain_id: Option<u64>,
 }
 
 #[tracing::instrument(skip_all, fields(id))]
 pub async fn restore(pg_url: &str, args: &Args) -> eyre::Result<()> {
     let config: tokio_postgres::Config = pg_url.parse().expect("unable to parse pg_url");
     let db_name = config.get_dbname().expect("unable to parse dbname");
+    let chain_id = args
+        .chain_id
+        .unwrap_or_else(|| panic!("restore requires a chain-id"));
     let s3 = aws_sdk_s3::Client::new(&aws_config::load_defaults(BehaviorVersion::latest()).await);
     let id = if let Some(key) = &args.key {
-        from_filename(key).ok_or(eyre!("unable to find backup id for: {}", key))?
+        from_filename(chain_id, key).ok_or(eyre!("unable to find backup id for: {}", key))?
     } else {
-        remote_backups(&s3, &args.bucket)
+        remote_backups(chain_id, &s3, &args.bucket)
             .await?
             .into_iter()
             .last()
@@ -59,10 +66,10 @@ pub async fn restore(pg_url: &str, args: &Args) -> eyre::Result<()> {
     let resp = s3
         .get_object()
         .bucket(&args.bucket)
-        .key(to_filename(id))
+        .key(to_filename(chain_id, id))
         .send()
         .await?;
-    let mut file = File::create(Path::new(&args.dir).join(to_filename(id))).await?;
+    let mut file = File::create(Path::new(&args.dir).join(to_filename(chain_id, id))).await?;
     let mut body = resp.body;
     while let Some(data) = body.next().await {
         file.write_all(&(data?)).await?;
@@ -83,7 +90,7 @@ pub async fn restore(pg_url: &str, args: &Args) -> eyre::Result<()> {
         .arg("4")
         .arg("-d")
         .arg(db_name)
-        .arg(Path::new(&args.dir).join(to_filename(id)))
+        .arg(Path::new(&args.dir).join(to_filename(chain_id, id)))
         .stdout(Stdio::piped())
         .spawn()?
         .wait_with_output()?
@@ -108,39 +115,45 @@ pub async fn run(pg_url: &str, args: &Args) -> eyre::Result<()> {
         }
     });
     pg.query("select pg_advisory_lock(2)", &[]).await?;
+    let chain_id: u64 = pg
+        .query_one("select chain_id from config", &[])
+        .await?
+        .get::<usize, U64>(0)
+        .to();
 
-    let local = local_backups(&args.dir)
+    let local = local_backups(chain_id, &args.dir)
         .await
         .wrap_err("loading local backups")?;
     match local.into_iter().last() {
         Some(last) if now() - last > args.window.as_secs() => {
             tracing::info!("local backup needed. last: {}", since(last));
-            pgdump(&args.dir, pg_url)?;
+            pgdump(chain_id, &args.dir, pg_url)?;
         }
         Some(last) => {
             tracing::info!("local backup up to date. last: {}", since(last))
         }
         None => {
             tracing::info!("no local backups");
-            pgdump(&args.dir, pg_url)?;
+            pgdump(chain_id, &args.dir, pg_url)?;
         }
     };
-    let last_local = local_backups(&args.dir)
+    let last_local = local_backups(chain_id, &args.dir)
         .await
         .wrap_err("loading last local backup")?
         .into_iter()
         .last()
         .expect("missing local backup");
-    let remote = remote_backups(&s3, &args.bucket)
+    let remote = remote_backups(chain_id, &s3, &args.bucket)
         .await
         .wrap_err("loading remote backups")?;
     match remote.into_iter().last() {
         Some(last_remote) if last_local > last_remote => {
             tracing::info!("remote is behind local");
             multipart_upload(
+                chain_id,
                 &s3,
                 &args.bucket,
-                &Path::new(&args.dir).join(to_filename(last_local)),
+                &Path::new(&args.dir).join(to_filename(chain_id, last_local)),
             )
             .await
             .wrap_err("uplading backup")?;
@@ -151,19 +164,20 @@ pub async fn run(pg_url: &str, args: &Args) -> eyre::Result<()> {
         None => {
             tracing::info!("no remote backups");
             multipart_upload(
+                chain_id,
                 &s3,
                 &args.bucket,
-                &Path::new(&args.dir).join(to_filename(last_local)),
+                &Path::new(&args.dir).join(to_filename(chain_id, last_local)),
             )
             .await
             .wrap_err("uploading backup")?;
         }
     }
-    local_cleanup(&args.dir).await
+    local_cleanup(chain_id, &args.dir).await
 }
 
 #[tracing::instrument(skip_all, fields(id))]
-fn pgdump(dir: &str, database_url: &str) -> Result<u64> {
+fn pgdump(cid: u64, dir: &str, database_url: &str) -> Result<u64> {
     let id = now();
     tracing::Span::current().record("id", id);
     tracing::info!("starting pg_dump");
@@ -172,7 +186,7 @@ fn pgdump(dir: &str, database_url: &str) -> Result<u64> {
         .arg("-F")
         .arg("c")
         .arg("-f")
-        .arg(Path::new(dir).join(to_filename(id)))
+        .arg(Path::new(dir).join(to_filename(cid, id)))
         .stdout(Stdio::piped())
         .spawn()?
         .wait_with_output()?
@@ -194,21 +208,23 @@ fn now() -> u64 {
         .as_secs()
 }
 
-fn to_filename(id: u64) -> String {
-    format!("ga-backup-{}", id)
+fn to_filename(cid: u64, id: u64) -> String {
+    format!("ga-backup-{}-{}", cid, id)
 }
 
-fn from_filename(name: &str) -> Option<u64> {
-    name.strip_prefix("ga-backup-")?.parse::<u64>().ok()
+fn from_filename(cid: u64, name: &str) -> Option<u64> {
+    name.strip_prefix(&format!("ga-backup-{}-", cid))?
+        .parse::<u64>()
+        .ok()
 }
 
 #[tracing::instrument(skip_all)]
-async fn local_backups(dir: &str) -> Result<Vec<u64>> {
+async fn local_backups(cid: u64, dir: &str) -> Result<Vec<u64>> {
     let mut res = Vec::new();
     let mut paths = fs::read_dir(dir).await?;
     while let Some(entry) = paths.next_entry().await? {
         if let Some(file) = entry.path().file_stem().unwrap().to_str() {
-            if let Some(id) = from_filename(file) {
+            if let Some(id) = from_filename(cid, file) {
                 res.push(id)
             }
         }
@@ -218,13 +234,13 @@ async fn local_backups(dir: &str) -> Result<Vec<u64>> {
 }
 
 #[tracing::instrument(skip_all, fields(deleted))]
-async fn local_cleanup(dir: &str) -> Result<()> {
-    let backups = local_backups(dir).await?;
+async fn local_cleanup(cid: u64, dir: &str) -> Result<()> {
+    let backups = local_backups(cid, dir).await?;
     let num_backups = backups.len();
     if num_backups > 1 {
         assert!(backups.windows(2).all(|b| b[0] <= b[1]));
         for id in backups.into_iter().take(num_backups - 1) {
-            let path = Path::new(dir).join(to_filename(id));
+            let path = Path::new(dir).join(to_filename(cid, id));
             tracing::info!(id, "deleting");
             fs::remove_file(path).await?;
         }
@@ -234,7 +250,7 @@ async fn local_cleanup(dir: &str) -> Result<()> {
 }
 
 #[tracing::instrument(skip_all, fields(bucket))]
-async fn remote_backups(client: &Client, bucket: &str) -> Result<Vec<u64>> {
+async fn remote_backups(cid: u64, client: &Client, bucket: &str) -> Result<Vec<u64>> {
     let mut res = Vec::new();
     let mut response = client
         .list_objects_v2()
@@ -248,7 +264,7 @@ async fn remote_backups(client: &Client, bucket: &str) -> Result<Vec<u64>> {
             Some(part) => {
                 for object in part.wrap_err("unable to read part")?.contents() {
                     let key = object.key().expect("missing key");
-                    if let Some(id) = from_filename(key) {
+                    if let Some(id) = from_filename(cid, key) {
                         res.push(id)
                     }
                 }
@@ -261,6 +277,7 @@ async fn remote_backups(client: &Client, bucket: &str) -> Result<Vec<u64>> {
 
 #[tracing::instrument(skip_all, fields(id))]
 pub async fn upload_backup(
+    cid: u64,
     client: &aws_sdk_s3::Client,
     bucket_name: &str,
     file: &Path,
@@ -270,7 +287,7 @@ pub async fn upload_backup(
         .expect("unable to get file name from path")
         .to_str()
         .expect("unable to convert file name to str");
-    tracing::Span::current().record("id", from_filename(id));
+    tracing::Span::current().record("id", from_filename(cid, id));
     client
         .put_object()
         .bucket(bucket_name)
@@ -288,6 +305,7 @@ pub async fn upload_backup(
 
 #[tracing::instrument(skip_all, fields(key))]
 pub async fn multipart_upload(
+    cid: u64,
     client: &aws_sdk_s3::Client,
     bucket: &str,
     file: &Path,
@@ -297,7 +315,7 @@ pub async fn multipart_upload(
         .expect("unable to get file name from path")
         .to_str()
         .expect("unable to convert file name to str");
-    tracing::Span::current().record("key", from_filename(key));
+    tracing::Span::current().record("key", from_filename(cid, key));
 
     let file_size = tokio::fs::metadata(file).await?.len();
     if file_size == 0 {
@@ -403,12 +421,12 @@ mod tests {
 
     #[test]
     fn test_from_filename() {
-        assert!(from_filename("").is_none());
-        assert!(from_filename("ga-backup").is_none());
-        assert!(from_filename("ga-backup-foo").is_none());
+        assert!(from_filename(0, "").is_none());
+        assert!(from_filename(0, "ga-backup").is_none());
+        assert!(from_filename(0, "ga-backup-foo").is_none());
         assert_eq!(
             1721432878,
-            from_filename("ga-backup-1721432878").expect("unable to parse time")
+            from_filename(85432, "ga-backup-85432-1721432878").expect("unable to parse time")
         );
     }
 }

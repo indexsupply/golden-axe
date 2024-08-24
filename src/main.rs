@@ -10,8 +10,8 @@ mod sync;
 use std::{future::ready, sync::Arc, time::Duration};
 
 use alloy::{
-    primitives::Address,
-    providers::ProviderBuilder,
+    primitives::{Address, U64},
+    providers::{Provider, ProviderBuilder},
     rpc::types::eth::{BlockNumberOrTag, Filter},
 };
 use axum::{
@@ -199,6 +199,17 @@ async fn sync(args: ServerArgs, broadcaster: Arc<api::Broadcaster>) -> Result<()
         Some(n) => BlockNumberOrTag::Number(n),
         None => BlockNumberOrTag::Latest,
     };
+    let chain_id = eth_client.get_chain_id().await?;
+    pg_pool
+        .get()
+        .await
+        .wrap_err("getting pg conn from pool")?
+        .execute(
+            "insert into config(chain_id) values($1) on conflict (chain_id) do nothing",
+            &[&U64::from(chain_id)],
+        )
+        .await
+        .wrap_err("inserting chain id into config")?;
 
     match api_sql::cli::parse_events(&args.events_file, &args.event)? {
         Some(events) => {
