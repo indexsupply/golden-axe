@@ -160,3 +160,8 @@ begin
     return result;
 end;
 $$ language plpgsql;
+
+create or replace function h2s(input bytea) returns text
+    language sql immutable
+    returns null on null input
+    return convert_from(rtrim(input, '\x00'), 'UTF8');
