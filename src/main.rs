@@ -75,9 +75,6 @@ struct GlobalArgs {
 
 #[derive(Parser, Debug)]
 struct ServerArgs {
-    #[arg(long, default_value = "false")]
-    skip_migrations: bool,
-
     #[command(flatten)]
     backup: backup::Args,
 
@@ -113,7 +110,7 @@ struct ServerArgs {
     )]
     eth_url: Url,
 }
-static SCHEMA: &str = include_str!("./schema.sql");
+static SCHEMA: &str = include_str!("./sql/schema.sql");
 
 #[tokio::main]
 async fn main() -> Result<(), api::Error> {
@@ -155,16 +152,13 @@ async fn sync(args: ServerArgs) -> Result<Downloader> {
         .max_size(16)
         .build()
         .expect("unable to build new ro pool");
-
-    if !args.skip_migrations {
-        pg_pool
-            .get()
-            .await
-            .wrap_err("getting pg conn from pool")?
-            .batch_execute(SCHEMA)
-            .await
-            .unwrap();
-    }
+    pg_pool
+        .get()
+        .await
+        .wrap_err("getting pg conn from pool")?
+        .batch_execute(SCHEMA)
+        .await
+        .unwrap();
 
     let eth_client = ProviderBuilder::new().on_http(args.eth_url.clone());
     let start = match args.start_block {

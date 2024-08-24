@@ -4,7 +4,7 @@ mod pl_pgsql_test {
     use postgresql_embedded::{PostgreSQL, Settings, Version};
     use tokio_postgres::{Client, NoTls};
 
-    static SCHEMA: &str = include_str!("./schema.sql");
+    static SCHEMA: &str = include_str!("./sql/schema.sql");
 
     async fn test_pg() -> (PostgreSQL, Client) {
         let pg_settings = Settings {
