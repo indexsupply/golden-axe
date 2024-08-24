@@ -2133,6 +2133,7 @@ dependencies = [
  "async-stream",
  "aws-config",
  "aws-sdk-s3",
+ "aws-smithy-types",
  "axum",
  "axum-extra",
  "clap",

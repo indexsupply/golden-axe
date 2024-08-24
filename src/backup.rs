@@ -1,18 +1,26 @@
 use std::{
     path::Path,
     process::Stdio,
+    sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use aws_config::BehaviorVersion;
-use aws_sdk_s3::{primitives::ByteStream, Client};
+use aws_sdk_s3::{
+    primitives::ByteStream,
+    types::{CompletedMultipartUpload, CompletedPart},
+    Client,
+};
+use aws_smithy_types::byte_stream::Length;
 use clap::Parser;
-use eyre::{eyre, Context, OptionExt, Result};
+use eyre::{eyre, Context, ContextCompat, OptionExt, Result};
+use futures::future::join_all;
 use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
 use postgres_openssl::MakeTlsConnector;
 use tokio::{
     fs::{self, File},
     io::AsyncWriteExt,
+    sync::Semaphore,
 };
 
 #[derive(Debug, Parser)]
@@ -20,7 +28,7 @@ pub struct Args {
     #[clap(
         long = "backup-bucket",
         env = "GA_BACKUP_BUCKET",
-        default_value = "ga-pg-backups"
+        default_value = "ga-pg-backup"
     )]
     bucket: String,
 
@@ -129,7 +137,7 @@ pub async fn run(pg_url: &str, args: &Args) -> eyre::Result<()> {
     match remote.into_iter().last() {
         Some(last_remote) if last_local > last_remote => {
             tracing::info!("remote is behind local");
-            upload_backup(
+            multipart_upload(
                 &s3,
                 &args.bucket,
                 &Path::new(&args.dir).join(to_filename(last_local)),
@@ -142,7 +150,7 @@ pub async fn run(pg_url: &str, args: &Args) -> eyre::Result<()> {
         }
         None => {
             tracing::info!("no remote backups");
-            upload_backup(
+            multipart_upload(
                 &s3,
                 &args.bucket,
                 &Path::new(&args.dir).join(to_filename(last_local)),
@@ -276,6 +284,117 @@ pub async fn upload_backup(
         .await
         .wrap_err("unable to upload backup")?;
     Ok(())
+}
+
+#[tracing::instrument(skip_all, fields(key))]
+pub async fn multipart_upload(
+    client: &aws_sdk_s3::Client,
+    bucket: &str,
+    file: &Path,
+) -> Result<()> {
+    let key = file
+        .file_name()
+        .expect("unable to get file name from path")
+        .to_str()
+        .expect("unable to convert file name to str");
+    tracing::Span::current().record("key", from_filename(key));
+
+    let file_size = tokio::fs::metadata(file).await?.len();
+    if file_size == 0 {
+        return Err(eyre!("0 bytes in file {:?}", file));
+    }
+
+    // S3 Upload Limits:
+    // https://docs.aws.amazon.com/AmazonS3/latest/userguide/qfacts.html
+    //
+    // Maximum object size: 5 TiB
+    // Maximum number of parts per upload: 10,000
+    // Part numbers	1 to 10,000 (inclusive)
+    // Part size: 5 MiB to 5 GiB. There is no minimum size limit on the last part of your multipart upload.
+    // Maximum number of parts returned for a list parts request: 1000
+    // Maximum number of multipart uploads returned in a list multipart uploads request: 1000
+    const PART_SIZE: u64 = 5 * 1024 * 1024 * 1024; //5GiB
+    let parts = file_size.div_ceil(PART_SIZE);
+    tracing::info!(file_size, parts, bucket, key);
+
+    let upload = client
+        .create_multipart_upload()
+        .bucket(bucket)
+        .key(key)
+        .send()
+        .await?;
+    let upload_id = upload
+        .upload_id()
+        .wrap_err("creating multipart upload id")?;
+
+    // run at most 10 upload parts. I'm not sure that this number is ideal
+    // but it seems good to have some limit here.
+    let semaphore = Arc::new(Semaphore::new(10));
+    let mut tasks: Vec<_> = vec![];
+    for i in 0..parts {
+        let length = if i + 1 == parts {
+            PART_SIZE.min(file_size % PART_SIZE)
+        } else {
+            PART_SIZE
+        };
+        let stream = ByteStream::read_from()
+            .path(file)
+            .offset(i * PART_SIZE)
+            .length(Length::Exact(length))
+            .build()
+            .await?;
+        let semaphore = semaphore.clone();
+        let client = client.clone();
+        let bucket = bucket.to_string();
+        let key = key.to_string();
+        let part_number = (i as i32) + 1; //part_numher is 1-indexed
+        let upload_id = upload_id.to_string();
+        tasks.push(tokio::task::spawn(async move {
+            let _permit = semaphore.acquire().await.unwrap();
+            upload_part(&client, &bucket, &key, &upload_id, part_number, stream).await
+        }));
+    }
+    let results: Vec<CompletedPart> = join_all(tasks)
+        .await
+        .into_iter()
+        .map(|part| part?)
+        .collect::<Result<Vec<_>, _>>()?;
+    let completed_multipart_upload: CompletedMultipartUpload = CompletedMultipartUpload::builder()
+        .set_parts(Some(results))
+        .build();
+    client
+        .complete_multipart_upload()
+        .bucket(bucket)
+        .key(key)
+        .multipart_upload(completed_multipart_upload)
+        .upload_id(upload_id)
+        .send()
+        .await?;
+    Ok(())
+}
+
+#[tracing::instrument(skip(client, stream))]
+async fn upload_part(
+    client: &aws_sdk_s3::Client,
+    bucket: &str,
+    key: &str,
+    upload_id: &str,
+    part_number: i32,
+    stream: ByteStream,
+) -> Result<CompletedPart> {
+    let res = client
+        .upload_part()
+        .key(key)
+        .bucket(bucket)
+        .upload_id(upload_id)
+        .body(stream)
+        .part_number(part_number)
+        .send()
+        .await?;
+    Ok(CompletedPart::builder()
+        .e_tag(res.e_tag.unwrap_or_default())
+        .part_number(part_number)
+        .build())
 }
 
 #[cfg(test)]
