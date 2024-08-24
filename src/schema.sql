@@ -2,7 +2,6 @@ create table if not exists config (chain_id bigint);
 create unique index on config(chain_id);
 
 create table if not exists blocks(
-	chain_id bigint,
 	num numeric,
 	topic bytea,
 	hash bytea,
@@ -10,7 +9,6 @@ create table if not exists blocks(
 );
 
 create unlogged table if not exists logs (
-	chain_id bigint,
 	block_num numeric,
 	tx_hash bytea,
 	log_idx int4,
