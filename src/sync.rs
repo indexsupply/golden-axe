@@ -309,7 +309,7 @@ async fn copy(pgtx: &Transaction<'_>, logs: Vec<Log>) -> Result<u64> {
         )
         from stdin binary
     ";
-    let sink = pgtx.copy_in(Q).await.wrap_err("unable to start copy in")?;
+    let sink = pgtx.copy_in(Q).await.expect("unable to start copy in");
     let writer = BinaryCopyInWriter::new(
         sink,
         &[

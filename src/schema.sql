@@ -21,7 +21,7 @@ create index if not exists logs_address_topic_idx on logs(block_num desc, addres
 create index if not exists logs_topic_idx on logs(block_num desc, (topics[1]));
 
 create extension if not exists btree_gin;
-create index if not exists logs_block_num_address_topics_idx on logs using gin (block_num desc, address, topics);
+create index if not exists logs_block_num_address_topics_idx on logs using gin (block_num, address, topics);
 
 create or replace function b2i(data bytea) returns int4 as $$
 declare

@@ -7,10 +7,14 @@ mod sql_test;
 mod sql_validate;
 mod sync;
 
-use std::{future::ready, sync::Arc, time::Duration};
+use std::{
+    future::{ready, IntoFuture},
+    sync::Arc,
+    time::Duration,
+};
 
 use alloy::{
-    primitives::{Address, U64},
+    primitives::U64,
     providers::{Provider, ProviderBuilder},
     rpc::types::eth::{BlockNumberOrTag, Filter},
 };
@@ -58,23 +62,7 @@ enum Commands {
 #[command(name = "ga", about = "The final indexer", version = "0.1")]
 struct GlobalArgs {
     #[command(subcommand)]
-    command: Option<Commands>,
-
-    #[arg(short, long, global = true, env = "ADDRESS")]
-    address: Option<Vec<Address>>,
-
-    #[arg(short, long, global = true, help = "human readable abi signature")]
-    event: Option<String>,
-
-    #[arg(
-        long,
-        short = 'f',
-        env = "EVENTS_FILE",
-        global = true,
-        help = "newline separated, human-readable abi signatures"
-    )]
-    events_file: Option<String>,
-
+    command: Commands,
     #[clap(
         long = "url",
         global = true,
@@ -90,17 +78,8 @@ struct ServerArgs {
     #[arg(long, default_value = "false")]
     skip_migrations: bool,
 
-    #[arg(from_global)]
-    address: Option<Vec<Address>>,
-
     #[command(flatten)]
     backup: backup::Args,
-
-    #[arg(from_global)]
-    events_file: Option<String>,
-
-    #[arg(from_global)]
-    event: Option<String>,
 
     #[arg(long, env = "START_BLOCK")]
     start_block: Option<u64>,
@@ -152,28 +131,16 @@ async fn main() -> Result<(), api::Error> {
 
     let args = GlobalArgs::parse();
     match args.command {
-        Some(Commands::Backup(args)) => backup::run(&args.pg_url, &args.backup).await?,
-        Some(Commands::Restore(args)) => backup::restore(&args.pg_url, &args.backup).await?,
-        Some(Commands::PrintView(args)) => api_sql::cli::print_view(&args)?,
-        Some(Commands::Query(args)) => api_sql::cli::request(&reqwest::Client::new(), args).await?,
-        Some(Commands::Server(args)) => server(args).await?,
-        None => server(ServerArgs::parse()).await?,
+        Commands::Backup(args) => backup::run(&args.pg_url, &args.backup).await?,
+        Commands::Restore(args) => backup::restore(&args.pg_url, &args.backup).await?,
+        Commands::PrintView(args) => api_sql::cli::print_view(&args)?,
+        Commands::Query(args) => api_sql::cli::request(&reqwest::Client::new(), args).await?,
+        Commands::Server(args) => server(args).await,
     }
     Ok(())
 }
 
-fn log_filter(filter: &Filter) {
-    let addresses: Vec<String> = filter.address.iter().map(|a| a.to_string()).collect();
-    let topics: Vec<Vec<String>> = filter
-        .topics
-        .iter()
-        .map(|ts| ts.iter().map(|t| t.to_string()).collect::<Vec<String>>())
-        .collect();
-    tracing::info!("addresses={:?}", addresses);
-    tracing::info!("topics={:?}", topics);
-}
-
-async fn sync(args: ServerArgs, broadcaster: Arc<api::Broadcaster>) -> Result<()> {
+async fn sync(args: ServerArgs) -> Result<Downloader> {
     let mut builder = SslConnector::builder(SslMethod::tls()).expect("tls builder");
     builder.set_verify(SslVerifyMode::NONE);
     let connector = MakeTlsConnector::new(builder.build());
@@ -215,51 +182,15 @@ async fn sync(args: ServerArgs, broadcaster: Arc<api::Broadcaster>) -> Result<()
         )
         .await
         .wrap_err("inserting chain id into config")?;
-
-    match api_sql::cli::parse_events(&args.events_file, &args.event)? {
-        Some(events) => {
-            for event in events {
-                tracing::info!("indexing: {:x}", event.selector());
-                tracing::info!("indexing: {}", event.signature());
-                let view = sql_generate::view(&event)?;
-                pg_pool
-                    .get()
-                    .await
-                    .expect("getting conn from pool")
-                    .execute(&view, &[])
-                    .await?;
-                tracing::info!("create-view: {}", event.name.to_lowercase());
-                let addrs = args.address.clone().unwrap_or_default();
-                let filter = Filter::new().event(&event.signature()).address(addrs);
-                log_filter(&filter);
-                let dl = Downloader {
-                    filter,
-                    start,
-                    pg_pool: pg_pool.clone(),
-                    eth_client: eth_client.clone(),
-                    batch_size: args.batch_size,
-                    concurrency: args.concurrency,
-                    stop: args.stop_block,
-                };
-                let broadcaster = broadcaster.clone();
-                tokio::spawn(async move { dl.run(broadcaster).await });
-            }
-        }
-        None => {
-            tracing::info!("indexing all logs");
-            let dl = Downloader {
-                filter: Filter::new(),
-                start,
-                pg_pool: pg_pool.clone(),
-                eth_client: eth_client.clone(),
-                batch_size: args.batch_size,
-                concurrency: args.concurrency,
-                stop: args.stop_block,
-            };
-            tokio::spawn(async move { dl.run(broadcaster).await });
-        }
-    }
-    Ok(())
+    Ok(Downloader {
+        filter: Filter::new(),
+        start,
+        pg_pool: pg_pool.clone(),
+        eth_client: eth_client.clone(),
+        batch_size: args.batch_size,
+        concurrency: args.concurrency,
+        stop: args.stop_block,
+    })
 }
 
 fn api_ro_pg(cstr: &str, ro_password: &str) -> Pool {
@@ -282,7 +213,7 @@ fn api_ro_pg(cstr: &str, ro_password: &str) -> Pool {
         .expect("unable to build new ro pool")
 }
 
-async fn server(args: ServerArgs) -> Result<()> {
+async fn server(args: ServerArgs) {
     let config = Arc::new(api::Config {
         pool: api_ro_pg(&args.pg_url, &args.ro_password),
         broadcaster: api::Broadcaster::new(),
@@ -336,7 +267,13 @@ async fn server(args: ServerArgs) -> Result<()> {
     let listener = tokio::net::TcpListener::bind(&args.listen)
         .await
         .expect("binding to tcp for http server");
+    let downloader = sync(args).await.expect("building downloader");
 
-    tokio::spawn(sync(args, config.broadcaster.clone()));
-    axum::serve(listener, app).await.wrap_err("serving http")
+    let res = tokio::join!(
+        axum::serve(listener, app).into_future(),
+        downloader.run(config.broadcaster.clone())
+    );
+    if let (Err(e), _) = res {
+        panic!("serving http: {}", e);
+    }
 }
