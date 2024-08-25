@@ -1,4 +1,4 @@
-create table if not exists config (chain_id bigint);
+create table if not exists config (chain_id bigint primary key);
 
 create table if not exists blocks(
 	num numeric,
