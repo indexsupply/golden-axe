@@ -277,7 +277,7 @@ select block_num, tx_hash, "from", "to", tokens from transfer limit 5</textarea
         function changeLiveQuery(event) {
             closeHandler();
             if (event.target.checked) {
-                startHandler(getEventSigs(), getQuery());
+                startHandler();
             }
         }
 
