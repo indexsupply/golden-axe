@@ -37,9 +37,8 @@ Here are the currently supported chains. Each query must be run against a single
 
 | Name                         | Id    |
 |------------------------------|-------|
-| Ethereum                     | 1     |
-| Base                         | 8543  |
-| Base Sepolia                 | 85432 |
+| Base                         | 8453  |
+| Base Sepolia                 | 84532 |
 
 Email [support@indexsupply.com](mailto:support@indexsupply.com) to request new chains.
 
