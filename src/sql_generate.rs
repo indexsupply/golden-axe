@@ -244,7 +244,7 @@ mod tests {
     #[test]
     fn test_erc20_sql() {
         check_sql(
-            vec!["Transfer(address indexed from, address indexed to, uint tokens)"],
+            vec!["\r\nTransfer(address indexed from, address indexed to, uint tokens)\r\n"],
             r#"select "from", "to", tokens from transfer"#,
             r#"
                 with transfer as (

@@ -1,5 +1,5 @@
 use alloy::json_abi::Event;
-use eyre::{eyre, Context, Result};
+use eyre::Result;
 use itertools::Itertools;
 use sqlparser::{
     ast::{self},
@@ -71,11 +71,15 @@ fn clean_ident(ident: &str) -> String {
 impl EventRegistry {
     fn new(event_sigs: Vec<&str>) -> Result<EventRegistry, api::Error> {
         let mut events = HashMap::new();
-        for sig in event_sigs {
+        let cleaned_event_sigs: Vec<&str> = event_sigs
+            .into_iter()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .collect_vec();
+        for sig in cleaned_event_sigs {
             let event: Event = sig
-                .trim()
                 .parse()
-                .wrap_err(eyre!("unable to parse event: {}", sig))?;
+                .map_err(|_| api::Error::User(format!("unable to parse event: {}", sig)))?;
             events.insert(
                 clean_ident(&event.name.to_string()),
                 Selection {
