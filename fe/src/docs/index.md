@@ -1,4 +1,4 @@
-Index Supply's SQL API is a hosted HTTP API that allows you to run SQL queries on Ethereum Event Logs. Each query must also include a set of human readable ABI signatures _(ie `Transfer(from address, to address, tokens uint)`)_. This design allows you to query any event instantaneously and without pre-configuration!
+Index Supply's SQL API is a hosted HTTP API that allows you to run SQL queries on Ethereum Event Logs. Each query must also include a set of human readable ABI signatures _(ie `Transfer(from address, to address, tokens uint)`)_. This design allows you to query any event instantaneously and without configuration!
 
 You can use this API from your backend or from the browser.
 
@@ -33,7 +33,7 @@ And the response
 
 ## Chains {#chains}
 
-Here are the currently supported chains. Each query must be run against a single chain and the chain is specified in the request params (instead of the query).
+Here are the currently supported chains. Each query must be run against a single chain and the chain is specified in the request params for `GET` requests and the `Chain` header for `POST` requests.
 
 | Name                         | Id    |
 |------------------------------|-------|
@@ -66,6 +66,27 @@ In the case of a chain reorg, clients will receive a block height that is lower 
 
 <hr>
 
+## Response {#query-response .reference}
+
+Regardless of the kind of query (ie get, post, single, batch) there is a single kind of response object returned. The response is JSON and includes the block height at which the query(s) were executed and a 3-dimensional array.
+
+```
+{
+  block_height: {},
+  result: [[[]]]
+}
+```
+
+The first array dimension maps to the number of queries submitted. In the case of `GET/query` and `GET/query-live` this outer array will always have `length=1` (meaning the result is at: `result[0]`).
+
+The second array dimension represents the number of rows returned from the query. This array can be empty (`length=0`) in the case that the query returned no rows.
+
+If a query did return a set of rows, then the second array will always contain at least 2 items. The first is an array of the column names and the rest are arrays of column values.
+
+The third array dimension represents column values. In the case of the column names, this will be an array of strings. In the case of column values, it will be an array with the following types:
+
+All inner (3rd dimension) array will have the same length.
+
 ## `GET  /query` {#get-query .reference }
 
 ### Request {#get-query-request}
@@ -97,38 +118,15 @@ GET /query-live?chain={}&sql={}&event_signatures={}
 ### Request {#post-query-request .reference}
 ```
 POST /query
+Chain: 84532
+
 [
   {
-    "sql": "{}",
-    "event_signatures": [
-      "{}",
-      "{}"
-    ]
+    "sql": "",
+    "event_signatures": [""]
   }
 ]
 ```
-
-## Response {#query-response .reference}
-
-```
-{
-  block_height: {},
-  result: [[[]]]
-}
-```
-
-Regardless of the kind of query (ie get, post, single, batch) there is a single kind of response object returned. The response is JSON and includes the block height at which the query(s) were executed and a 3-dimensional array.
-
-The first array dimension maps to the number of queries submitted. In the case of `GET/query` and `GET/query-live` this outer array will always have `length=1` (meaning the result is at: `result[0]`).
-
-The second array dimension represents the number of rows returned from the query. This array can be empty (`length=0`) in the case that the query returned no rows.
-
-If a query did return a set of rows, then the second array will always contain at least 2 items. The first is an array of the column names and the rest are arrays of column values.
-
-The third array dimension represents column values. In the case of the column names, this will be an array of strings. In the case of column values, it will be an array with the following types:
-
-All inner (3rd dimension) array will have the same length.
-
 
 ## SQL {#sql .reference}
 
