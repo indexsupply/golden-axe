@@ -162,16 +162,23 @@
                     type="text"
                     placeholder="Event Signatures"
                 >
-Transfer(address indexed from, address indexed to, uint tokens)</textarea
-                >
+NameRegistered(string name, bytes32 indexed label, address indexed owner, uint256 expires)
+                </textarea>
                 <textarea
                     id="query"
                     type="text"
                     placeholder="SQL Query"
                     autofocus
                 >
-select block_num, tx_hash, "from", "to", tokens from transfer limit 5</textarea
-                >
+select
+    tx_hash,
+    name,
+    owner
+from nameregistered
+where address = '\x4ccb0bb02fcaba27e82a56646e81d8c5bc4119a5'
+order by block_num desc
+limit 100
+                </textarea>
                 <div id="query-options">
                     <div class="query-options-left">
                         <div>
