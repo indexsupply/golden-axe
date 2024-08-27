@@ -73,6 +73,7 @@ impl EventRegistry {
         let mut events = HashMap::new();
         for sig in event_sigs {
             let event: Event = sig
+                .trim()
                 .parse()
                 .wrap_err(eyre!("unable to parse event: {}", sig))?;
             events.insert(
