@@ -263,6 +263,62 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_joins() {
+        check_sql(
+            vec!["Foo(uint a, uint b)", "Bar(uint a, uint b)"],
+            r#"select foo.b, bar.b from foo, bar where foo.a = bar.a"#,
+            r#"
+                with foo as (
+                    select
+                        block_num,
+                        tx_hash,
+                        log_idx,
+                        address,
+                        abi_uint(abi_fixed_bytes(data, 0, 32)) as a,
+                        abi_uint(abi_fixed_bytes(data, 32, 32)) as b
+                    from logs
+                    where topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
+                ),
+                bar as (
+                    select
+                        block_num,
+                        tx_hash,
+                        log_idx,
+                        address,
+                        abi_uint(abi_fixed_bytes(data, 0, 32)) as a,
+                        abi_uint(abi_fixed_bytes(data, 32, 32)) as b
+                    from logs
+                    where topics [1] = '\xde24c8e88b6d926d4bd258eddfb15ef86337654619dec5f604bbdd9d9bc188ca'
+                )
+                select foo.b, bar.b
+                from foo, bar
+                where foo.a = bar.a
+            "#,
+        );
+    }
+
+    #[test]
+    fn test_joins_with_unselected() {
+        check_sql(
+            vec!["Foo(uint a, uint b)", "Bar(uint a, uint b)"],
+            r#"select foo.b from foo"#,
+            r#"
+                with foo as (
+                    select
+                        block_num,
+                        tx_hash,
+                        log_idx,
+                        address,
+                        abi_uint(abi_fixed_bytes(data, 32, 32)) as b
+                    from logs
+                    where topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
+                )
+                select foo.b from foo
+            "#,
+        );
+    }
+
     fn check_view(event_sig: &str, want: &str) {
         let event: Event = event_sig
             .chars()

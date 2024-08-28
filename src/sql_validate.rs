@@ -93,7 +93,10 @@ impl EventRegistry {
     }
 
     fn selection(self) -> Vec<Selection> {
-        self.events.into_values().collect()
+        self.events
+            .into_values()
+            .filter(|s| !s.fields.is_empty())
+            .collect()
     }
 
     fn set_user_event_name(&mut self, event_name: &str) -> Result<(), api::Error> {
