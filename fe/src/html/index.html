@@ -378,7 +378,7 @@ limit 100
             params.append("query", query);
             let eventSigs = document.getElementById("events").value.split("\n");
             eventSigs.forEach((sig) => {
-                params.append("event_signatures", sig);
+                params.append("event_signatures", sig.trim());
             });
             let chain = document.getElementById("chain-selection").value;
             params.set("chain", chain);
