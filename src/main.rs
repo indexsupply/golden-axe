@@ -109,6 +109,9 @@ struct ServerArgs {
         default_value = "https://base-rpc.publicnode.com"
     )]
     eth_url: Url,
+
+    #[clap(long, action = clap::ArgAction::SetTrue)]
+    no_sync: bool,
 }
 static SCHEMA: &str = include_str!("./sql/schema.sql");
 
@@ -137,7 +140,10 @@ async fn main() -> Result<(), api::Error> {
     Ok(())
 }
 
-async fn sync(args: ServerArgs) -> Result<Downloader> {
+async fn sync(args: ServerArgs) -> Result<Option<Downloader>> {
+    if args.no_sync {
+        return Ok(None);
+    }
     let mut builder = SslConnector::builder(SslMethod::tls()).expect("tls builder");
     builder.set_verify(SslVerifyMode::NONE);
     let connector = MakeTlsConnector::new(builder.build());
@@ -176,7 +182,7 @@ async fn sync(args: ServerArgs) -> Result<Downloader> {
         )
         .await
         .wrap_err("inserting chain id into config")?;
-    Ok(Downloader {
+    Ok(Some(Downloader {
         filter: Filter::new(),
         start,
         pg_pool: pg_pool.clone(),
@@ -184,7 +190,7 @@ async fn sync(args: ServerArgs) -> Result<Downloader> {
         batch_size: args.batch_size,
         concurrency: args.concurrency,
         stop: args.stop_block,
-    })
+    }))
 }
 
 fn api_ro_pg(cstr: &str, ro_password: &str) -> Pool {
@@ -261,13 +267,18 @@ async fn server(args: ServerArgs) {
     let listener = tokio::net::TcpListener::bind(&args.listen)
         .await
         .expect("binding to tcp for http server");
-    let downloader = sync(args).await.expect("building downloader");
 
-    let res = tokio::join!(
-        axum::serve(listener, app).into_future(),
-        downloader.run(config.broadcaster.clone())
-    );
-    if let (Err(e), _) = res {
-        panic!("serving http: {}", e);
-    }
+    match sync(args).await.unwrap() {
+        None => axum::serve(listener, app).await.expect("serving http"),
+        Some(dl) => {
+            tracing::info!("indexing enabled!");
+            let res = tokio::join!(
+                axum::serve(listener, app).into_future(),
+                dl.run(config.broadcaster.clone())
+            );
+            if let (Err(e), _) = res {
+                panic!("serving http: {}", e);
+            }
+        }
+    };
 }
