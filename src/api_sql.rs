@@ -38,8 +38,10 @@ pub async fn handle_sse(
     let stream = async_stream::stream! {
         loop {
             let resp = handle_json(State(conf.clone()), api::Json(vec![req.clone()])).await.expect("unable to make request");
+            let last_block = resp.0.block_height;
             yield Ok(SSEvent::default().json_data(resp.0).expect("unable to seralize json"));
-            req.block_height = Some(rx.recv().await.expect("unable to receive new block update"));
+            rx.recv().await.expect("unable to receive new block update");
+            req.block_height = Some(last_block + 1);
         }
     };
     Sse::new(stream).keep_alive(KeepAlive::default())
