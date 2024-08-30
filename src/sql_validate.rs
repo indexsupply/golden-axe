@@ -285,19 +285,19 @@ impl EventRegistry {
         match left.as_mut() {
             ast::Expr::Identifier(ident) => {
                 let field_name = ident.to_string();
-                if let Some(param) = self.select_field(&field_name)? {
-                    self.rewrite_literal(right, param)?;
+                match self.select_field(&field_name)? {
+                    Some(param) if param.indexed => self.rewrite_literal(right, param),
+                    _ => Ok(()),
                 }
-                Ok(())
             }
             ast::Expr::CompoundIdentifier(idents) => {
                 if idents.len() == 2 {
                     let event_name = idents[0].to_string();
                     let field_name = idents[1].to_string();
-                    if let Some(param) = self.select_event_field(&event_name, &field_name)? {
-                        self.rewrite_literal(right, param)?;
+                    match self.select_event_field(&event_name, &field_name)? {
+                        Some(param) if param.indexed => self.rewrite_literal(right, param),
+                        _ => Ok(()),
                     }
-                    Ok(())
                 } else {
                     Err(api::Error::User(
                         "only 'event.field' format is supported".to_string(),
