@@ -113,8 +113,11 @@ fn handle_rows(rows: Vec<tokio_postgres::Row>) -> Result<Rows, api::Error> {
                     Value::Bool(b)
                 }
                 Type::NUMERIC => {
-                    let n: s256::Int = row.get(idx);
-                    Value::String(n.to_string())
+                    let n: Option<s256::Int> = row.get(idx);
+                    match n {
+                        Some(n) => Value::String(n.to_string()),
+                        None => Value::Null,
+                    }
                 }
                 Type::INT2 => {
                     let n: i16 = row.get(idx);
