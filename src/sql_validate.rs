@@ -239,11 +239,7 @@ impl EventRegistry {
         Ok(())
     }
 
-    fn rewrite_literal(
-        &mut self,
-        expr: &mut ast::Expr,
-        param: EventParam,
-    ) -> Result<(), api::Error> {
+    fn rewrite_literal(&mut self, expr: &mut ast::Expr, ty: DynSolType) -> Result<(), api::Error> {
         let data = match expr {
             ast::Expr::Value(ast::Value::SingleQuotedString(str)) => {
                 hex::decode(str.replace(r#"\x"#, "")).wrap_err("decoding hex string")?
@@ -257,7 +253,7 @@ impl EventRegistry {
             }
             _ => return Ok(()),
         };
-        match param.resolve().wrap_err("resolving abi type")? {
+        match ty {
             DynSolType::Address => {
                 *expr = ast::Expr::Value(ast::Value::SingleQuotedString(format!(
                     r#"\x000000000000000000000000{}"#,
@@ -286,7 +282,12 @@ impl EventRegistry {
             ast::Expr::Identifier(ident) => {
                 let field_name = ident.to_string();
                 match self.select_field(&field_name)? {
-                    Some(param) if param.indexed => self.rewrite_literal(right, param),
+                    Some(param) if param.indexed => {
+                        self.rewrite_literal(right, param.resolve().unwrap())
+                    }
+                    None if field_name == "address" => {
+                        self.rewrite_literal(right, DynSolType::Address)
+                    }
                     _ => Ok(()),
                 }
             }
@@ -295,7 +296,9 @@ impl EventRegistry {
                     let event_name = idents[0].to_string();
                     let field_name = idents[1].to_string();
                     match self.select_event_field(&event_name, &field_name)? {
-                        Some(param) if param.indexed => self.rewrite_literal(right, param),
+                        Some(param) if param.indexed => {
+                            self.rewrite_literal(right, param.resolve().unwrap())
+                        }
                         _ => Ok(()),
                     }
                 } else {

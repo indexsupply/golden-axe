@@ -303,6 +303,30 @@ mod tests {
     }
 
     #[test]
+    fn test_rewrite_literal_address() {
+        check_sql(
+            vec!["Transfer(address indexed from, address indexed to, uint tokens)"],
+            r#"
+                select tokens
+                from transfer
+                where address = 0x00000000000000000000000000000000deadbeef
+            "#,
+            r#"
+                with transfer as (
+                    select
+                        address,
+                        abi_uint(abi_fixed_bytes(data, 0, 32)) AS tokens
+                    from logs
+                    where topics [1] = '\xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
+                )
+                select tokens
+                from transfer
+                where address = '\x00000000000000000000000000000000000000000000000000000000deadbeef'
+            "#,
+        );
+    }
+
+    #[test]
     fn test_erc20_sql() {
         check_sql(
             vec!["\r\nTransfer(address indexed from, address indexed to, uint tokens)\r\n"],
