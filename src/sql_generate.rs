@@ -33,8 +33,17 @@ pub fn query(
 ) -> Result<String, api::Error> {
     tracing::info!(
         "event_sigs: {} user_query: {}",
-        &event_sigs.join(","),
-        user_query.trim(),
+        event_sigs
+            .iter()
+            .map(|s| s.trim())
+            .collect::<Vec<&str>>()
+            .join(","),
+        user_query
+            .trim()
+            .replace(['\n', '\t'], " ")
+            .split_whitespace()
+            .collect::<Vec<&str>>()
+            .join(" "),
     );
     let res = sql_validate::validate(user_query, event_sigs)?;
     let query: Vec<String> = vec![
