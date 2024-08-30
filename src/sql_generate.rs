@@ -321,7 +321,7 @@ mod tests {
                 )
                 select tokens
                 from transfer
-                where address = '\x00000000000000000000000000000000000000000000000000000000deadbeef'
+                where address = '\x00000000000000000000000000000000deadbeef'
             "#,
         );
     }
