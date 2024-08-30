@@ -34,7 +34,7 @@ pub fn query(
     tracing::info!(
         "event_sigs: {} user_query: {}",
         &event_sigs.join(","),
-        user_query
+        user_query.trim(),
     );
     let res = sql_validate::validate(user_query, event_sigs)?;
     let query: Vec<String> = vec![
