@@ -1,11 +1,17 @@
-use alloy::json_abi::Event;
-use eyre::Result;
-use itertools::Itertools;
-use sqlparser::{
-    ast::{self},
-    parser::Parser,
+use alloy::{
+    dyn_abi::{DynSolType, Specifier},
+    hex,
+    json_abi::{Event, EventParam},
+    primitives::U256,
+    sol_types::SolValue,
 };
-use std::collections::{HashMap, HashSet};
+use eyre::{Context, Result};
+use itertools::Itertools;
+use sqlparser::{ast, parser::Parser};
+use std::{
+    collections::{HashMap, HashSet},
+    str::FromStr,
+};
 
 use crate::api;
 
@@ -21,10 +27,18 @@ const PG: &sqlparser::dialect::PostgreSqlDialect = &sqlparser::dialect::PostgreS
 /// and validates the query against the provided event signatures.
 /// The SQL API implements onlny a subset of SQL so un-supported
 /// SQL results in an error.
-pub fn validate(user_query: &str, event_sigs: Vec<&str>) -> Result<Vec<Selection>, api::Error> {
+pub fn validate(user_query: &str, event_sigs: Vec<&str>) -> Result<RewrittenQuery, api::Error> {
     let mut reg = EventRegistry::new(event_sigs)?;
-    reg.validate(user_query)?;
-    Ok(reg.selection())
+    let new_query = reg.validate(user_query)?;
+    Ok(RewrittenQuery {
+        new_query,
+        selections: reg.selection(),
+    })
+}
+
+pub struct RewrittenQuery {
+    pub new_query: String,
+    pub selections: Vec<Selection>,
 }
 
 #[derive(Debug)]
@@ -50,12 +64,13 @@ impl Selection {
             .to_string())
     }
 
-    fn has_field(&self, field_name: &str) -> bool {
-        if ["block_num", "tx_hash", "log_idx", "address"].contains(&field_name) {
-            return true;
-        }
+    fn get_field(&self, field_name: &str) -> Option<EventParam> {
         let unquoted = field_name.replace('"', "");
-        self.event.inputs.iter().any(|inp| inp.name == unquoted)
+        self.event
+            .inputs
+            .iter()
+            .find(|inp| inp.name == unquoted)
+            .cloned()
     }
 }
 
@@ -67,6 +82,8 @@ fn clean_ident(ident: &str) -> String {
     let uncased = ident.to_lowercase();
     uncased.replace('"', "")
 }
+
+pub const METADATA: [&str; 4] = ["block_num", "tx_hash", "address", "log_idx"];
 
 impl EventRegistry {
     fn new(event_sigs: Vec<&str>) -> Result<EventRegistry, api::Error> {
@@ -96,6 +113,7 @@ impl EventRegistry {
         self.events
             .into_values()
             .filter(|s| !s.fields.is_empty())
+            .sorted_by_key(|s| s.user_event_name.to_string())
             .collect()
     }
 
@@ -115,44 +133,53 @@ impl EventRegistry {
         }
     }
 
-    fn select_event_field(&mut self, event_name: &str, field_name: &str) -> Result<(), api::Error> {
+    fn select_event_field(
+        &mut self,
+        event_name: &str,
+        field_name: &str,
+    ) -> Result<Option<EventParam>, api::Error> {
         let event = self.events.get_mut(event_name).ok_or_else(|| {
             api::Error::User(format!(
                 "unable to find event in supplied schemas: {}",
                 event_name
             ))
         })?;
-        if !event.has_field(field_name) {
-            return Err(api::Error::User(format!(
+        match event.get_field(field_name) {
+            None => Err(api::Error::User(format!(
                 "event {} has no field named {}",
                 event_name, field_name
-            )));
+            ))),
+            Some(param) => {
+                event.fields.insert(field_name.to_string());
+                Ok(Some(param))
+            }
         }
-        event.fields.insert(field_name.to_string());
-        Ok(())
     }
 
-    fn select_field(&mut self, field_name: &str) -> Result<(), api::Error> {
+    fn select_field(&mut self, field_name: &str) -> Result<Option<EventParam>, api::Error> {
         let mut selection: Vec<&mut Selection> = self
             .events
             .values_mut()
-            .filter(|s| s.has_field(field_name))
+            .filter(|s| s.get_field(field_name).is_some())
             .collect();
         match selection.len() {
-            1 => {
-                selection
-                    .first_mut()
-                    .unwrap()
-                    .fields
-                    .insert(field_name.to_string());
-                Ok(())
+            0 => {
+                if METADATA.contains(&field_name) {
+                    self.events.values_mut().for_each(|s| {
+                        s.fields.insert(field_name.to_string());
+                    });
+                    return Ok(None);
+                }
+                Err(api::Error::User(format!(
+                    r#"Unable to find an event which contains the field: '{}'"#,
+                    field_name
+                )))
             }
-            0 => Err(api::Error::User(format!(
-                r#"
-                Unable to find an event which contains the field: '{}'
-                "#,
-                field_name
-            ))),
+            1 => {
+                let event = selection.first_mut().unwrap();
+                event.fields.insert(field_name.to_string());
+                Ok(event.get_field(field_name))
+            }
             _ => Err(api::Error::User(format!(
                 "multiple events contain field: {}",
                 field_name
@@ -160,34 +187,164 @@ impl EventRegistry {
         }
     }
 
-    fn validate(&mut self, user_query: &str) -> Result<(), api::Error> {
-        let stmts =
-            Parser::parse_sql(PG, user_query).map_err(|e| api::Error::User(e.to_string()))?;
-        for stmt in stmts.iter() {
-            match stmt {
-                ast::Statement::Query(q) => self.validate_query(q),
-                _ => Err(api::Error::User("select queries only".to_string())),
-            }?;
-        }
+    fn rewrite_select_item(&mut self, item: &mut ast::SelectItem) -> Result<(), api::Error> {
+        let (expr, alias) = match item {
+            ast::SelectItem::UnnamedExpr(expr) => (expr, None),
+            ast::SelectItem::ExprWithAlias { expr, alias } => (expr, Some(alias.clone())),
+            _ => return no!("wild card select items"),
+        };
+        let (alias_name, param) = match expr {
+            ast::Expr::Identifier(ident) => {
+                (ident.to_string(), self.select_field(&ident.to_string())?)
+            }
+            ast::Expr::CompoundIdentifier(idents) => {
+                let event_name = idents[0].to_string();
+                let field_name = idents[1].to_string();
+                (
+                    format!("{}.{}", event_name, field_name),
+                    self.select_event_field(&event_name, &field_name)?,
+                )
+            }
+            _ => return Ok(()),
+        };
+        let param = match param {
+            None => return Ok(()),
+            Some(p) if !p.indexed => return Ok(()),
+            Some(p) => p,
+        };
+        let function_name = match param.resolve().wrap_err("decoding param abi")? {
+            DynSolType::Address => ast::Ident::new("abi_address"),
+            DynSolType::Int(_) => ast::Ident::new("abi_int"),
+            DynSolType::Uint(_) => ast::Ident::new("abi_uint"),
+            _ => return Ok(()),
+        };
+        let old_expr = std::mem::replace(expr, ast::Expr::Value(ast::Value::Null));
+        *item = ast::SelectItem::ExprWithAlias {
+            alias: alias.unwrap_or(ast::Ident::new(alias_name)),
+            expr: ast::Expr::Function(ast::Function {
+                name: ast::ObjectName(vec![function_name]),
+                args: ast::FunctionArguments::List(ast::FunctionArgumentList {
+                    duplicate_treatment: None,
+                    args: vec![ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Expr(
+                        old_expr,
+                    ))],
+                    clauses: vec![],
+                }),
+                null_treatment: None,
+                filter: None,
+                over: None,
+                within_group: vec![],
+            }),
+        };
         Ok(())
     }
 
-    fn validate_query(&mut self, query: &ast::Query) -> Result<(), api::Error> {
-        match query {
-            ast::Query { with: Some(_), .. } => no!("with"),
-            ast::Query { locks, .. } if !locks.is_empty() => no!("for update"),
-            ast::Query { body, .. } => self.validate_query_body(body),
+    fn rewrite_literal(
+        &mut self,
+        expr: &mut ast::Expr,
+        param: EventParam,
+    ) -> Result<(), api::Error> {
+        let data = match expr {
+            ast::Expr::Value(ast::Value::SingleQuotedString(str)) => {
+                hex::decode(str.replace(r#"\x"#, "")).wrap_err("decoding hex string")?
+            }
+            ast::Expr::Value(ast::Value::HexStringLiteral(str)) => {
+                hex::decode(str).wrap_err("decoding hex string")?
+            }
+            ast::Expr::Value(ast::Value::Number(str, _)) => {
+                let n = U256::from_str(str).wrap_err("unable to decode number")?;
+                n.abi_encode()
+            }
+            _ => return Ok(()),
+        };
+        match param.resolve().wrap_err("resolving abi type")? {
+            DynSolType::Address => {
+                *expr = ast::Expr::Value(ast::Value::SingleQuotedString(format!(
+                    r#"\x000000000000000000000000{}"#,
+                    hex::encode(data)
+                )));
+            }
+            DynSolType::Int(_) => {}
+            DynSolType::Uint(_) => {
+                *expr = ast::Expr::Value(ast::Value::SingleQuotedString(format!(
+                    r#"\x{}"#,
+                    hex::encode(data)
+                )))
+            }
+            DynSolType::FixedBytes(_) => {}
+            _ => {}
+        };
+        Ok(())
+    }
+
+    fn rewrite_binary_expr(
+        &mut self,
+        left: &mut Box<ast::Expr>,
+        right: &mut Box<ast::Expr>,
+    ) -> Result<(), api::Error> {
+        match left.as_mut() {
+            ast::Expr::Identifier(ident) => {
+                let field_name = ident.to_string();
+                if let Some(param) = self.select_field(&field_name)? {
+                    self.rewrite_literal(right, param)?;
+                }
+                Ok(())
+            }
+            ast::Expr::CompoundIdentifier(idents) => {
+                if idents.len() == 2 {
+                    let event_name = idents[0].to_string();
+                    let field_name = idents[1].to_string();
+                    if let Some(param) = self.select_event_field(&event_name, &field_name)? {
+                        self.rewrite_literal(right, param)?;
+                    }
+                    Ok(())
+                } else {
+                    Err(api::Error::User(
+                        "only 'event.field' format is supported".to_string(),
+                    ))
+                }
+            }
+            _ => Ok(()),
         }
     }
 
-    fn validate_query_body(&mut self, body: &ast::SetExpr) -> Result<(), api::Error> {
+    fn validate(&mut self, user_query: &str) -> Result<String, api::Error> {
+        let mut stmts =
+            Parser::parse_sql(PG, user_query).map_err(|e| api::Error::User(e.to_string()))?;
+        if stmts.len() != 1 {
+            return Err(api::Error::User(
+                "query must be exactly 1 sql statement".to_string(),
+            ));
+        }
+        let stmt = stmts.first_mut().unwrap();
+        match stmt {
+            ast::Statement::Query(q) => self.validate_query(q.as_mut()),
+            _ => Err(api::Error::User("select queries only".to_string())),
+        }?;
+        Ok(stmt.to_string())
+    }
+
+    fn validate_query(&mut self, query: &mut ast::Query) -> Result<(), api::Error> {
+        match query {
+            ast::Query { with: Some(_), .. } => no!("with"),
+            ast::Query { locks, .. } if !locks.is_empty() => no!("for update"),
+            ast::Query { body, order_by, .. } => {
+                for oexpr in order_by {
+                    self.validate_expression(&mut oexpr.expr)?;
+                }
+                self.validate_query_body(body)
+            }
+        }
+    }
+
+    fn validate_query_body(&mut self, body: &mut ast::SetExpr) -> Result<(), api::Error> {
         match body {
-            ast::SetExpr::Select(select_query) => self.validate_select(select_query),
+            ast::SetExpr::Select(select_query) => self.validate_select(select_query.as_mut()),
             _ => no!("invalid query body"),
         }
     }
 
-    fn validate_select(&mut self, select: &ast::Select) -> Result<(), api::Error> {
+    fn validate_select(&mut self, select: &mut ast::Select) -> Result<(), api::Error> {
         match select {
             ast::Select { top: Some(_), .. } => no!("top"),
             ast::Select { into: Some(_), .. } => no!("into"),
@@ -221,16 +378,17 @@ impl EventRegistry {
                 sort_by,
                 ..
             } => {
-                if let Some(ast::Distinct::On(exprs)) = distinct {
+                if let Some(ast::Distinct::On(exprs)) = distinct.as_mut() {
                     self.validate_expressions(exprs)?;
                 }
-                if let Some(expr) = selection {
+                if let Some(expr) = selection.as_mut() {
                     self.validate_expression(expr)?;
                 }
                 if let ast::GroupByExpr::Expressions(exprs) = group_by {
-                    self.validate_expressions(exprs)?;
+                    self.validate_expressions(exprs.as_mut())?;
                 }
-                for projection_item in projection.iter() {
+                for projection_item in projection.iter_mut() {
+                    self.rewrite_select_item(projection_item)?;
                     match projection_item {
                         ast::SelectItem::UnnamedExpr(expr) => self.validate_expression(expr),
                         ast::SelectItem::ExprWithAlias { expr, alias: _ } => {
@@ -241,7 +399,7 @@ impl EventRegistry {
                         }
                     }?;
                 }
-                self.validate_expressions(sort_by)?;
+                self.validate_expressions(sort_by.as_mut())?;
                 for table_with_join in from {
                     self.validate_table(table_with_join)?;
                 }
@@ -250,14 +408,14 @@ impl EventRegistry {
         }
     }
 
-    fn validate_expressions(&mut self, exprs: &[ast::Expr]) -> Result<(), api::Error> {
-        for expr in exprs.iter() {
+    fn validate_expressions(&mut self, exprs: &mut [ast::Expr]) -> Result<(), api::Error> {
+        for expr in exprs.iter_mut() {
             self.validate_expression(expr)?;
         }
         Ok(())
     }
 
-    fn validate_expression(&mut self, expr: &ast::Expr) -> Result<(), api::Error> {
+    fn validate_expression(&mut self, expr: &mut ast::Expr) -> Result<(), api::Error> {
         match expr {
             ast::Expr::Identifier(id) => self.validate_column(id),
             ast::Expr::CompoundIdentifier(ids) => self.validate_compound_column(ids),
@@ -274,6 +432,7 @@ impl EventRegistry {
             ast::Expr::Subquery(subquery) => self.validate_query(subquery),
             ast::Expr::Tuple(exprs) => self.validate_expressions(exprs),
             ast::Expr::BinaryOp { left, right, .. } => {
+                self.rewrite_binary_expr(left, right)?;
                 self.validate_expression(left)?;
                 self.validate_expression(right)
             }
@@ -289,7 +448,7 @@ impl EventRegistry {
         }
     }
 
-    fn validate_function(&mut self, function: &ast::Function) -> Result<(), api::Error> {
+    fn validate_function(&mut self, function: &mut ast::Function) -> Result<(), api::Error> {
         let name = function.name.to_string().to_lowercase();
         const VALID_FUNCS: [&str; 7] = [
             "sum",
@@ -303,11 +462,11 @@ impl EventRegistry {
         if !VALID_FUNCS.contains(&name.as_str()) {
             return no!(format!(r#"'{}' function"#, name));
         }
-        match &function.args {
+        match &mut function.args {
             ast::FunctionArguments::None => Ok(()),
-            ast::FunctionArguments::Subquery(q) => self.validate_query(q),
+            ast::FunctionArguments::Subquery(q) => self.validate_query(q.as_mut()),
             ast::FunctionArguments::List(l) => {
-                for a in &l.args {
+                for a in l.args.iter_mut() {
                     self.validate_function_arg(a)?;
                 }
                 Ok(())
@@ -315,7 +474,7 @@ impl EventRegistry {
         }
     }
 
-    fn validate_function_arg(&mut self, arg: &ast::FunctionArg) -> Result<(), api::Error> {
+    fn validate_function_arg(&mut self, arg: &mut ast::FunctionArg) -> Result<(), api::Error> {
         match arg {
             ast::FunctionArg::Named { .. } => no!("named function args"),
             ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Expr(expr)) => {
@@ -342,11 +501,13 @@ impl EventRegistry {
                 )))
             }
         };
-        self.select_event_field(&event_name, &field_name)
+        self.select_event_field(&event_name, &field_name)?;
+        Ok(())
     }
 
-    fn validate_column(&mut self, id: &ast::Ident) -> Result<(), api::Error> {
-        self.select_field(&id.to_string())
+    fn validate_column(&mut self, id: &mut ast::Ident) -> Result<(), api::Error> {
+        self.select_field(&id.to_string())?;
+        Ok(())
     }
 
     fn validate_table(&mut self, tbl_with_joins: &ast::TableWithJoins) -> Result<(), api::Error> {

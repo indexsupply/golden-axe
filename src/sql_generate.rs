@@ -31,16 +31,16 @@ pub fn query(
     event_sigs: Vec<&str>,
     from: Option<u64>,
 ) -> Result<String, api::Error> {
-    let selections = sql_validate::validate(user_query, event_sigs)?;
+    let res = sql_validate::validate(user_query, event_sigs)?;
     let query: Vec<String> = vec![
         "with".to_string(),
         limit_block_range(from),
-        selections
+        res.selections
             .iter()
             .map(selection_cte_sql)
             .collect::<Result<Vec<_>, _>>()?
             .join(","),
-        user_query.to_string(),
+        res.new_query.to_string(),
     ];
     Ok(query.join(" "))
 }
@@ -56,13 +56,12 @@ fn selection_cte_sql(selection: &sql_validate::Selection) -> Result<String, api:
     let mut res: Vec<String> = Vec::new();
     res.push(format!("{} as (", selection.user_event_name));
     res.push("select".to_string());
-
-    let mut select_list = vec![
-        String::from("block_num"),
-        String::from("tx_hash"),
-        String::from("log_idx"),
-        String::from("address"),
-    ];
+    let mut select_list = Vec::new();
+    selection.fields.iter().for_each(|f| {
+        if sql_validate::METADATA.contains(&f.as_str()) {
+            select_list.push(f.to_string());
+        }
+    });
     let indexed_inputs = selection
         .event
         .inputs
@@ -108,16 +107,11 @@ fn topics_sql_all(inputs: &[EventParam]) -> Result<String> {
         .join(","))
 }
 
-fn topic_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
+fn topic_sql(pos: usize, name: &str, _t: &DynSolType) -> Result<String> {
     // postgres arrays are 1-indexed and the first element is
     // the event signature hash
     let pos = pos + 2;
-    match t {
-        DynSolType::Address => Ok(format!("abi_address(topics[{}]) as {}", pos, name,)),
-        DynSolType::FixedBytes(_) => Ok(format!("topics[{}] as {}", pos, name)),
-        DynSolType::Uint(_) => Ok(format!("abi_uint(topics[{}]) as {}", pos, name)),
-        _ => Err(eyre!("unable to generate sql for: {:?}", t)),
-    }
+    Ok(format!("topics[{}] as {}", pos, name))
 }
 
 fn abi_sql_all(inputs: &[EventParam]) -> Result<String> {
@@ -242,6 +236,32 @@ mod tests {
     }
 
     #[test]
+    fn test_rewrite_topics() {
+        check_sql(
+            vec!["Transfer(address indexed from, address indexed to, uint indexed tokens)"],
+            r#"
+                select tokens
+                from transfer
+                where "from" = 0x00000000000000000000000000000000deadbeef
+                and tokens > 1
+            "#,
+            r#"
+                with transfer as (
+                    select
+                        topics[2] as "from",
+                        topics[4] as tokens
+                    from logs
+                    where topics [1] = '\xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
+                )
+                select abi_uint(tokens) as tokens
+                from transfer
+                where "from" = '\x00000000000000000000000000000000000000000000000000000000deadbeef'
+                and tokens > '\x0000000000000000000000000000000000000000000000000000000000000001'
+            "#,
+        );
+    }
+
+    #[test]
     fn test_erc20_sql() {
         check_sql(
             vec!["\r\nTransfer(address indexed from, address indexed to, uint tokens)\r\n"],
@@ -249,16 +269,17 @@ mod tests {
             r#"
                 with transfer as (
                     select
-                        block_num,
-                        tx_hash,
-                        log_idx,
-                        address,
-                        abi_address(topics[2]) as "from",
-                        abi_address(topics[3]) as "to",
+                        topics[2] as "from",
+                        topics[3] as "to",
                         abi_uint(abi_fixed_bytes(data, 0, 32)) AS tokens
                     from logs
                     where topics [1] = '\xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
-                ) select "from", "to", tokens from transfer
+                )
+                select
+                    abi_address("from") as "from",
+                    abi_address("to") as "to",
+                    tokens
+                from transfer
             "#,
         );
     }
@@ -269,27 +290,20 @@ mod tests {
             vec!["Foo(uint a, uint b)", "Bar(uint a, uint b)"],
             r#"select foo.b, bar.b from foo, bar where foo.a = bar.a"#,
             r#"
-                with foo as (
-                    select
-                        block_num,
-                        tx_hash,
-                        log_idx,
-                        address,
-                        abi_uint(abi_fixed_bytes(data, 0, 32)) as a,
-                        abi_uint(abi_fixed_bytes(data, 32, 32)) as b
-                    from logs
-                    where topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
-                ),
+                with
                 bar as (
                     select
-                        block_num,
-                        tx_hash,
-                        log_idx,
-                        address,
                         abi_uint(abi_fixed_bytes(data, 0, 32)) as a,
                         abi_uint(abi_fixed_bytes(data, 32, 32)) as b
                     from logs
                     where topics [1] = '\xde24c8e88b6d926d4bd258eddfb15ef86337654619dec5f604bbdd9d9bc188ca'
+                ),
+                foo as (
+                    select
+                        abi_uint(abi_fixed_bytes(data, 0, 32)) as a,
+                        abi_uint(abi_fixed_bytes(data, 32, 32)) as b
+                    from logs
+                    where topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
                 )
                 select foo.b, bar.b
                 from foo, bar
@@ -305,12 +319,7 @@ mod tests {
             r#"select foo.b from foo"#,
             r#"
                 with foo as (
-                    select
-                        block_num,
-                        tx_hash,
-                        log_idx,
-                        address,
-                        abi_uint(abi_fixed_bytes(data, 32, 32)) as b
+                    select abi_uint(abi_fixed_bytes(data, 32, 32)) as b
                     from logs
                     where topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
                 )
@@ -348,8 +357,8 @@ mod tests {
                         tx_hash,
                         log_idx,
                         address,
-                        abi_address(topics[2]) as "from",
-                        abi_address(topics[3]) as "to",
+                        topics[2] as "from",
+                        topics[3] as "to",
                         abi_uint(abi_fixed_bytes(data, 0, 32)) as "tokens"
                     from logs
                     where topics[1] = '\xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
@@ -390,8 +399,8 @@ mod tests {
                     tx_hash,
                     log_idx,
                     address,
-                    abi_address(topics[2]) as "offerer",
-                    abi_address(topics[3]) as "zone",
+                    topics[2] as "offerer",
+                    topics[3] as "zone",
                     abi_fixed_bytes(data, 0, 32) as "orderhash",
                     abi_address(abi_fixed_bytes(data, 32, 32)) as "recipient",
                     (
