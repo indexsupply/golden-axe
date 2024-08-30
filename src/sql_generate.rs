@@ -31,6 +31,7 @@ pub fn query(
     event_sigs: Vec<&str>,
     from: Option<u64>,
 ) -> Result<String, api::Error> {
+    tracing::info!(event_sigs = &event_sigs.join(","), user_query);
     let res = sql_validate::validate(user_query, event_sigs)?;
     let query: Vec<String> = vec![
         "with".to_string(),
@@ -42,6 +43,7 @@ pub fn query(
             .join(","),
         res.new_query.to_string(),
     ];
+    tracing::info!(compiled_query = query.join(" "));
     Ok(query.join(" "))
 }
 
