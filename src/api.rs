@@ -1,7 +1,12 @@
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use axum::{
-    extract::{rejection::JsonRejection, FromRequest},
+    extract::{rejection::JsonRejection, ConnectInfo, FromRequest},
     http::StatusCode,
 };
 use eyre::eyre;
@@ -9,12 +14,13 @@ use serde::{Deserialize, Serialize};
 
 use deadpool_postgres::Pool;
 use serde_json::{json, Value};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Semaphore};
 
 #[derive(Clone)]
 pub struct Config {
     pub pool: Pool,
     pub broadcaster: Arc<Broadcaster>,
+    pub limits: Arc<Mutex<HashMap<String, Arc<Semaphore>>>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -134,5 +140,42 @@ impl Broadcaster {
 
     pub fn broadcast(&self, block: u64) {
         let _ = self.clients.send(block);
+    }
+}
+
+pub async fn rate_limit(
+    axum::extract::State(config): axum::extract::State<Config>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Result<axum::response::Response, Error> {
+    let params = request.uri().query().unwrap_or_default();
+    let decoded = serde_urlencoded::from_str::<HashMap<String, String>>(params).unwrap_or_default();
+    let client_id = decoded
+        .get("api_key")
+        .cloned()
+        .unwrap_or_else(|| addr.ip().to_string());
+    let semaphore = {
+        let mut limiters = config.limits.lock().unwrap();
+        limiters
+            .entry(client_id.clone())
+            .or_insert_with(|| Arc::new(Semaphore::new(5)))
+            .clone()
+    };
+    let req = async {
+        let _permit = semaphore.acquire().await.unwrap();
+        next.run(request).await
+    };
+    match tokio::time::timeout(Duration::from_secs(10), req).await {
+        Ok(response) => Ok(response),
+        Err(_) => Err(Error::User("request timed out".to_string())),
+    }
+}
+
+pub async fn handle_service_error(error: tower::BoxError) -> Error {
+    if error.is::<tower::load_shed::error::Overloaded>() {
+        Error::Server(eyre!("server is overloaded").into())
+    } else {
+        Error::Server(eyre!("unknown").into())
     }
 }

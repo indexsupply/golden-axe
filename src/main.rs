@@ -8,8 +8,10 @@ mod sql_validate;
 mod sync;
 
 use std::{
+    collections::HashMap,
     future::{ready, IntoFuture},
-    sync::Arc,
+    net::SocketAddr,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -20,6 +22,7 @@ use alloy::{
 };
 use axum::{
     body::Body,
+    error_handling::HandleErrorLayer,
     extract::MatchedPath,
     routing::{get, post, Router},
 };
@@ -33,9 +36,10 @@ use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
 use postgres_openssl::MakeTlsConnector;
 use std::str::FromStr;
 use sync::Downloader;
+use tower::ServiceBuilder;
 use tower_http::{
     classify::ServerErrorsFailureClass, compression::CompressionLayer, cors::CorsLayer,
-    timeout::TimeoutLayer, trace::TraceLayer,
+    trace::TraceLayer,
 };
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
@@ -214,10 +218,11 @@ fn api_ro_pg(cstr: &str, ro_password: &str) -> Pool {
 }
 
 async fn server(args: ServerArgs) {
-    let config = Arc::new(api::Config {
+    let config = api::Config {
         pool: api_ro_pg(&args.pg_url, &args.ro_password),
         broadcaster: api::Broadcaster::new(),
-    });
+        limits: Arc::new(Mutex::new(HashMap::new())),
+    };
 
     let prom_record = PrometheusBuilder::new()
         .add_global_label("name", "ga")
@@ -228,11 +233,11 @@ async fn server(args: ServerArgs) {
 
     let tracing = TraceLayer::new_for_http()
         .make_span_with(|req: &axum::http::Request<Body>| {
-            let path = req
-                .extensions()
-                .get::<MatchedPath>()
-                .map(MatchedPath::as_str);
-            tracing::info_span!("http", path, status = tracing::field::Empty)
+             let path = req
+                 .extensions()
+                 .get::<MatchedPath>()
+                 .map(MatchedPath::as_str);
+             tracing::info_span!("http", path, status = tracing::field::Empty)
         })
         .on_response(
             |resp: &axum::http::Response<_>, d: Duration, span: &tracing::Span| {
@@ -250,9 +255,17 @@ async fn server(args: ServerArgs) {
                 tracing::error!(error = %error)
             },
         );
-    let service = tower::ServiceBuilder::new()
+
+    let service = ServiceBuilder::new()
         .layer(tracing)
-        .layer(TimeoutLayer::new(Duration::from_secs(10)))
+        .layer(HandleErrorLayer::new(api::handle_service_error))
+        .load_shed()
+        .concurrency_limit(1024)
+        .layer(axum::middleware::from_fn_with_state(
+            config.clone(),
+            api::rate_limit,
+        ))
+        .layer(CorsLayer::permissive())
         .layer(CompressionLayer::new());
 
     let app = Router::new()
@@ -262,8 +275,8 @@ async fn server(args: ServerArgs) {
         .route("/query", post(api_sql::handle_json))
         .route("/query-live", get(api_sql::handle_sse))
         .layer(service)
-        .layer(CorsLayer::permissive())
-        .with_state(config.clone());
+        .with_state(config.clone())
+        .into_make_service_with_connect_info::<SocketAddr>();
     let listener = tokio::net::TcpListener::bind(&args.listen)
         .await
         .expect("binding to tcp for http server");

@@ -1,4 +1,4 @@
-use std::{convert::Infallible, sync::Arc};
+use std::convert::Infallible;
 
 use alloy::{
     hex,
@@ -23,14 +23,14 @@ use tokio_postgres::types::Type;
 use crate::{api, s256, sql_generate};
 
 pub async fn handle(
-    State(state): State<Arc<api::Config>>,
+    State(state): State<api::Config>,
     Form(req): Form<Request>,
 ) -> Result<Json<Response>, api::Error> {
     handle_json(State(state.clone()), api::Json(vec![req.clone()])).await
 }
 
 pub async fn handle_sse(
-    State(conf): State<Arc<api::Config>>,
+    State(conf): State<api::Config>,
     Form(req): Form<Request>,
 ) -> axum::response::Sse<impl Stream<Item = Result<SSEvent, Infallible>>> {
     let mut req = req.clone();
@@ -64,7 +64,7 @@ pub struct Response {
 }
 
 pub async fn handle_json(
-    State(state): State<Arc<api::Config>>,
+    State(state): State<api::Config>,
     api::Json(req): api::Json<Vec<Request>>,
 ) -> Result<Json<Response>, api::Error> {
     let mut pg = state.pool.get().await.wrap_err("getting conn from pool")?;
