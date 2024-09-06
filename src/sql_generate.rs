@@ -69,7 +69,10 @@ fn limit_block_range(from: Option<u64>) -> String {
 
 fn selection_cte_sql(selection: &sql_validate::Selection) -> Result<String, api::Error> {
     let mut res: Vec<String> = Vec::new();
-    res.push(format!("{} as (", selection.user_event_name));
+    res.push(format!(
+        "{} as not materialized (",
+        selection.user_event_name
+    ));
     res.push("select".to_string());
     let mut select_list = Vec::new();
     selection.fields.iter().for_each(|f| {
@@ -261,7 +264,7 @@ mod tests {
                 and tokens > 1
             "#,
             r#"
-                with transfer as (
+                with transfer as not materialized (
                     select
                         topics[2] as "from",
                         topics[4] as tokens
@@ -287,7 +290,7 @@ mod tests {
                 and tokens > 1
             "#,
             r#"
-                with transfer as (
+                with transfer as not materialized (
                     select
                         topics[2] as "from",
                         abi_uint(abi_fixed_bytes(data, 0, 32)) AS tokens
@@ -312,7 +315,7 @@ mod tests {
                 where address = 0x00000000000000000000000000000000deadbeef
             "#,
             r#"
-                with transfer as (
+                with transfer as not materialized (
                     select
                         address,
                         abi_uint(abi_fixed_bytes(data, 0, 32)) AS tokens
@@ -332,7 +335,7 @@ mod tests {
             vec!["\r\nTransfer(address indexed from, address indexed to, uint tokens)\r\n"],
             r#"select "from", "to", tokens from transfer"#,
             r#"
-                with transfer as (
+                with transfer as not materialized (
                     select
                         topics[2] as "from",
                         topics[3] as "to",
@@ -356,14 +359,14 @@ mod tests {
             r#"select t1.b, t2.b from foo t1 left outer join bar t2 on t1.a = t2.a"#,
             r#"
                 with
-                bar as (
+                bar as not materialized (
                     select
                         abi_uint(abi_fixed_bytes(data, 0, 32)) as a,
                         abi_uint(abi_fixed_bytes(data, 32, 32)) as b
                     from logs
                     where topics [1] = '\xde24c8e88b6d926d4bd258eddfb15ef86337654619dec5f604bbdd9d9bc188ca'
                 ),
-                foo as (
+                foo as not materialized (
                     select
                         abi_uint(abi_fixed_bytes(data, 0, 32)) as a,
                         abi_uint(abi_fixed_bytes(data, 32, 32)) as b
@@ -391,7 +394,7 @@ mod tests {
             "#,
             r#"
                 with
-                foo as (
+                foo as not materialized (
                     select
                         block_num,
                         topics [2] AS a,
@@ -416,7 +419,7 @@ mod tests {
             vec!["Foo(uint a, uint b)", "Bar(uint a, uint b)"],
             r#"select foo.b from foo"#,
             r#"
-                with foo as (
+                with foo as not materialized (
                     select abi_uint(abi_fixed_bytes(data, 32, 32)) as b
                     from logs
                     where topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
