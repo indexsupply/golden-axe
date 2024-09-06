@@ -32,7 +32,7 @@ pub fn validate(user_query: &str, event_sigs: Vec<&str>) -> Result<RewrittenQuer
     let new_query = reg.validate(user_query)?;
     Ok(RewrittenQuery {
         new_query,
-        selections: reg.selection(),
+        selections: reg.selections(),
     })
 }
 
@@ -44,6 +44,7 @@ pub struct RewrittenQuery {
 #[derive(Debug)]
 pub struct Selection {
     pub event: Event,
+    pub alias: String,
     pub user_event_name: String,
     pub fields: HashSet<String>,
 }
@@ -74,6 +75,7 @@ impl Selection {
     }
 }
 
+#[derive(Debug)]
 struct EventRegistry {
     events: HashMap<String, Selection>,
 }
@@ -101,6 +103,7 @@ impl EventRegistry {
                 clean_ident(&event.name.to_string()),
                 Selection {
                     event,
+                    alias: String::new(),
                     user_event_name: String::new(),
                     fields: HashSet::new(),
                 },
@@ -109,7 +112,7 @@ impl EventRegistry {
         Ok(EventRegistry { events })
     }
 
-    fn selection(self) -> Vec<Selection> {
+    fn selections(self) -> Vec<Selection> {
         self.events
             .into_values()
             .filter(|s| !s.fields.is_empty())
@@ -117,20 +120,23 @@ impl EventRegistry {
             .collect()
     }
 
-    fn set_user_event_name(&mut self, event_name: &str) -> Result<(), api::Error> {
-        if let Some(selection) = self.events.get_mut(&clean_ident(event_name)) {
-            selection.user_event_name = event_name.to_string();
-            Ok(())
-        } else {
-            Err(api::Error::User(format!(
-                r#"
-                You are attempting to query '{}' but it isn't defined.
-                Possible events to query are: '{}'
-                "#,
-                event_name,
-                self.events.keys().join(",")
-            )))
+    fn selection(&mut self, table_name: &str) -> Result<&mut Selection, api::Error> {
+        let all_events = self.events.keys().join(",");
+        for (event_name, selection) in self.events.iter_mut() {
+            if event_name == table_name {
+                return Ok(selection);
+            }
+            if selection.alias == table_name {
+                return Ok(selection);
+            }
         }
+        Err(api::Error::User(format!(
+            r#"
+            You are attempting to query '{}' but it isn't defined.
+            Possible events to query are: '{}'
+            "#,
+            table_name, all_events,
+        )))
     }
 
     fn select_event_field(
@@ -138,19 +144,14 @@ impl EventRegistry {
         event_name: &str,
         field_name: &str,
     ) -> Result<Option<EventParam>, api::Error> {
-        let event = self.events.get_mut(event_name).ok_or_else(|| {
-            api::Error::User(format!(
-                "unable to find event in supplied schemas: {}",
-                event_name
-            ))
-        })?;
-        match event.get_field(field_name) {
+        let selection = self.selection(event_name)?;
+        match selection.get_field(field_name) {
             None => Err(api::Error::User(format!(
                 "event {} has no field named {}",
                 event_name, field_name
             ))),
             Some(param) => {
-                event.fields.insert(field_name.to_string());
+                selection.fields.insert(field_name.to_string());
                 Ok(Some(param))
             }
         }
@@ -339,10 +340,11 @@ impl EventRegistry {
             ast::Query { with: Some(_), .. } => no!("with"),
             ast::Query { locks, .. } if !locks.is_empty() => no!("for update"),
             ast::Query { body, order_by, .. } => {
+                self.validate_query_body(body)?;
                 for oexpr in order_by {
                     self.validate_expression(&mut oexpr.expr)?;
                 }
-                self.validate_query_body(body)
+                Ok(())
             }
         }
     }
@@ -388,6 +390,9 @@ impl EventRegistry {
                 sort_by,
                 ..
             } => {
+                for table_with_join in from {
+                    self.validate_table_with_joins(table_with_join)?;
+                }
                 if let Some(ast::Distinct::On(exprs)) = distinct.as_mut() {
                     self.validate_expressions(exprs)?;
                 }
@@ -410,9 +415,6 @@ impl EventRegistry {
                     }?;
                 }
                 self.validate_expressions(sort_by.as_mut())?;
-                for table_with_join in from {
-                    self.validate_table_with_joins(table_with_join)?;
-                }
                 Ok(())
             }
         }
@@ -524,6 +526,7 @@ impl EventRegistry {
         &mut self,
         table: &mut ast::TableWithJoins,
     ) -> Result<(), api::Error> {
+        self.validate_relation(&mut table.relation)?;
         for join in table.joins.iter_mut() {
             self.validate_relation(&mut join.relation)?;
             match &mut join.join_operator {
@@ -533,7 +536,7 @@ impl EventRegistry {
                 _ => return no!("must be inner, left outer, or right outer join"),
             };
         }
-        self.validate_relation(&mut table.relation)
+        Ok(())
     }
 
     fn validate_join_constraing(
@@ -555,6 +558,7 @@ impl EventRegistry {
             } => no!("version"),
             ast::TableFactor::Table {
                 name: ast::ObjectName(name_parts),
+                alias: Some(alias),
                 ..
             } => {
                 if name_parts.len() != 1 {
@@ -563,7 +567,24 @@ impl EventRegistry {
                         relation
                     )));
                 }
-                self.set_user_event_name(&name_parts[0].value.to_string())
+                let selection = self.selection(&name_parts[0].value)?;
+                selection.alias = alias.name.value.to_string();
+                selection.user_event_name = name_parts[0].value.to_string();
+                Ok(())
+            }
+            ast::TableFactor::Table {
+                name: ast::ObjectName(name_parts),
+                ..
+            } => {
+                if name_parts.len() != 1 {
+                    return Err(api::Error::User(format!(
+                        "table {} has multiple parts; only unqualified table names supported",
+                        relation
+                    )));
+                }
+                let selection = self.selection(&name_parts[0].value)?;
+                selection.user_event_name = name_parts[0].value.to_string();
+                Ok(())
             }
             _ => no!(relation),
         }

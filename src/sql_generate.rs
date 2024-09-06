@@ -353,7 +353,7 @@ mod tests {
     fn test_joins() {
         check_sql(
             vec!["Foo(uint a, uint b)", "Bar(uint a, uint b)"],
-            r#"select foo.b, bar.b from foo left outer join bar on foo.a = bar.a"#,
+            r#"select t1.b, t2.b from foo t1 left outer join bar t2 on t1.a = t2.a"#,
             r#"
                 with
                 bar as (
@@ -370,10 +370,10 @@ mod tests {
                     from logs
                     where topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
                 )
-                select foo.b, bar.b
-                from foo
-                left outer join bar
-                on foo.a = bar.a
+                select t1.b, t2.b
+                from foo as t1
+                left join bar as t2
+                on t1.a = t2.a
             "#,
         );
     }
