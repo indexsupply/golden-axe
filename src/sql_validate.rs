@@ -146,10 +146,19 @@ impl EventRegistry {
     ) -> Result<Option<EventParam>, api::Error> {
         let selection = self.selection(event_name)?;
         match selection.get_field(field_name) {
-            None => Err(api::Error::User(format!(
-                "event {} has no field named {}",
-                event_name, field_name
-            ))),
+            None => {
+                if METADATA.contains(&field_name) {
+                    self.events.values_mut().for_each(|s| {
+                        s.fields.insert(field_name.to_string());
+                    });
+                    Ok(None)
+                } else {
+                    Err(api::Error::User(format!(
+                        "event {} has no field named {}",
+                        event_name, field_name
+                    )))
+                }
+            }
             Some(param) => {
                 selection.fields.insert(field_name.to_string());
                 Ok(Some(param))
