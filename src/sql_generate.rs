@@ -381,9 +381,9 @@ mod tests {
     #[test]
     fn test_joins_on_single_table() {
         check_sql(
-            vec!["Foo(uint a, uint b)"],
+            vec!["Foo(uint indexed a, uint indexed b)"],
             r#"
-                select t1.b, t2.b
+                select t1."b", t2.b
                 from foo t1
                 left outer join foo t2
                 on t1.a = t2.a
@@ -394,12 +394,14 @@ mod tests {
                 foo as (
                     select
                         block_num,
-                        abi_uint(abi_fixed_bytes(data, 0, 32)) as a,
-                        abi_uint(abi_fixed_bytes(data, 32, 32)) as b
+                        topics [2] AS a,
+                        topics [3] AS "b"
                     from logs
                     where topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
                 )
-                select t1.b, t2.b
+                select
+                    abi_uint(t1."b") AS "b",
+                    abi_uint(t2.b) AS b
                 from foo as t1
                 left join foo as t2
                 on t1.a = t2.a

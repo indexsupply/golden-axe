@@ -211,7 +211,7 @@ impl EventRegistry {
                 let event_name = idents[0].to_string();
                 let field_name = idents[1].to_string();
                 (
-                    format!("{}.{}", event_name, field_name),
+                    field_name.to_string(),
                     self.select_event_field(&event_name, &field_name)?,
                 )
             }
