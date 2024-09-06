@@ -316,6 +316,9 @@ impl EventRegistry {
                         Some(param) if param.indexed => {
                             self.rewrite_literal(right, param.resolve().unwrap(), false)
                         }
+                        None if field_name == "address" => {
+                            self.rewrite_literal(right, DynSolType::Address, true)
+                        }
                         _ => Ok(()),
                     }
                 } else {
