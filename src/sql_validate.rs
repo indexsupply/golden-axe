@@ -411,7 +411,7 @@ impl EventRegistry {
                 }
                 self.validate_expressions(sort_by.as_mut())?;
                 for table_with_join in from {
-                    self.validate_table(table_with_join)?;
+                    self.validate_table_with_joins(table_with_join)?;
                 }
                 Ok(())
             }
@@ -520,11 +520,34 @@ impl EventRegistry {
         Ok(())
     }
 
-    fn validate_table(&mut self, tbl_with_joins: &ast::TableWithJoins) -> Result<(), api::Error> {
-        if !tbl_with_joins.joins.is_empty() {
-            return no!("joins");
+    fn validate_table_with_joins(
+        &mut self,
+        table: &mut ast::TableWithJoins,
+    ) -> Result<(), api::Error> {
+        for join in table.joins.iter_mut() {
+            self.validate_relation(&mut join.relation)?;
+            match &mut join.join_operator {
+                ast::JoinOperator::Inner(c) => self.validate_join_constraing(c)?,
+                ast::JoinOperator::LeftOuter(c) => self.validate_join_constraing(c)?,
+                ast::JoinOperator::RightOuter(c) => self.validate_join_constraing(c)?,
+                _ => return no!("must be inner, left outer, or right outer join"),
+            };
         }
-        match &tbl_with_joins.relation {
+        self.validate_relation(&mut table.relation)
+    }
+
+    fn validate_join_constraing(
+        &mut self,
+        constraint: &mut ast::JoinConstraint,
+    ) -> Result<(), api::Error> {
+        match constraint {
+            ast::JoinConstraint::On(expr) => self.validate_expression(expr),
+            _ => no!("must use ON join constraint"),
+        }
+    }
+
+    fn validate_relation(&mut self, relation: &mut ast::TableFactor) -> Result<(), api::Error> {
+        match relation {
             ast::TableFactor::Table { with_hints: h, .. } if !h.is_empty() => no!("with_hints"),
             ast::TableFactor::Table { args: Some(_), .. } => no!("args"),
             ast::TableFactor::Table {
@@ -537,12 +560,12 @@ impl EventRegistry {
                 if name_parts.len() != 1 {
                     return Err(api::Error::User(format!(
                         "table {} has multiple parts; only unqualified table names supported",
-                        tbl_with_joins.relation
+                        relation
                     )));
                 }
                 self.set_user_event_name(&name_parts[0].value.to_string())
             }
-            _ => no!(tbl_with_joins.relation),
+            _ => no!(relation),
         }
     }
 }
