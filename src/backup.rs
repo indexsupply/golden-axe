@@ -13,7 +13,6 @@ use aws_sdk_s3::{
     Client,
 };
 use aws_smithy_types::byte_stream::Length;
-use clap::Parser;
 use eyre::{eyre, Context, ContextCompat, OptionExt, Result};
 use futures::future::join_all;
 use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
@@ -24,39 +23,21 @@ use tokio::{
     sync::Semaphore,
 };
 
-#[derive(Debug, Parser)]
-pub struct Args {
-    #[clap(
-        long = "backup-bucket",
-        env = "GA_BACKUP_BUCKET",
-        default_value = "ga-pg-backup"
-    )]
-    bucket: String,
-
-    #[clap(long = "backup-dir", env = "GA_BACKUP_DIR", default_value = ".")]
-    dir: String,
-
-    #[clap(long = "backup-window", default_value = "1 day")]
-    window: humantime::Duration,
-
-    key: Option<String>,
-
-    #[clap(long = "chain-id", help = "used for restoring a particular chain")]
-    chain_id: Option<u64>,
-}
-
 #[tracing::instrument(skip_all, fields(id))]
-pub async fn restore(pg_url: &str, args: &Args) -> eyre::Result<()> {
+pub async fn restore(
+    pg_url: &str,
+    chain_id: u64,
+    dir: &str,
+    bucket: &str,
+    key: Option<String>,
+) -> eyre::Result<()> {
     let config: tokio_postgres::Config = pg_url.parse().expect("unable to parse pg_url");
     let db_name = config.get_dbname().expect("unable to parse dbname");
-    let chain_id = args
-        .chain_id
-        .unwrap_or_else(|| panic!("restore requires a chain-id"));
     let s3 = aws_sdk_s3::Client::new(&aws_config::load_defaults(BehaviorVersion::latest()).await);
-    let id = if let Some(key) = &args.key {
-        from_filename(chain_id, key).ok_or(eyre!("unable to find backup id for: {}", key))?
+    let id = if let Some(key) = key {
+        from_filename(chain_id, &key).ok_or(eyre!("unable to find backup id for: {}", key))?
     } else {
-        remote_backups(chain_id, &s3, &args.bucket)
+        remote_backups(chain_id, &s3, bucket)
             .await?
             .into_iter()
             .last()
@@ -65,11 +46,11 @@ pub async fn restore(pg_url: &str, args: &Args) -> eyre::Result<()> {
     tracing::Span::current().record("id", id);
     let resp = s3
         .get_object()
-        .bucket(&args.bucket)
+        .bucket(bucket)
         .key(to_filename(chain_id, id))
         .send()
         .await?;
-    let mut file = File::create(Path::new(&args.dir).join(to_filename(chain_id, id))).await?;
+    let mut file = File::create(Path::new(dir).join(to_filename(chain_id, id))).await?;
     let mut body = resp.body;
     while let Some(data) = body.next().await {
         file.write_all(&(data?)).await?;
@@ -90,7 +71,7 @@ pub async fn restore(pg_url: &str, args: &Args) -> eyre::Result<()> {
         .arg("4")
         .arg("-d")
         .arg(db_name)
-        .arg(Path::new(&args.dir).join(to_filename(chain_id, id)))
+        .arg(Path::new(dir).join(to_filename(chain_id, id)))
         .stdout(Stdio::piped())
         .spawn()?
         .wait_with_output()?
@@ -102,9 +83,13 @@ pub async fn restore(pg_url: &str, args: &Args) -> eyre::Result<()> {
 }
 
 #[tracing::instrument(skip_all)]
-pub async fn run(pg_url: &str, args: &Args) -> eyre::Result<()> {
+pub async fn backup(
+    pg_url: &str,
+    dir: &str,
+    bucket: &str,
+    window: humantime::Duration,
+) -> eyre::Result<()> {
     let s3 = aws_sdk_s3::Client::new(&aws_config::load_defaults(BehaviorVersion::latest()).await);
-
     let mut builder = SslConnector::builder(SslMethod::tls()).expect("tls builder");
     builder.set_verify(SslVerifyMode::NONE);
     let connector = MakeTlsConnector::new(builder.build());
@@ -121,29 +106,29 @@ pub async fn run(pg_url: &str, args: &Args) -> eyre::Result<()> {
         .get::<usize, U64>(0)
         .to();
 
-    let local = local_backups(chain_id, &args.dir)
+    let local = local_backups(chain_id, dir)
         .await
         .wrap_err("loading local backups")?;
     match local.into_iter().last() {
-        Some(last) if now() - last > args.window.as_secs() => {
+        Some(last) if now() - last > window.as_secs() => {
             tracing::info!("local backup needed. last: {}", since(last));
-            pgdump(chain_id, &args.dir, pg_url)?;
+            pgdump(chain_id, dir, pg_url)?;
         }
         Some(last) => {
             tracing::info!("local backup up to date. last: {}", since(last))
         }
         None => {
             tracing::info!("no local backups");
-            pgdump(chain_id, &args.dir, pg_url)?;
+            pgdump(chain_id, dir, pg_url)?;
         }
     };
-    let last_local = local_backups(chain_id, &args.dir)
+    let last_local = local_backups(chain_id, dir)
         .await
         .wrap_err("loading last local backup")?
         .into_iter()
         .last()
         .expect("missing local backup");
-    let remote = remote_backups(chain_id, &s3, &args.bucket)
+    let remote = remote_backups(chain_id, &s3, bucket)
         .await
         .wrap_err("loading remote backups")?;
     match remote.into_iter().last() {
@@ -152,8 +137,8 @@ pub async fn run(pg_url: &str, args: &Args) -> eyre::Result<()> {
             multipart_upload(
                 chain_id,
                 &s3,
-                &args.bucket,
-                &Path::new(&args.dir).join(to_filename(chain_id, last_local)),
+                bucket,
+                &Path::new(dir).join(to_filename(chain_id, last_local)),
             )
             .await
             .wrap_err("uplading backup")?;
@@ -166,14 +151,14 @@ pub async fn run(pg_url: &str, args: &Args) -> eyre::Result<()> {
             multipart_upload(
                 chain_id,
                 &s3,
-                &args.bucket,
-                &Path::new(&args.dir).join(to_filename(chain_id, last_local)),
+                bucket,
+                &Path::new(dir).join(to_filename(chain_id, last_local)),
             )
             .await
             .wrap_err("uploading backup")?;
         }
     }
-    local_cleanup(chain_id, &args.dir).await
+    local_cleanup(chain_id, dir).await
 }
 
 #[tracing::instrument(skip_all, fields(id))]

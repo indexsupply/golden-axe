@@ -28,7 +28,8 @@ use axum::{
 };
 use clap::{Parser, Subcommand};
 use deadpool_postgres::{Manager, ManagerConfig, Pool};
-use eyre::{Context, Result};
+use eyre::{eyre, Context, Result};
+use futures::TryFutureExt;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use metrics_tracing_context::{MetricsLayer, TracingContextLayer};
 use metrics_util::layers::Layer as MetricsUtilLayer;
@@ -77,11 +78,8 @@ struct GlobalArgs {
     url: Url,
 }
 
-#[derive(Parser, Debug)]
+#[derive(Clone, Parser, Debug)]
 struct ServerArgs {
-    #[command(flatten)]
-    backup: backup::Args,
-
     #[arg(long, env = "START_BLOCK")]
     start_block: Option<u64>,
 
@@ -116,6 +114,28 @@ struct ServerArgs {
 
     #[clap(long, action = clap::ArgAction::SetTrue)]
     no_sync: bool,
+
+    #[clap(long, action = clap::ArgAction::SetTrue)]
+    no_backup: bool,
+
+    #[clap(
+        long = "backup-bucket",
+        env = "GA_BACKUP_BUCKET",
+        default_value = "ga-pg-backup"
+    )]
+    backup_bucket: String,
+
+    #[clap(long = "backup-dir", env = "GA_BACKUP_DIR", default_value = ".")]
+    backup_dir: String,
+
+    #[clap(long = "backup-window", default_value = "1 day")]
+    backup_window: humantime::Duration,
+
+    #[clap(long = "restore-key", help = "the s3 key to use as restore")]
+    restore_key: Option<String>,
+
+    #[clap(long = "restore-chain-id", help = "restoring a particular chain")]
+    restore_chain_id: Option<u64>,
 }
 static SCHEMA: &str = include_str!("./sql/schema.sql");
 
@@ -135,8 +155,25 @@ async fn main() -> Result<(), api::Error> {
 
     let args = GlobalArgs::parse();
     match args.command {
-        Commands::Backup(args) => backup::run(&args.pg_url, &args.backup).await?,
-        Commands::Restore(args) => backup::restore(&args.pg_url, &args.backup).await?,
+        Commands::Backup(args) => {
+            backup::backup(
+                &args.pg_url,
+                &args.backup_dir,
+                &args.backup_bucket,
+                args.backup_window,
+            )
+            .await?
+        }
+        Commands::Restore(args) => {
+            backup::restore(
+                &args.pg_url,
+                args.restore_chain_id.expect("missing chain id"),
+                &args.backup_dir,
+                &args.backup_bucket,
+                args.restore_key,
+            )
+            .await?
+        }
         Commands::PrintView(args) => api_sql::cli::print_view(&args)?,
         Commands::Query(args) => api_sql::cli::request(&reqwest::Client::new(), args).await?,
         Commands::Server(args) => server(args).await,
@@ -144,9 +181,10 @@ async fn main() -> Result<(), api::Error> {
     Ok(())
 }
 
-async fn sync(args: ServerArgs) -> Result<Option<Downloader>> {
+async fn sync(args: ServerArgs, broadcaster: Arc<api::Broadcaster>) -> Result<()> {
     if args.no_sync {
-        return Ok(None);
+        tracing::info!("no sync");
+        return Ok(());
     }
     let mut builder = SslConnector::builder(SslMethod::tls()).expect("tls builder");
     builder.set_verify(SslVerifyMode::NONE);
@@ -159,7 +197,7 @@ async fn sync(args: ServerArgs) -> Result<Option<Downloader>> {
         },
     );
     let pg_pool = Pool::builder(pg_mgr)
-        .max_size(16)
+        .max_size(1)
         .build()
         .expect("unable to build new ro pool");
     pg_pool
@@ -186,7 +224,7 @@ async fn sync(args: ServerArgs) -> Result<Option<Downloader>> {
         )
         .await
         .wrap_err("inserting chain id into config")?;
-    Ok(Some(Downloader {
+    Downloader {
         filter: Filter::new(),
         start,
         pg_pool: pg_pool.clone(),
@@ -194,7 +232,10 @@ async fn sync(args: ServerArgs) -> Result<Option<Downloader>> {
         batch_size: args.batch_size,
         concurrency: args.concurrency,
         stop: args.stop_block,
-    }))
+    }
+    .run(broadcaster)
+    .await;
+    Ok(())
 }
 
 fn api_ro_pg(cstr: &str, ro_password: &str) -> Pool {
@@ -215,6 +256,23 @@ fn api_ro_pg(cstr: &str, ro_password: &str) -> Pool {
         .max_size(16)
         .build()
         .expect("unable to build new ro pool")
+}
+
+async fn backup(args: ServerArgs) -> Result<()> {
+    if args.no_backup {
+        tracing::info!("no backups");
+        return Ok(());
+    }
+    loop {
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        backup::backup(
+            &args.pg_url,
+            &args.backup_dir,
+            &args.backup_bucket,
+            args.backup_window,
+        )
+        .await?;
+    }
 }
 
 async fn server(args: ServerArgs) {
@@ -281,17 +339,12 @@ async fn server(args: ServerArgs) {
         .await
         .expect("binding to tcp for http server");
 
-    match sync(args).await.unwrap() {
-        None => axum::serve(listener, app).await.expect("serving http"),
-        Some(dl) => {
-            tracing::info!("indexing enabled!");
-            let res = tokio::join!(
-                axum::serve(listener, app).into_future(),
-                dl.run(config.broadcaster.clone())
-            );
-            if let (Err(e), _) = res {
-                panic!("serving http: {}", e);
-            }
-        }
-    };
+    tokio::try_join!(
+        sync(args.clone(), config.broadcaster.clone()),
+        backup(args.clone()),
+        axum::serve(listener, app)
+            .into_future()
+            .map_err(|e| eyre!("serving http: {}", e)),
+    )
+    .expect("no errors");
 }
