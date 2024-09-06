@@ -339,12 +339,20 @@ async fn server(args: ServerArgs) {
         .await
         .expect("binding to tcp for http server");
 
-    tokio::try_join!(
-        sync(args.clone(), config.broadcaster.clone()),
-        backup(args.clone()),
-        axum::serve(listener, app)
-            .into_future()
-            .map_err(|e| eyre!("serving http: {}", e)),
+    let res = tokio::try_join!(
+        tokio::spawn(sync(args.clone(), config.broadcaster.clone())),
+        tokio::spawn(backup(args.clone())),
+        tokio::spawn(
+            axum::serve(listener, app)
+                .into_future()
+                .map_err(|e| eyre!("serving http: {}", e))
+        ),
     )
-    .expect("no errors");
+    .expect("unable to join tasks");
+    match res {
+        (Err(e), _, _) => panic!("sync error: {}", e),
+        (_, Err(e), _) => panic!("backup error: {}", e),
+        (_, _, Err(e)) => panic!("server error: {}", e),
+        _ => println!("all done"),
+    }
 }
