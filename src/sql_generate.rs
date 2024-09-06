@@ -379,6 +379,27 @@ mod tests {
     }
 
     #[test]
+    fn test_joins_on_single_table() {
+        check_sql(
+            vec!["Foo(uint a, uint b)"],
+            r#"select t1.b, t2.b from foo t1 left outer join foo t2 on t1.a = t2.a"#,
+            r#"
+                with
+                foo as (
+                    select
+                        abi_uint(abi_fixed_bytes(data, 0, 32)) as a,
+                        abi_uint(abi_fixed_bytes(data, 32, 32)) as b
+                    from logs
+                    where topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
+                )
+                select t1.b, t2.b
+                from foo as t1
+                left join foo as t2 on t1.a = t2.a
+            "#,
+        );
+    }
+
+    #[test]
     fn test_joins_with_unselected() {
         check_sql(
             vec!["Foo(uint a, uint b)", "Bar(uint a, uint b)"],

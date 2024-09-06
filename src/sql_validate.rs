@@ -44,7 +44,7 @@ pub struct RewrittenQuery {
 #[derive(Debug)]
 pub struct Selection {
     pub event: Event,
-    pub alias: String,
+    pub alias: HashSet<String>,
     pub user_event_name: String,
     pub fields: HashSet<String>,
 }
@@ -103,7 +103,7 @@ impl EventRegistry {
                 clean_ident(&event.name.to_string()),
                 Selection {
                     event,
-                    alias: String::new(),
+                    alias: HashSet::new(),
                     user_event_name: String::new(),
                     fields: HashSet::new(),
                 },
@@ -126,7 +126,7 @@ impl EventRegistry {
             if event_name == table_name {
                 return Ok(selection);
             }
-            if selection.alias == table_name {
+            if selection.alias.contains(table_name) {
                 return Ok(selection);
             }
         }
@@ -568,7 +568,7 @@ impl EventRegistry {
                     )));
                 }
                 let selection = self.selection(&name_parts[0].value)?;
-                selection.alias = alias.name.value.to_string();
+                selection.alias.insert(alias.name.value.to_string());
                 selection.user_event_name = name_parts[0].value.to_string();
                 Ok(())
             }
