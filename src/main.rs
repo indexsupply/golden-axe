@@ -197,7 +197,7 @@ async fn sync(args: ServerArgs, broadcaster: Arc<api::Broadcaster>) -> Result<()
         },
     );
     let pg_pool = Pool::builder(pg_mgr)
-        .max_size(1)
+        .max_size(16)
         .build()
         .expect("unable to build new ro pool");
     pg_pool
