@@ -149,11 +149,7 @@ fn abi_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
         format!("as {}", name)
     };
     match t {
-        DynSolType::Address => Ok(format!(
-            "abi_address(abi_fixed_bytes(data, {}, 32)) {}",
-            pos * 32,
-            alias,
-        )),
+        DynSolType::Address => Ok(format!("abi_fixed_bytes(data, {}, 32) {}", pos * 32, alias,)),
         DynSolType::Bool => todo!(),
         DynSolType::Bytes => Ok(format!(
             "abi_bytes(abi_dynamic(data, {})) {}",
@@ -168,16 +164,8 @@ fn abi_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
         DynSolType::FixedBytes(_) => {
             Ok(format!("abi_fixed_bytes(data, {}, 32) {}", pos * 32, alias))
         }
-        DynSolType::Int(_) => Ok(format!(
-            "abi_int(abi_fixed_bytes(data, {}, 32)) {}",
-            pos * 32,
-            alias,
-        )),
-        DynSolType::Uint(_) => Ok(format!(
-            "abi_uint(abi_fixed_bytes(data, {}, 32)) {}",
-            pos * 32,
-            alias,
-        )),
+        DynSolType::Int(_) => Ok(format!("abi_fixed_bytes(data, {}, 32) {}", pos * 32, alias,)),
+        DynSolType::Uint(_) => Ok(format!("abi_fixed_bytes(data, {}, 32) {}", pos * 32, alias,)),
         DynSolType::Array(arr) => match arr.as_ref() {
             DynSolType::FixedBytes(_) => Ok(format!(
                 "abi_fixed_bytes_array(abi_dynamic(data, {}), 32) {}",
@@ -293,14 +281,14 @@ mod tests {
                 with transfer as not materialized (
                     select
                         topics[2] as "from",
-                        abi_uint(abi_fixed_bytes(data, 0, 32)) AS tokens
+                        abi_fixed_bytes(data, 0, 32) AS tokens
                     from logs
                     where topics [1] = '\xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
                 )
-                select tokens
+                select abi_uint(tokens) as tokens
                 from transfer
                 where "from" = '\x00000000000000000000000000000000000000000000000000000000deadbeef'
-                and tokens > 1
+                and tokens > '\x0000000000000000000000000000000000000000000000000000000000000001'
             "#,
         );
     }
@@ -318,11 +306,11 @@ mod tests {
                 with transfer as not materialized (
                     select
                         address,
-                        abi_uint(abi_fixed_bytes(data, 0, 32)) AS tokens
+                        abi_fixed_bytes(data, 0, 32) AS tokens
                     from logs
                     where topics [1] = '\xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
                 )
-                select tokens
+                select abi_uint(tokens) as tokens
                 from transfer
                 where address = '\x00000000000000000000000000000000deadbeef'
             "#,
@@ -339,14 +327,14 @@ mod tests {
                     select
                         topics[2] as "from",
                         topics[3] as "to",
-                        abi_uint(abi_fixed_bytes(data, 0, 32)) AS tokens
+                        abi_fixed_bytes(data, 0, 32) AS tokens
                     from logs
                     where topics [1] = '\xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
                 )
                 select
                     abi_address("from") as "from",
                     abi_address("to") as "to",
-                    tokens
+                    abi_uint(tokens) as tokens
                 from transfer
             "#,
         );
@@ -361,19 +349,19 @@ mod tests {
                 with
                 bar as not materialized (
                     select
-                        abi_uint(abi_fixed_bytes(data, 0, 32)) as a,
-                        abi_uint(abi_fixed_bytes(data, 32, 32)) as b
+                        abi_fixed_bytes(data, 0, 32) as a,
+                        abi_fixed_bytes(data, 32, 32) as b
                     from logs
                     where topics [1] = '\xde24c8e88b6d926d4bd258eddfb15ef86337654619dec5f604bbdd9d9bc188ca'
                 ),
                 foo as not materialized (
                     select
-                        abi_uint(abi_fixed_bytes(data, 0, 32)) as a,
-                        abi_uint(abi_fixed_bytes(data, 32, 32)) as b
+                        abi_fixed_bytes(data, 0, 32) as a,
+                        abi_fixed_bytes(data, 32, 32) as b
                     from logs
                     where topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
                 )
-                select t1.b, t2.b
+                select abi_uint(t1.b) as b, abi_uint(t2.b) as b
                 from foo as t1
                 left join bar as t2
                 on t1.a = t2.a
@@ -420,11 +408,11 @@ mod tests {
             r#"select foo.b from foo"#,
             r#"
                 with foo as not materialized (
-                    select abi_uint(abi_fixed_bytes(data, 32, 32)) as b
+                    select abi_fixed_bytes(data, 32, 32) as b
                     from logs
                     where topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
                 )
-                select foo.b from foo
+                select abi_uint(foo.b) as b from foo
             "#,
         );
     }
@@ -460,7 +448,7 @@ mod tests {
                         address,
                         topics[2] as "from",
                         topics[3] as "to",
-                        abi_uint(abi_fixed_bytes(data, 0, 32)) as "tokens"
+                        abi_fixed_bytes(data, 0, 32) as "tokens"
                     from logs
                     where topics[1] = '\xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
             "#,
@@ -503,22 +491,22 @@ mod tests {
                     topics[2] as "offerer",
                     topics[3] as "zone",
                     abi_fixed_bytes(data, 0, 32) as "orderhash",
-                    abi_address(abi_fixed_bytes(data, 32, 32)) as "recipient",
+                    abi_fixed_bytes(data, 32, 32) as "recipient",
                     (
                         select json_agg(json_build_object(
-                            '0', abi_uint(abi_fixed_bytes(data, 0, 32)),
-                            '1', abi_address(abi_fixed_bytes(data, 32, 32)),
-                            '2', abi_uint(abi_fixed_bytes(data, 64, 32)),
-                            '3', abi_uint(abi_fixed_bytes(data, 96, 32))
+                            '0', abi_fixed_bytes(data, 0, 32),
+                            '1', abi_fixed_bytes(data, 32, 32),
+                            '2', abi_fixed_bytes(data, 64, 32),
+                            '3', abi_fixed_bytes(data, 96, 32)
                         )) from unnest(abi_fixed_bytes_array(abi_dynamic(data, 64), 128)) as data
                     ) as "offer",
                     (
                         select json_agg(json_build_object(
-                            '0', abi_uint(abi_fixed_bytes(data, 0, 32)),
-                            '1', abi_address(abi_fixed_bytes(data, 32, 32)),
-                            '2', abi_uint(abi_fixed_bytes(data, 64, 32)),
-                            '3', abi_uint(abi_fixed_bytes(data, 96, 32)),
-                            '4', abi_address(abi_fixed_bytes(data, 128, 32))
+                            '0', abi_fixed_bytes(data, 0, 32),
+                            '1', abi_fixed_bytes(data, 32, 32),
+                            '2', abi_fixed_bytes(data, 64, 32),
+                            '3', abi_fixed_bytes(data, 96, 32),
+                            '4', abi_fixed_bytes(data, 128, 32)
                         )) from unnest(abi_fixed_bytes_array(abi_dynamic(data, 96), 160)) as data
                     ) as "consideration"
                 from logs

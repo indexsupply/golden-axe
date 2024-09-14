@@ -219,7 +219,7 @@ impl EventRegistry {
         };
         let param = match param {
             None => return Ok(()),
-            Some(p) if !p.indexed => return Ok(()),
+            //Some(p) if !p.indexed => return Ok(()),
             Some(p) => p,
         };
         let function_name = match param.resolve().wrap_err("decoding param abi")? {
@@ -299,9 +299,7 @@ impl EventRegistry {
             ast::Expr::Identifier(ident) => {
                 let field_name = ident.to_string();
                 match self.select_field(&field_name)? {
-                    Some(param) if param.indexed => {
-                        self.rewrite_literal(right, param.resolve().unwrap(), false)
-                    }
+                    Some(param) => self.rewrite_literal(right, param.resolve().unwrap(), false),
                     None if field_name == "address" => {
                         self.rewrite_literal(right, DynSolType::Address, true)
                     }
@@ -313,9 +311,7 @@ impl EventRegistry {
                     let event_name = idents[0].to_string();
                     let field_name = idents[1].to_string();
                     match self.select_event_field(&event_name, &field_name)? {
-                        Some(param) if param.indexed => {
-                            self.rewrite_literal(right, param.resolve().unwrap(), false)
-                        }
+                        Some(param) => self.rewrite_literal(right, param.resolve().unwrap(), false),
                         None if field_name == "address" => {
                             self.rewrite_literal(right, DynSolType::Address, true)
                         }
