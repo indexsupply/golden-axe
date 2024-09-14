@@ -31,7 +31,7 @@ pub fn query(
     event_sigs: Vec<&str>,
     from: Option<u64>,
 ) -> Result<String, api::Error> {
-    tracing::info!(
+    tracing::debug!(
         "event_sigs: {} user_query: {}",
         event_sigs
             .iter()
@@ -56,7 +56,7 @@ pub fn query(
             .join(","),
         res.new_query.to_string(),
     ];
-    tracing::info!("query: {}", query.join(" "));
+    tracing::debug!("query: {}", query.join(" "));
     Ok(query.join(" "))
 }
 
