@@ -7,7 +7,10 @@ use alloy::{
 };
 use eyre::{Context, Result};
 use itertools::Itertools;
-use sqlparser::{ast, parser::Parser};
+use sqlparser::{
+    ast::{self},
+    parser::Parser,
+};
 use std::{
     collections::{HashMap, HashSet},
     str::FromStr,
@@ -85,7 +88,68 @@ fn clean_ident(ident: &str) -> String {
     uncased.replace('"', "")
 }
 
-pub const METADATA: [&str; 4] = ["block_num", "tx_hash", "address", "log_idx"];
+fn wrap_function(
+    alias: Option<ast::Ident>,
+    outer: ast::Ident,
+    inner: ast::Expr,
+) -> ast::ExprWithAlias {
+    ast::ExprWithAlias {
+        alias,
+        expr: ast::Expr::Function(ast::Function {
+            name: ast::ObjectName(vec![outer]),
+            args: ast::FunctionArguments::List(ast::FunctionArgumentList {
+                duplicate_treatment: None,
+                args: vec![ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Expr(inner))],
+                clauses: vec![],
+            }),
+            null_treatment: None,
+            filter: None,
+            over: None,
+            within_group: vec![],
+        }),
+    }
+}
+
+fn number_arg(i: u64) -> ast::FunctionArg {
+    ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Expr(ast::Expr::Value(
+        ast::Value::Number(i.to_string(), false),
+    )))
+}
+
+fn expr_arg(expr: ast::Expr) -> ast::FunctionArg {
+    ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Expr(expr))
+}
+
+fn wrap_function_arg(
+    alias: Option<ast::Ident>,
+    outer: ast::Ident,
+    inner: ast::Expr,
+    arg: ast::FunctionArg,
+) -> ast::ExprWithAlias {
+    ast::ExprWithAlias {
+        alias,
+        expr: ast::Expr::Function(ast::Function {
+            name: ast::ObjectName(vec![outer]),
+            args: ast::FunctionArguments::List(ast::FunctionArgumentList {
+                args: vec![expr_arg(inner), arg],
+                clauses: vec![],
+                duplicate_treatment: None,
+            }),
+            null_treatment: None,
+            filter: None,
+            over: None,
+            within_group: vec![],
+        }),
+    }
+}
+
+fn left_pad(vec: Vec<u8>) -> Vec<u8> {
+    let mut padded = vec![0u8; 32 - vec.len()];
+    padded.extend(vec);
+    padded
+}
+
+pub const METADATA: [&str; 4] = ["address", "block_num", "log_idx", "tx_hash"];
 
 impl EventRegistry {
     fn new(event_sigs: Vec<&str>) -> Result<EventRegistry, api::Error> {
@@ -197,54 +261,126 @@ impl EventRegistry {
         }
     }
 
-    fn rewrite_select_item(&mut self, item: &mut ast::SelectItem) -> Result<(), api::Error> {
-        let (expr, alias) = match item {
-            ast::SelectItem::UnnamedExpr(expr) => (expr, None),
-            ast::SelectItem::ExprWithAlias { expr, alias } => (expr, Some(alias.clone())),
-            _ => return no!("wild card select items"),
+    fn abi_decode_expr(&mut self, expr: ast::Expr) -> Result<ast::ExprWithAlias, api::Error> {
+        let (alias, param) = match &expr {
+            ast::Expr::Identifier(ident) => (ident.clone(), self.select_field(&ident.to_string())?),
+            ast::Expr::CompoundIdentifier(idents) => (
+                idents[1].clone(),
+                self.select_event_field(&idents[0].to_string(), &idents[1].to_string())?,
+            ),
+            ast::Expr::Function(f) => match &f.args {
+                ast::FunctionArguments::None => return no!("empty function args"),
+                ast::FunctionArguments::Subquery(_) => return no!("subqueries in function args"),
+                ast::FunctionArguments::List(fargs) => {
+                    if fargs.args.len() > 1 {
+                        return no!("multiple function args");
+                    }
+                    match fargs.args.first().unwrap().clone() {
+                        ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Expr(inner)) => {
+                            let wrapped = self.abi_decode_expr(inner)?;
+                            return Ok(wrap_function(
+                                None,
+                                f.name.0.first().unwrap().clone(),
+                                wrapped.expr,
+                            ));
+                        }
+                        _ => return no!("named function args"),
+                    }
+                }
+            },
+            _ => return no!("wrap non-ident or non-function"),
         };
-        let (alias_name, param) = match expr {
-            ast::Expr::Identifier(ident) => {
-                (ident.to_string(), self.select_field(&ident.to_string())?)
+        let param_type = match param {
+            Some(p) => p.resolve().wrap_err("decoding param abi")?,
+            None => {
+                return Ok(ast::ExprWithAlias {
+                    alias: None,
+                    expr: ast::Expr::Identifier(ast::Ident::new(alias.to_string())),
+                });
             }
-            ast::Expr::CompoundIdentifier(idents) => {
-                let event_name = idents[0].to_string();
-                let field_name = idents[1].to_string();
-                (
-                    field_name.to_string(),
-                    self.select_event_field(&event_name, &field_name)?,
-                )
-            }
-            _ => return Ok(()),
         };
-        let param = match param {
-            None => return Ok(()),
-            //Some(p) if !p.indexed => return Ok(()),
-            Some(p) => p,
-        };
-        let function_name = match param.resolve().wrap_err("decoding param abi")? {
-            DynSolType::Address => ast::Ident::new("abi_address"),
-            DynSolType::Int(_) => ast::Ident::new("abi_int"),
-            DynSolType::Uint(_) => ast::Ident::new("abi_uint"),
-            _ => return Ok(()),
-        };
-        let old_expr = std::mem::replace(expr, ast::Expr::Value(ast::Value::Null));
-        *item = ast::SelectItem::ExprWithAlias {
-            alias: alias.unwrap_or(ast::Ident::new(alias_name)),
-            expr: ast::Expr::Function(ast::Function {
-                name: ast::ObjectName(vec![function_name]),
-                args: ast::FunctionArguments::List(ast::FunctionArgumentList {
-                    duplicate_treatment: None,
-                    args: vec![ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Expr(
-                        old_expr,
-                    ))],
-                    clauses: vec![],
-                }),
-                null_treatment: None,
-                filter: None,
-                over: None,
-                within_group: vec![],
+        match param_type {
+            DynSolType::Bool => Ok(wrap_function(
+                Some(alias),
+                ast::Ident::new("abi_bool"),
+                expr.clone(),
+            )),
+            DynSolType::Bytes => Ok(ast::ExprWithAlias {
+                alias: None,
+                expr: expr.clone(),
             }),
+            DynSolType::FixedBytes(_) => Ok(ast::ExprWithAlias {
+                alias: None,
+                expr: expr.clone(),
+            }),
+            DynSolType::String => Ok(ast::ExprWithAlias {
+                alias: None,
+                expr: expr.clone(),
+            }),
+            DynSolType::Address => Ok(wrap_function(
+                Some(alias),
+                ast::Ident::new("abi_address"),
+                expr.clone(),
+            )),
+            DynSolType::Int(_) => Ok(wrap_function(
+                Some(alias),
+                ast::Ident::new("abi_int"),
+                expr.clone(),
+            )),
+            DynSolType::Uint(_) => Ok(wrap_function(
+                Some(alias),
+                ast::Ident::new("abi_uint"),
+                expr.clone(),
+            )),
+            DynSolType::Array(arr) => match arr.as_ref() {
+                DynSolType::Uint(_) => Ok(wrap_function(
+                    Some(alias),
+                    ast::Ident::new("abi_uint_array"),
+                    expr.clone(),
+                )),
+                DynSolType::Int(_) => Ok(wrap_function(
+                    Some(alias),
+                    ast::Ident::new("abi_int_array"),
+                    expr.clone(),
+                )),
+                DynSolType::FixedBytes(_) => Ok(wrap_function_arg(
+                    Some(alias),
+                    ast::Ident::new("abi_fixed_bytes_array"),
+                    expr.clone(),
+                    number_arg(32),
+                )),
+                DynSolType::Tuple(_) => Ok(ast::ExprWithAlias {
+                    alias: None,
+                    expr: expr.clone(),
+                }),
+                _ => no!(arr.to_string()),
+            },
+            _ => no!(param_type.to_string()),
+        }
+    }
+
+    fn rewrite_select_item(&mut self, item: &mut ast::SelectItem) -> Result<(), api::Error> {
+        match item {
+            ast::SelectItem::UnnamedExpr(expr) => {
+                let wrapped = self.abi_decode_expr(expr.clone())?;
+                match wrapped.alias {
+                    Some(alias) => {
+                        *item = ast::SelectItem::ExprWithAlias {
+                            alias,
+                            expr: wrapped.expr,
+                        };
+                    }
+                    None => *item = ast::SelectItem::UnnamedExpr(wrapped.expr),
+                }
+            }
+            ast::SelectItem::ExprWithAlias { expr, alias } => {
+                let wrapped = self.abi_decode_expr(expr.clone())?;
+                *item = ast::SelectItem::ExprWithAlias {
+                    alias: alias.clone(),
+                    expr: wrapped.expr,
+                };
+            }
+            _ => return no!("wild card select items"),
         };
         Ok(())
     }
@@ -273,7 +409,7 @@ impl EventRegistry {
                 let data = if compact {
                     format!(r#"\x{}"#, hex::encode(data))
                 } else {
-                    format!(r#"\x000000000000000000000000{}"#, hex::encode(data))
+                    format!(r#"\x{}"#, hex::encode(left_pad(data)))
                 };
                 *expr = ast::Expr::Value(ast::Value::SingleQuotedString(data));
             }
@@ -281,7 +417,7 @@ impl EventRegistry {
             DynSolType::Uint(_) => {
                 *expr = ast::Expr::Value(ast::Value::SingleQuotedString(format!(
                     r#"\x{}"#,
-                    hex::encode(data)
+                    hex::encode(left_pad(data))
                 )))
             }
             DynSolType::FixedBytes(_) => {}
@@ -470,14 +606,18 @@ impl EventRegistry {
 
     fn validate_function(&mut self, function: &mut ast::Function) -> Result<(), api::Error> {
         let name = function.name.to_string().to_lowercase();
-        const VALID_FUNCS: [&str; 7] = [
+        const VALID_FUNCS: [&str; 11] = [
             "sum",
             "count",
             "b2i",
             "h2s",
+            "abi_bool",
             "abi_fixed_bytes",
             "abi_address",
             "abi_uint",
+            "abi_uint_array",
+            "abi_int_array",
+            "abi_fixed_bytes_array",
         ];
         if !VALID_FUNCS.contains(&name.as_str()) {
             return no!(format!(r#"'{}' function"#, name));

@@ -132,6 +132,13 @@ begin
 end;
 $$ language plpgsql immutable strict;
 
+create or replace function abi_bool(input bytea)
+returns bool as $$
+begin
+    return get_byte(input, length(input) - 1) = 1;
+end;
+$$ language plpgsql immutable strict;
+
 create or replace function abi_bytes(input bytea)
 returns bytea as $$
 declare

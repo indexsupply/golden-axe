@@ -160,10 +160,7 @@ fn handle_rows(rows: Vec<tokio_postgres::Row>) -> Result<Rows, api::Error> {
 }
 
 pub mod cli {
-    use crate::{
-        api::{self, client_post},
-        sql_generate,
-    };
+    use crate::api::{self, client_post};
     use alloy::{json_abi::Event, primitives::Address};
     use clap::Args;
     use eyre::{Context, Result};
@@ -178,15 +175,6 @@ pub mod cli {
     use url::Url;
 
     pub const HELP: &str = include_str!("./cli-help/query.txt");
-
-    pub fn print_view(args: &Request) -> Result<()> {
-        if let Some(events) = parse_events(&args.events_file, &args.event)? {
-            for event in events {
-                println!("{}", sql_generate::fmt_sql(&sql_generate::view(&event)?)?);
-            }
-        }
-        Ok(())
-    }
 
     pub fn parse_events(
         events_file: &Option<String>,

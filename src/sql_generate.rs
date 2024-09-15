@@ -1,30 +1,11 @@
 use alloy::{
     dyn_abi::{DynSolType, Specifier},
     hex,
-    json_abi::{Event, EventParam},
 };
 use eyre::{eyre, Context, Result};
+use itertools::Itertools;
 
 use crate::{api, sql_validate};
-
-pub fn view(event: &Event) -> Result<String> {
-    let mut projections: Vec<String> = Vec::new();
-    projections.push("block_num, tx_hash, log_idx, address".to_string());
-    projections.push(topics_sql_all(&event.inputs)?);
-    projections.push(abi_sql_all(&event.inputs)?);
-
-    Ok(format!(
-        r#"
-            create or replace view {} as
-            select {}
-            from logs
-            where topics[1] = '\x{}'
-        "#,
-        event.name.to_lowercase(),
-        &projections.join(","),
-        hex::encode(event.selector()),
-    ))
-}
 
 pub fn query(
     user_query: &str,
@@ -75,7 +56,7 @@ fn selection_cte_sql(selection: &sql_validate::Selection) -> Result<String, api:
     ));
     res.push("select".to_string());
     let mut select_list = Vec::new();
-    selection.fields.iter().for_each(|f| {
+    selection.fields.iter().sorted().for_each(|f| {
         if sql_validate::METADATA.contains(&f.as_str()) {
             select_list.push(f.to_string());
         }
@@ -115,31 +96,11 @@ fn selection_cte_sql(selection: &sql_validate::Selection) -> Result<String, api:
     Ok(res.join(" "))
 }
 
-fn topics_sql_all(inputs: &[EventParam]) -> Result<String> {
-    Ok(inputs
-        .iter()
-        .filter(|inp| inp.indexed)
-        .enumerate()
-        .map(|(i, input)| topic_sql(i, &format!("\"{}\"", &input.name), &input.resolve()?))
-        .collect::<Result<Vec<String>>>()?
-        .join(","))
-}
-
 fn topic_sql(pos: usize, name: &str, _t: &DynSolType) -> Result<String> {
     // postgres arrays are 1-indexed and the first element is
     // the event signature hash
     let pos = pos + 2;
     Ok(format!("topics[{}] as {}", pos, name))
-}
-
-fn abi_sql_all(inputs: &[EventParam]) -> Result<String> {
-    Ok(inputs
-        .iter()
-        .filter(|i| !i.indexed)
-        .enumerate()
-        .map(|(i, input)| abi_sql(i, &format!("\"{}\"", &input.name), &input.resolve()?))
-        .collect::<Result<Vec<String>>>()?
-        .join(","))
 }
 
 fn abi_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
@@ -150,7 +111,7 @@ fn abi_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
     };
     match t {
         DynSolType::Address => Ok(format!("abi_fixed_bytes(data, {}, 32) {}", pos * 32, alias,)),
-        DynSolType::Bool => todo!(),
+        DynSolType::Bool => Ok(format!("abi_fixed_bytes(data, {}, 32) {}", pos * 32, alias)),
         DynSolType::Bytes => Ok(format!(
             "abi_bytes(abi_dynamic(data, {})) {}",
             pos * 32,
@@ -167,21 +128,9 @@ fn abi_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
         DynSolType::Int(_) => Ok(format!("abi_fixed_bytes(data, {}, 32) {}", pos * 32, alias,)),
         DynSolType::Uint(_) => Ok(format!("abi_fixed_bytes(data, {}, 32) {}", pos * 32, alias,)),
         DynSolType::Array(arr) => match arr.as_ref() {
-            DynSolType::FixedBytes(_) => Ok(format!(
-                "abi_fixed_bytes_array(abi_dynamic(data, {}), 32) {}",
-                pos * 32,
-                alias
-            )),
-            DynSolType::Uint(_) => Ok(format!(
-                "abi_uint_array(abi_dynamic(data, {})) {}",
-                pos * 32,
-                alias,
-            )),
-            DynSolType::Int(_) => Ok(format!(
-                "abi_int_array(abi_dynamic(data, {})) {}",
-                pos * 32,
-                alias,
-            )),
+            DynSolType::FixedBytes(_) => Ok(format!("abi_dynamic(data, {}) {}", pos * 32, alias)),
+            DynSolType::Uint(_) => Ok(format!("abi_dynamic(data, {}) {}", pos * 32, alias,)),
+            DynSolType::Int(_) => Ok(format!("abi_dynamic(data, {}) {}", pos * 32, alias,)),
             DynSolType::Tuple(fields) => {
                 let size = fields.iter().map(|f| f.minimum_words()).sum::<usize>() * 32;
                 let key_names = (0..fields.iter().len()).map(|i| format!("'{}'", i));
@@ -208,26 +157,26 @@ fn abi_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
                     alias
                 ))
             }
-            _ => todo!(),
+            _ => Err(eyre!("unable to generate sql for array of: {:?}", t)),
         },
         _ => Err(eyre!("unable to generate sql for: {:?}", t)),
     }
 }
 
-const PG: &sqlparser::dialect::PostgreSqlDialect = &sqlparser::dialect::PostgreSqlDialect {};
-
-pub fn fmt_sql(sql: &str) -> Result<String> {
-    let ast = sqlparser::parser::Parser::parse_sql(PG, sql)?;
-    Ok(sqlformat::format(
-        &ast[0].to_string(),
-        &sqlformat::QueryParams::None,
-        sqlformat::FormatOptions::default(),
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const PG: &sqlparser::dialect::PostgreSqlDialect = &sqlparser::dialect::PostgreSqlDialect {};
+
+    pub fn fmt_sql(sql: &str) -> Result<String> {
+        let ast = sqlparser::parser::Parser::parse_sql(PG, sql)?;
+        Ok(sqlformat::format(
+            &ast[0].to_string(),
+            &sqlformat::QueryParams::None,
+            sqlformat::FormatOptions::default(),
+        ))
+    }
 
     fn check_sql(event_sigs: Vec<&str>, user_query: &str, want: &str) {
         let got = query(user_query, event_sigs, None)
@@ -242,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn test_rewrite_topics() {
+    fn test_topics() {
         check_sql(
             vec!["Transfer(address indexed from, address indexed to, uint indexed tokens)"],
             r#"
@@ -268,7 +217,7 @@ mod tests {
     }
 
     #[test]
-    fn test_rewrite_topics_only_indexed() {
+    fn test_topics_and_data() {
         check_sql(
             vec!["Transfer(address indexed from, address indexed to, uint tokens)"],
             r#"
@@ -294,7 +243,7 @@ mod tests {
     }
 
     #[test]
-    fn test_rewrite_literal_address() {
+    fn test_literal_address() {
         check_sql(
             vec!["Transfer(address indexed from, address indexed to, uint tokens)"],
             r#"
@@ -313,6 +262,82 @@ mod tests {
                 select abi_uint(tokens) as tokens
                 from transfer
                 where address = '\x00000000000000000000000000000000deadbeef'
+            "#,
+        );
+    }
+
+    #[test]
+    fn test_select_function_args() {
+        check_sql(
+            vec!["Foo(address indexed a, uint b)"],
+            r#"
+                select sum(b)
+                from foo
+                where a = 0x00000000000000000000000000000000deadbeef
+            "#,
+            r#"
+                with foo as not materialized (
+                    select
+                        topics[2] as a,
+                        abi_fixed_bytes(data, 0, 32) AS b
+                    from logs
+                    where topics [1] = '\xf31ba491e89b510fc888156ac880594d589edc875cfc250c79628ea36dd022ed'
+                )
+                select sum(abi_uint(b))
+                from foo
+                where a = '\x00000000000000000000000000000000000000000000000000000000deadbeef'
+            "#,
+        );
+    }
+
+    #[test]
+    fn test_bool() {
+        check_sql(
+            vec!["Foo(uint indexed a, bool b)"],
+            r#"
+                select b
+                from foo
+                where a = 0x00000000000000000000000000000000deadbeef
+            "#,
+            r#"
+                with foo as not materialized (
+                    select
+                        topics[2] as a,
+                        abi_fixed_bytes(data, 0, 32) AS b
+                    from logs
+                    where topics [1] = '\x79c52e97493a8f32348c3cf1ebfe4a8dfaeb083ca12cddd87b5d9f7c00d3ccaa'
+                )
+                select
+                    abi_bool(b) AS b
+                from foo
+                where a = '\x00000000000000000000000000000000000000000000000000000000deadbeef'
+            "#,
+        );
+    }
+
+    #[test]
+    fn test_arrays() {
+        check_sql(
+            vec!["Foo(uint indexed a, uint[] b, int256[] c)"],
+            r#"
+                select b, c
+                from foo
+                where a = 0x00000000000000000000000000000000deadbeef
+            "#,
+            r#"
+                with foo as not materialized (
+                    select
+                        topics[2] as a,
+                        abi_dynamic(data, 0) AS b,
+                        abi_dynamic(data, 32) AS c
+                    from logs
+                    where topics [1] = '\xc64a40e125a06afb756e3721cfa09bbcbccf1703151b93b4b303bb1a4198b2ea'
+                )
+                select
+                    abi_uint_array(b) AS b,
+                    abi_int_array(c) AS c
+                from foo
+                where a = '\x00000000000000000000000000000000000000000000000000000000deadbeef'
             "#,
         );
     }
@@ -374,7 +399,7 @@ mod tests {
         check_sql(
             vec!["Foo(uint indexed a, uint indexed b)"],
             r#"
-                select t1."b", t2.b
+                select t1.b, t2.b
                 from foo t1
                 left outer join foo t2
                 on t1.a = t2.a
@@ -386,12 +411,12 @@ mod tests {
                     select
                         block_num,
                         topics [2] AS a,
-                        topics [3] AS "b"
+                        topics [3] AS b
                     from logs
                     where topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
                 )
                 select
-                    abi_uint(t1."b") AS "b",
+                    abi_uint(t1.b) AS b,
                     abi_uint(t2.b) AS b
                 from foo as t1
                 left join foo as t2
@@ -417,100 +442,141 @@ mod tests {
         );
     }
 
-    fn check_view(event_sig: &str, want: &str) {
-        let event: Event = event_sig
-            .chars()
-            .filter(|c| c.is_ascii())
-            .collect::<String>()
-            .replace('\n', "")
-            .parse()
-            .unwrap_or_else(|_| panic!("unable to parse {}", event_sig));
-        let got = view(&event).unwrap_or_else(|_| panic!("unable to create sql for {}", event_sig));
-        let (got, want) = (
-            fmt_sql(&got).unwrap_or_else(|_| panic!("unable to format got: {}", got)),
-            fmt_sql(want).unwrap_or_else(|_| panic!("unable to format want: {}", want)),
-        );
-        if got.to_lowercase().ne(&want.to_lowercase()) {
-            panic!("got:\n{}\n\nwant:\n{}\n", got, want);
-        }
-    }
-
     #[test]
-    fn test_erc20_view() {
-        check_view(
-            "Transfer(address indexed from, address indexed to, uint tokens)",
+    fn test_tmr_news() {
+        check_sql(vec!["PredictionAdded(uint256 indexed marketId, uint256 indexed predictionId, address indexed predictor, uint256 value, string text, int256[] embedding)"],
             r#"
-                create or replace view transfer as
-                    select
-                        block_num,
-                        tx_hash,
-                        log_idx,
-                        address,
-                        topics[2] as "from",
-                        topics[3] as "to",
-                        abi_fixed_bytes(data, 0, 32) as "tokens"
-                    from logs
-                    where topics[1] = '\xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
-            "#,
-        )
-    }
-
-    #[test]
-    fn test_mud_view() {
-        check_view(
-            "Store_SetRecord(bytes32 indexed tableId, bytes32[] keyTuple, bytes staticData, bytes32 encodedLengths, bytes dynamicData)",
-            r#"
-                create or replace view store_setrecord as
-                    select
-                        block_num,
-                        tx_hash,
-                        log_idx,
-                        address,
-                        topics[2] as "tableid",
-                        abi_fixed_bytes_array(abi_dynamic(data, 0), 32) as "keytuple",
-                        abi_bytes(abi_dynamic(data, 32)) as "staticdata",
-                        abi_fixed_bytes(data, 64, 32) as "encodedlengths",
-                        abi_bytes(abi_dynamic(data, 96)) as "dynamicdata"
-                    from logs
-                    where topics[1] = '\x8dbb3a9672eebfd3773e72dd9c102393436816d832c7ba9e1e1ac8fcadcac7a9'
-            "#,
-        )
-    }
-
-    #[test]
-    fn test_seaport_view() {
-        check_view(
-            "OrderFulfilled(bytes32 orderHash, address indexed offerer, address indexed zone, address recipient, (uint8, address, uint256, uint256)[] offer, (uint8, address, uint256, uint256, address)[] consideration)",
-            r#"
-                create or replace view orderfulfilled as
                 select
-                    block_num,
-                    tx_hash,
-                    log_idx,
                     address,
-                    topics[2] as "offerer",
-                    topics[3] as "zone",
-                    abi_fixed_bytes(data, 0, 32) as "orderhash",
-                    abi_fixed_bytes(data, 32, 32) as "recipient",
+                    block_num,
+                    "marketId",
+                    "predictionId",
+                    "predictor",
+                    "value",
+                    "text",
+                    "embedding"
+                FROM predictionadded
+                WHERE address = '\x6e5310adD12a6043FeE1FbdC82366dcaB7f5Ad15'
+            "#,
+            r#"
+                with predictionadded as not materialized (
+                    select
+                        address,
+                        block_num,
+                        topics[2] as "marketId",
+                        topics[3] as "predictionId",
+                        topics[4] as "predictor",
+                        abi_fixed_bytes(data, 0, 32) as "value",
+                        convert_from(rtrim(abi_bytes(abi_dynamic(data, 32)), '\x00'), 'UTF8') as "text",
+                        abi_dynamic(data, 64) as "embedding"
+                    from logs
+                    where topics[1] = '\xce9c0df4181cf7f57cf163a3bc9d3102b1af09f4dcfed92644a72f5ca70fdfdf'
+                )
+                SELECT
+                    address,
+                    block_num,
+                    abi_uint("marketId") AS "marketId",
+                    abi_uint("predictionId") AS "predictionId",
+                    abi_address("predictor") AS "predictor",
+                    abi_uint("value") as "value",
+                    "text",
+                    abi_int_array("embedding") as "embedding"
+                FROM predictionadded
+                WHERE address = '\x6e5310add12a6043fee1fbdc82366dcab7f5ad15'
+            "#,
+        );
+    }
+
+    #[test]
+    fn test_mud_query() {
+        check_sql(
+            vec!["Store_SetRecord(bytes32 indexed tableId, bytes32[] keyTuple, bytes staticData, bytes32 encodedLengths, bytes dynamicData)"],
+            r#"select tableId, keyTuple, staticData, encodedLengths, dynamicData from store_setrecord"#,
+            r#"
+                with store_setrecord as not materialized (
+                    select
+                        topics [2] as tableid,
+                        abi_dynamic(data, 0) as keytuple,
+                        abi_bytes(abi_dynamic(data, 32)) as staticdata,
+                        abi_fixed_bytes(data, 64, 32) as encodedlengths,
+                        abi_bytes(abi_dynamic(data, 96)) as dynamicdata
+                    from logs
+                    where topics [1] = '\x8dbb3a9672eebfd3773e72dd9c102393436816d832c7ba9e1e1ac8fcadcac7a9'
+                )
+                select
+                    tableid,
+                    abi_fixed_bytes_array(keytuple, 32) as keytuple,
+                    staticdata,
+                    encodedlengths,
+                    dynamicdata
+                from store_setrecord
+            "#,
+        )
+    }
+
+    #[test]
+    fn test_seaport_query() {
+        check_sql(
+            vec!["OrderFulfilled(bytes32 orderHash, address indexed offerer, address indexed zone, address recipient, (uint8, address, uint256, uint256)[] offer, (uint8, address, uint256, uint256, address)[] consideration)"],
+            r#"select orderHash, offerer, zone, recipient, offer, consideration from orderfulfilled"#,
+            r#"
+                with orderfulfilled as not materialized (
+                select
+                    topics [2] as offerer,
+                    topics [3] as zone,
+                    abi_fixed_bytes(data, 0, 32) as orderhash,
+                    abi_fixed_bytes(data, 32, 32) as recipient,
                     (
-                        select json_agg(json_build_object(
-                            '0', abi_fixed_bytes(data, 0, 32),
-                            '1', abi_fixed_bytes(data, 32, 32),
-                            '2', abi_fixed_bytes(data, 64, 32),
-                            '3', abi_fixed_bytes(data, 96, 32)
-                        )) from unnest(abi_fixed_bytes_array(abi_dynamic(data, 64), 128)) as data
-                    ) as "offer",
+                    select
+                        json_agg(
+                        json_build_object(
+                            '0',
+                            abi_fixed_bytes(data, 0, 32),
+                            '1',
+                            abi_fixed_bytes(data, 32, 32),
+                            '2',
+                            abi_fixed_bytes(data, 64, 32),
+                            '3',
+                            abi_fixed_bytes(data, 96, 32)
+                        )
+                        )
+                    from
+                        unnest(
+                        abi_fixed_bytes_array(abi_dynamic(data, 64), 128)
+                        ) as data
+                    ) as offer,
                     (
-                        select json_agg(json_build_object(
-                            '0', abi_fixed_bytes(data, 0, 32),
-                            '1', abi_fixed_bytes(data, 32, 32),
-                            '2', abi_fixed_bytes(data, 64, 32),
-                            '3', abi_fixed_bytes(data, 96, 32),
-                            '4', abi_fixed_bytes(data, 128, 32)
-                        )) from unnest(abi_fixed_bytes_array(abi_dynamic(data, 96), 160)) as data
-                    ) as "consideration"
+                    select
+                        json_agg(
+                        json_build_object(
+                            '0',
+                            abi_fixed_bytes(data, 0, 32),
+                            '1',
+                            abi_fixed_bytes(data, 32, 32),
+                            '2',
+                            abi_fixed_bytes(data, 64, 32),
+                            '3',
+                            abi_fixed_bytes(data, 96, 32),
+                            '4',
+                            abi_fixed_bytes(data, 128, 32)
+                        )
+                        )
+                    from
+                        unnest(
+                        abi_fixed_bytes_array(abi_dynamic(data, 96), 160)
+                        ) as data
+                    ) as consideration
                 from logs
-                where topics[1] = '\x9d9af8e38d66c62e2c12f0225249fd9d721c54b83f48d9352c97c6cacdcb6f31'
+                where topics [1] = '\x9d9af8e38d66c62e2c12f0225249fd9d721c54b83f48d9352c97c6cacdcb6f31'
+                )
+                select
+                orderhash,
+                abi_address(offerer) as offerer,
+                abi_address(zone) as zone,
+                abi_address(recipient) as recipient,
+                offer,
+                consideration
+                from orderfulfilled
             "#
         );
     }

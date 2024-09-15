@@ -56,9 +56,6 @@ enum Commands {
     #[command(name = "server", about = "Serve API requests and sync decoded logs")]
     Server(ServerArgs),
 
-    #[command(name = "view", about = "Print SQL VIEW for events")]
-    PrintView(api_sql::cli::Request),
-
     #[command(name = "query", about = "Query decoded logs", long_about = Some(api_sql::cli::HELP))]
     Query(api_sql::cli::Request),
 }
@@ -174,7 +171,6 @@ async fn main() -> Result<(), api::Error> {
             )
             .await?
         }
-        Commands::PrintView(args) => api_sql::cli::print_view(&args)?,
         Commands::Query(args) => api_sql::cli::request(&reqwest::Client::new(), args).await?,
         Commands::Server(args) => server(args).await,
     }
