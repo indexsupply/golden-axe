@@ -50,10 +50,7 @@ fn limit_block_range(from: Option<u64>) -> String {
 
 fn selection_cte_sql(selection: &user_query::Selection) -> Result<String, api::Error> {
     let mut res: Vec<String> = Vec::new();
-    res.push(format!(
-        "{} as not materialized (",
-        selection.user_event_name
-    ));
+    res.push(format!("{} as not materialized (", selection.table_name));
     res.push("select".to_string());
     let mut select_list = Vec::new();
     selection.fields.iter().sorted().for_each(|f| {
@@ -188,6 +185,24 @@ mod tests {
         if got.to_lowercase().ne(&want.to_lowercase()) {
             panic!("got:\n{}\n\nwant:\n{}\n", got, want);
         }
+    }
+
+    #[test]
+    fn test_alias_group_by() {
+        check_sql(
+            vec!["Foo(uint indexed a, uint indexed b)"],
+            r#"
+                select
+                    a as alpha,
+                    count(b) as beta
+                from foo
+                group by alpha
+                order by beta desc
+            "#,
+            r#"
+                select 1
+            "#,
+        );
     }
 
     #[test]

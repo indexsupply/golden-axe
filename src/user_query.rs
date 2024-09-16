@@ -47,9 +47,13 @@ pub struct RewrittenQuery {
 #[derive(Debug)]
 pub struct Selection {
     pub event: Event,
-    pub alias: HashSet<String>,
-    pub user_event_name: String,
+    // A single event can be referenced
+    // multiple times eg multiple joins
+    // on single table.
+    pub table_alias: HashSet<String>,
+    pub table_name: String,
     pub fields: HashSet<String>,
+    field_aliases: HashMap<String, String>,
 }
 
 impl Selection {
@@ -69,11 +73,15 @@ impl Selection {
     }
 
     fn get_field(&self, field_name: &str) -> Option<EventParam> {
-        let unquoted = field_name.replace('"', "");
+        let field_name = if let Some(name) = self.field_aliases.get(&clean_ident(field_name)) {
+            name
+        } else {
+            field_name
+        };
         self.event
             .inputs
             .iter()
-            .find(|inp| inp.name == unquoted)
+            .find(|inp| clean_ident(&inp.name) == clean_ident(field_name))
             .cloned()
     }
 }
@@ -183,9 +191,10 @@ impl UserQuery {
                 clean_ident(&event.name.to_string()),
                 Selection {
                     event,
-                    alias: HashSet::new(),
-                    user_event_name: String::new(),
+                    table_alias: HashSet::new(),
+                    table_name: String::new(),
                     fields: HashSet::new(),
+                    field_aliases: HashMap::new(),
                 },
             );
         }
@@ -212,7 +221,7 @@ impl UserQuery {
         self.events
             .into_values()
             .filter(|s| !s.fields.is_empty())
-            .sorted_by_key(|s| s.user_event_name.to_string())
+            .sorted_by_key(|s| s.table_name.to_string())
             .collect()
     }
 
@@ -222,7 +231,7 @@ impl UserQuery {
             if event_name == table_name {
                 return Ok(selection);
             }
-            if selection.alias.contains(table_name) {
+            if selection.table_alias.contains(table_name) {
                 return Ok(selection);
             }
         }
@@ -653,8 +662,8 @@ impl UserQuery {
             "abi_bool",
             "abi_fixed_bytes",
             "abi_address",
-            "abi_int",
             "abi_uint",
+            "abi_int",
             "abi_uint_array",
             "abi_int_array",
             "abi_fixed_bytes_array",
@@ -736,8 +745,8 @@ impl UserQuery {
                     )));
                 }
                 let selection = self.selection(&name_parts[0].value)?;
-                selection.alias.insert(alias.name.value.to_string());
-                selection.user_event_name = name_parts[0].value.to_string();
+                selection.table_alias.insert(alias.name.value.to_string());
+                selection.table_name = name_parts[0].value.to_string();
                 Ok(())
             }
             ast::TableFactor::Table {
@@ -751,7 +760,7 @@ impl UserQuery {
                     )));
                 }
                 let selection = self.selection(&name_parts[0].value)?;
-                selection.user_event_name = name_parts[0].value.to_string();
+                selection.table_name = name_parts[0].value.to_string();
                 Ok(())
             }
             _ => no!(relation),
