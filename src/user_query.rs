@@ -30,12 +30,12 @@ const PG: &sqlparser::dialect::PostgreSqlDialect = &sqlparser::dialect::PostgreS
 /// and validates the query against the provided event signatures.
 /// The SQL API implements onlny a subset of SQL so un-supported
 /// SQL results in an error.
-pub fn validate(user_query: &str, event_sigs: Vec<&str>) -> Result<RewrittenQuery, api::Error> {
-    let mut reg = EventRegistry::new(event_sigs)?;
-    let new_query = reg.validate(user_query)?;
+pub fn process(user_query: &str, event_sigs: Vec<&str>) -> Result<RewrittenQuery, api::Error> {
+    let mut query = UserQuery::new(event_sigs)?;
+    let new_query = query.process(user_query)?;
     Ok(RewrittenQuery {
         new_query,
-        selections: reg.selections(),
+        selections: query.selections(),
     })
 }
 
@@ -79,7 +79,7 @@ impl Selection {
 }
 
 #[derive(Debug)]
-struct EventRegistry {
+struct UserQuery {
     events: HashMap<String, Selection>,
 }
 
@@ -167,8 +167,8 @@ impl ExprExt for ast::Expr {
     }
 }
 
-impl EventRegistry {
-    fn new(event_sigs: Vec<&str>) -> Result<EventRegistry, api::Error> {
+impl UserQuery {
+    fn new(event_sigs: Vec<&str>) -> Result<UserQuery, api::Error> {
         let mut events = HashMap::new();
         let cleaned_event_sigs: Vec<&str> = event_sigs
             .into_iter()
@@ -189,7 +189,23 @@ impl EventRegistry {
                 },
             );
         }
-        Ok(EventRegistry { events })
+        Ok(UserQuery { events })
+    }
+
+    fn process(&mut self, user_query: &str) -> Result<String, api::Error> {
+        let mut stmts =
+            Parser::parse_sql(PG, user_query).map_err(|e| api::Error::User(e.to_string()))?;
+        if stmts.len() != 1 {
+            return Err(api::Error::User(
+                "query must be exactly 1 sql statement".to_string(),
+            ));
+        }
+        let stmt = stmts.first_mut().unwrap();
+        match stmt {
+            ast::Statement::Query(q) => self.validate_query(q.as_mut()),
+            _ => Err(api::Error::User("select queries only".to_string())),
+        }?;
+        Ok(stmt.to_string())
     }
 
     fn selections(self) -> Vec<Selection> {
@@ -482,22 +498,6 @@ impl EventRegistry {
         }
     }
 
-    fn validate(&mut self, user_query: &str) -> Result<String, api::Error> {
-        let mut stmts =
-            Parser::parse_sql(PG, user_query).map_err(|e| api::Error::User(e.to_string()))?;
-        if stmts.len() != 1 {
-            return Err(api::Error::User(
-                "query must be exactly 1 sql statement".to_string(),
-            ));
-        }
-        let stmt = stmts.first_mut().unwrap();
-        match stmt {
-            ast::Statement::Query(q) => self.validate_query(q.as_mut()),
-            _ => Err(api::Error::User("select queries only".to_string())),
-        }?;
-        Ok(stmt.to_string())
-    }
-
     fn validate_query(&mut self, query: &mut ast::Query) -> Result<(), api::Error> {
         match query {
             ast::Query { with: Some(_), .. } => no!("with"),
@@ -623,6 +623,26 @@ impl EventRegistry {
         }
     }
 
+    fn validate_column(&mut self, id: &mut ast::Ident) -> Result<(), api::Error> {
+        self.select_field(&id.to_string())?;
+        Ok(())
+    }
+
+    fn validate_compound_column(&mut self, id: &[ast::Ident]) -> Result<(), api::Error> {
+        let (event_name, field_name) = match id.len() {
+            3 => (id[0..2].iter().join("."), id[2].to_string()),
+            2 => (id[0].to_string(), id[1].to_string()),
+            _ => {
+                return Err(api::Error::User(format!(
+                    "compound column id must be of form: event.field got: {}",
+                    id.iter().join(" ")
+                )))
+            }
+        };
+        self.select_event_field(&event_name, &field_name)?;
+        Ok(())
+    }
+
     fn validate_function(&mut self, function: &mut ast::Function) -> Result<(), api::Error> {
         let name = function.name.to_string().to_lowercase();
         const VALID_FUNCS: [&str; 11] = [
@@ -667,26 +687,6 @@ impl EventRegistry {
                 no!("wild card function args")
             }
         }
-    }
-
-    fn validate_compound_column(&mut self, id: &[ast::Ident]) -> Result<(), api::Error> {
-        let (event_name, field_name) = match id.len() {
-            3 => (id[0..2].iter().join("."), id[2].to_string()),
-            2 => (id[0].to_string(), id[1].to_string()),
-            _ => {
-                return Err(api::Error::User(format!(
-                    "compound column id must be of form: event.field got: {}",
-                    id.iter().join(" ")
-                )))
-            }
-        };
-        self.select_event_field(&event_name, &field_name)?;
-        Ok(())
-    }
-
-    fn validate_column(&mut self, id: &mut ast::Ident) -> Result<(), api::Error> {
-        self.select_field(&id.to_string())?;
-        Ok(())
     }
 
     fn validate_table_with_joins(

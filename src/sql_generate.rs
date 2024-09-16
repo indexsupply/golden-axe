@@ -5,7 +5,7 @@ use alloy::{
 use eyre::{eyre, Context, Result};
 use itertools::Itertools;
 
-use crate::{api, sql_validate};
+use crate::{api, user_query};
 
 pub fn query(
     user_query: &str,
@@ -26,7 +26,7 @@ pub fn query(
             .collect::<Vec<&str>>()
             .join(" "),
     );
-    let res = sql_validate::validate(user_query, event_sigs)?;
+    let res = user_query::process(user_query, event_sigs)?;
     let query: Vec<String> = vec![
         "with".to_string(),
         limit_block_range(from),
@@ -48,7 +48,7 @@ fn limit_block_range(from: Option<u64>) -> String {
     }
 }
 
-fn selection_cte_sql(selection: &sql_validate::Selection) -> Result<String, api::Error> {
+fn selection_cte_sql(selection: &user_query::Selection) -> Result<String, api::Error> {
     let mut res: Vec<String> = Vec::new();
     res.push(format!(
         "{} as not materialized (",
@@ -57,7 +57,7 @@ fn selection_cte_sql(selection: &sql_validate::Selection) -> Result<String, api:
     res.push("select".to_string());
     let mut select_list = Vec::new();
     selection.fields.iter().sorted().for_each(|f| {
-        if sql_validate::METADATA.contains(&f.as_str()) {
+        if user_query::METADATA.contains(&f.as_str()) {
             select_list.push(f.to_string());
         }
     });
