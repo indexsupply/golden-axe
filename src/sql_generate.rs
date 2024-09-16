@@ -399,7 +399,7 @@ mod tests {
         check_sql(
             vec!["Foo(uint indexed a, uint indexed b)"],
             r#"
-                select t1.b, t2.b
+                select t1.b, t1.block_num, t2.b
                 from foo t1
                 left outer join foo t2
                 on t1.a = t2.a
@@ -417,6 +417,7 @@ mod tests {
                 )
                 select
                     abi_uint(t1.b) AS b,
+                    t1.block_num,
                     abi_uint(t2.b) AS b
                 from foo as t1
                 left join foo as t2

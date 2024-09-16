@@ -151,6 +151,22 @@ fn left_pad(vec: Vec<u8>) -> Vec<u8> {
 
 pub const METADATA: [&str; 4] = ["address", "block_num", "log_idx", "tx_hash"];
 
+trait ExprExt {
+    fn is_metadata(&self) -> bool;
+}
+
+impl ExprExt for ast::Expr {
+    fn is_metadata(&self) -> bool {
+        match self {
+            ast::Expr::Identifier(ident) => METADATA.contains(&ident.to_string().as_str()),
+            ast::Expr::CompoundIdentifier(idents) if idents.len() == 2 => {
+                METADATA.contains(&idents[1].to_string().as_str())
+            }
+            _ => false,
+        }
+    }
+}
+
 impl EventRegistry {
     fn new(event_sigs: Vec<&str>) -> Result<EventRegistry, api::Error> {
         let mut events = HashMap::new();
@@ -293,10 +309,7 @@ impl EventRegistry {
         let param_type = match param {
             Some(p) => p.resolve().wrap_err("decoding param abi")?,
             None => {
-                return Ok(ast::ExprWithAlias {
-                    alias: None,
-                    expr: ast::Expr::Identifier(ast::Ident::new(alias.to_string())),
-                });
+                return Err(api::Error::User(format!("unable to decode: {:?}", param)));
             }
         };
         match param_type {
@@ -359,9 +372,14 @@ impl EventRegistry {
         }
     }
 
+    // We rewrite select items to preform last-mile abi decoding.
+    // The decoding that happens within the log loading CTE will keep
+    // data in 32byte padded format. It is in the rewritten user query
+    // that we convert to the ABI type. IE turn a 32byte word into a
+    // uint via the abi_uint function.
     fn rewrite_select_item(&mut self, item: &mut ast::SelectItem) -> Result<(), api::Error> {
         match item {
-            ast::SelectItem::UnnamedExpr(expr) => {
+            ast::SelectItem::UnnamedExpr(expr) if !expr.is_metadata() => {
                 let wrapped = self.abi_decode_expr(expr.clone())?;
                 match wrapped.alias {
                     Some(alias) => {
@@ -372,17 +390,18 @@ impl EventRegistry {
                     }
                     None => *item = ast::SelectItem::UnnamedExpr(wrapped.expr),
                 }
+                Ok(())
             }
-            ast::SelectItem::ExprWithAlias { expr, alias } => {
+            ast::SelectItem::ExprWithAlias { expr, alias } if !expr.is_metadata() => {
                 let wrapped = self.abi_decode_expr(expr.clone())?;
                 *item = ast::SelectItem::ExprWithAlias {
                     alias: alias.clone(),
                     expr: wrapped.expr,
                 };
+                Ok(())
             }
-            _ => return no!("wild card select items"),
-        };
-        Ok(())
+            _ => Ok(()),
+        }
     }
 
     fn rewrite_literal(
