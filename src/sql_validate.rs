@@ -697,16 +697,16 @@ impl EventRegistry {
         for join in table.joins.iter_mut() {
             self.validate_relation(&mut join.relation)?;
             match &mut join.join_operator {
-                ast::JoinOperator::Inner(c) => self.validate_join_constraing(c)?,
-                ast::JoinOperator::LeftOuter(c) => self.validate_join_constraing(c)?,
-                ast::JoinOperator::RightOuter(c) => self.validate_join_constraing(c)?,
+                ast::JoinOperator::Inner(c) => self.validate_join_constraint(c)?,
+                ast::JoinOperator::LeftOuter(c) => self.validate_join_constraint(c)?,
+                ast::JoinOperator::RightOuter(c) => self.validate_join_constraint(c)?,
                 _ => return no!("must be inner, left outer, or right outer join"),
             };
         }
         Ok(())
     }
 
-    fn validate_join_constraing(
+    fn validate_join_constraint(
         &mut self,
         constraint: &mut ast::JoinConstraint,
     ) -> Result<(), api::Error> {
