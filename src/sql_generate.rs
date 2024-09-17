@@ -188,6 +188,60 @@ mod tests {
     }
 
     #[test]
+    fn test_abi_types() {
+        check_sql(
+            vec!["Foo(string a, bytes16 b, bytes c, int256 d, int256[] e, string[] f)"],
+            r#"
+                select a, b, c, d, e
+                from foo
+            "#,
+            r#"
+                with foo as not materialized (
+                    select
+                        convert_from(rtrim(abi_bytes(abi_dynamic(data, 0)), '\x00'), 'UTF8') AS a,
+                        abi_fixed_bytes(data, 32, 32) AS b,
+                        abi_bytes(abi_dynamic(data, 64)) AS c,
+                        abi_fixed_bytes(data, 96, 32) AS d,
+                        abi_dynamic(data, 128) AS e
+                    from logs
+                    where topics [1] = '\x6fe6093b8d28edb17b4f226fe18fa404c1f70e87ac4489bc59f5e5227ac313d4'
+                )
+                select
+                    a,
+                    b,
+                    c,
+                    abi_int(d) AS d,
+                    abi_int_array(e) AS e
+                from foo
+            "#,
+        );
+    }
+
+    #[test]
+    fn test_variable_casing() {
+        check_sql(
+            vec!["Foo(uint indexed aAA, uint indexed b)"],
+            r#"
+                select "aAA", "b"
+                from foo
+            "#,
+            r#"
+                with foo as not materialized (
+                    select
+                        topics [2] as "aAA",
+                        topics [3] as "b"
+                    from logs
+                    where topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
+                )
+                select
+                    abi_uint("aAA") as "aAA",
+                    abi_uint("b") as "b"
+                from foo
+            "#,
+        );
+    }
+
+    #[test]
     fn test_alias_group_by() {
         check_sql(
             vec!["Foo(uint indexed a, uint indexed b)"],
@@ -200,7 +254,19 @@ mod tests {
                 order by beta desc
             "#,
             r#"
-                select 1
+                with foo as not materialized (
+                    select
+                        topics [2] as a,
+                        topics [3] as b
+                    from logs
+                    where topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
+                )
+                select
+                    abi_uint(a) as alpha,
+                    count(abi_uint(b)) as beta
+                from foo
+                group by alpha
+                order by beta desc
             "#,
         );
     }

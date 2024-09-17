@@ -151,6 +151,18 @@ fn wrap_function_arg(
     }
 }
 
+fn extract_function_arg(function: &ast::Function) -> Option<ast::Expr> {
+    if let ast::FunctionArguments::List(list) = &function.args {
+        if list.args.is_empty() {
+            return None;
+        }
+        if let ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Expr(expr)) = &list.args[0] {
+            return Some(expr.clone());
+        }
+    }
+    None
+}
+
 fn left_pad(vec: Vec<u8>) -> Vec<u8> {
     let mut padded = vec![0u8; 32 - vec.len()];
     padded.extend(vec);
@@ -160,17 +172,15 @@ fn left_pad(vec: Vec<u8>) -> Vec<u8> {
 pub const METADATA: [&str; 4] = ["address", "block_num", "log_idx", "tx_hash"];
 
 trait ExprExt {
-    fn is_metadata(&self) -> bool;
+    fn last(&self) -> Option<ast::Ident>;
 }
 
 impl ExprExt for ast::Expr {
-    fn is_metadata(&self) -> bool {
+    fn last(&self) -> Option<ast::Ident> {
         match self {
-            ast::Expr::Identifier(ident) => METADATA.contains(&ident.to_string().as_str()),
-            ast::Expr::CompoundIdentifier(idents) if idents.len() == 2 => {
-                METADATA.contains(&idents[1].to_string().as_str())
-            }
-            _ => false,
+            ast::Expr::Identifier(ident) => Some(ident.clone()),
+            ast::Expr::CompoundIdentifier(idents) => idents.last().cloned(),
+            _ => None,
         }
     }
 }
@@ -271,129 +281,104 @@ impl UserQuery {
         }
     }
 
-    fn select_field(&mut self, field_name: &str) -> Result<Option<EventParam>, api::Error> {
-        let mut selection: Vec<&mut Selection> = self
+    // If the field_name matches an Event's field name
+    // then we will save the field_name to our Selection's
+    // field set. This will later be used to build the logs CTE.
+    fn select_field(&mut self, field_name: &str) {
+        if METADATA.contains(&field_name) {
+            self.events.values_mut().for_each(|s| {
+                s.fields.insert(field_name.to_string());
+            });
+            return;
+        }
+        let selection = self
             .events
             .values_mut()
-            .filter(|s| s.get_field(field_name).is_some())
-            .collect();
-        match selection.len() {
-            0 => {
-                if METADATA.contains(&field_name) {
-                    self.events.values_mut().for_each(|s| {
-                        s.fields.insert(field_name.to_string());
-                    });
-                    return Ok(None);
+            .find(|s| s.get_field(field_name).is_some());
+        match selection {
+            None => return,
+            Some(s) => s.fields.insert(field_name.to_string()),
+        };
+    }
+
+    fn event_param(&mut self, expr: &ast::Expr) -> Option<EventParam> {
+        match expr {
+            ast::Expr::Identifier(ident) => {
+                for sel in self.events.values() {
+                    if let Some(param) = sel.get_field(&ident.to_string()) {
+                        return Some(param);
+                    }
                 }
-                Err(api::Error::User(format!(
-                    r#"Unable to find an event which contains the field: '{}'"#,
-                    field_name
-                )))
+                None
             }
-            1 => {
-                let event = selection.first_mut().unwrap();
-                event.fields.insert(field_name.to_string());
-                Ok(event.get_field(field_name))
+            ast::Expr::CompoundIdentifier(idents) if idents.len() == 2 => {
+                if let Ok(sel) = self.selection(&idents[0].to_string()) {
+                    sel.get_field(&idents[1].to_string())
+                } else {
+                    None
+                }
             }
-            _ => Err(api::Error::User(format!(
-                "multiple events contain field: {}",
-                field_name
-            ))),
+            _ => None,
         }
     }
 
-    fn abi_decode_expr(&mut self, expr: ast::Expr) -> Result<ast::ExprWithAlias, api::Error> {
-        let (alias, param) = match &expr {
-            ast::Expr::Identifier(ident) => (ident.clone(), self.select_field(&ident.to_string())?),
-            ast::Expr::CompoundIdentifier(idents) => (
-                idents[1].clone(),
-                self.select_event_field(&idents[0].to_string(), &idents[1].to_string())?,
-            ),
-            ast::Expr::Function(f) => match &f.args {
-                ast::FunctionArguments::None => return no!("empty function args"),
-                ast::FunctionArguments::Subquery(_) => return no!("subqueries in function args"),
-                ast::FunctionArguments::List(fargs) => {
-                    if fargs.args.len() > 1 {
-                        return no!("multiple function args");
-                    }
-                    match fargs.args.first().unwrap().clone() {
-                        ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Expr(inner)) => {
-                            let wrapped = self.abi_decode_expr(inner)?;
-                            return Ok(wrap_function(
-                                None,
-                                f.name.0.first().unwrap().clone(),
-                                wrapped.expr,
-                            ));
-                        }
-                        _ => return no!("named function args"),
-                    }
-                }
-            },
-            _ => return no!("wrap non-ident or non-function"),
-        };
-        let param_type = match param {
-            Some(p) => p.resolve().wrap_err("decoding param abi")?,
-            None => {
-                return Err(api::Error::User(format!("unable to decode: {:?}", param)));
+    fn abi_decode_expr(&mut self, expr: &ast::Expr) -> Option<ast::ExprWithAlias> {
+        if let ast::Expr::Function(f) = &expr {
+            if let Some(expr) = extract_function_arg(f) {
+                let wrapped = self.abi_decode_expr(&expr)?;
+                return Some(wrap_function(
+                    None,
+                    f.name.0.first().unwrap().clone(),
+                    wrapped.expr,
+                ));
             }
+        }
+        let param = match self.event_param(expr) {
+            None => return None,
+            Some(p) => p.resolve().unwrap(),
         };
-        match param_type {
-            DynSolType::Bool => Ok(wrap_function(
-                Some(alias),
+        let alias = expr.last();
+        match param {
+            DynSolType::Bool => Some(wrap_function(
+                alias,
                 ast::Ident::new("abi_bool"),
                 expr.clone(),
             )),
-            DynSolType::Bytes => Ok(ast::ExprWithAlias {
-                alias: None,
-                expr: expr.clone(),
-            }),
-            DynSolType::FixedBytes(_) => Ok(ast::ExprWithAlias {
-                alias: None,
-                expr: expr.clone(),
-            }),
-            DynSolType::String => Ok(ast::ExprWithAlias {
-                alias: None,
-                expr: expr.clone(),
-            }),
-            DynSolType::Address => Ok(wrap_function(
-                Some(alias),
+            DynSolType::Address => Some(wrap_function(
+                alias,
                 ast::Ident::new("abi_address"),
                 expr.clone(),
             )),
-            DynSolType::Int(_) => Ok(wrap_function(
-                Some(alias),
+            DynSolType::Int(_) => Some(wrap_function(
+                alias,
                 ast::Ident::new("abi_int"),
                 expr.clone(),
             )),
-            DynSolType::Uint(_) => Ok(wrap_function(
-                Some(alias),
+            DynSolType::Uint(_) => Some(wrap_function(
+                alias,
                 ast::Ident::new("abi_uint"),
                 expr.clone(),
             )),
             DynSolType::Array(arr) => match arr.as_ref() {
-                DynSolType::Uint(_) => Ok(wrap_function(
-                    Some(alias),
+                DynSolType::Uint(_) => Some(wrap_function(
+                    alias,
                     ast::Ident::new("abi_uint_array"),
                     expr.clone(),
                 )),
-                DynSolType::Int(_) => Ok(wrap_function(
-                    Some(alias),
+                DynSolType::Int(_) => Some(wrap_function(
+                    alias,
                     ast::Ident::new("abi_int_array"),
                     expr.clone(),
                 )),
-                DynSolType::FixedBytes(_) => Ok(wrap_function_arg(
-                    Some(alias),
+                DynSolType::FixedBytes(_) => Some(wrap_function_arg(
+                    alias,
                     ast::Ident::new("abi_fixed_bytes_array"),
                     expr.clone(),
                     number_arg(32),
                 )),
-                DynSolType::Tuple(_) => Ok(ast::ExprWithAlias {
-                    alias: None,
-                    expr: expr.clone(),
-                }),
-                _ => no!(arr.to_string()),
+                _ => None,
             },
-            _ => no!(param_type.to_string()),
+            _ => None,
         }
     }
 
@@ -402,30 +387,30 @@ impl UserQuery {
     // data in 32byte padded format. It is in the rewritten user query
     // that we convert to the ABI type. IE turn a 32byte word into a
     // uint via the abi_uint function.
-    fn rewrite_select_item(&mut self, item: &mut ast::SelectItem) -> Result<(), api::Error> {
+    fn rewrite_select_item(&mut self, item: &mut ast::SelectItem) {
         match item {
-            ast::SelectItem::UnnamedExpr(expr) if !expr.is_metadata() => {
-                let wrapped = self.abi_decode_expr(expr.clone())?;
-                match wrapped.alias {
-                    Some(alias) => {
-                        *item = ast::SelectItem::ExprWithAlias {
-                            alias,
-                            expr: wrapped.expr,
-                        };
+            ast::SelectItem::UnnamedExpr(expr) => {
+                if let Some(rewritten) = self.abi_decode_expr(expr) {
+                    match rewritten.alias {
+                        Some(alias) => {
+                            *item = ast::SelectItem::ExprWithAlias {
+                                alias,
+                                expr: rewritten.expr,
+                            }
+                        }
+                        None => *item = ast::SelectItem::UnnamedExpr(rewritten.expr),
                     }
-                    None => *item = ast::SelectItem::UnnamedExpr(wrapped.expr),
                 }
-                Ok(())
             }
-            ast::SelectItem::ExprWithAlias { expr, alias } if !expr.is_metadata() => {
-                let wrapped = self.abi_decode_expr(expr.clone())?;
-                *item = ast::SelectItem::ExprWithAlias {
-                    alias: alias.clone(),
-                    expr: wrapped.expr,
-                };
-                Ok(())
+            ast::SelectItem::ExprWithAlias { expr, alias } => {
+                if let Some(rewritten) = self.abi_decode_expr(expr) {
+                    *item = ast::SelectItem::ExprWithAlias {
+                        alias: alias.clone(),
+                        expr: rewritten.expr,
+                    };
+                }
             }
-            _ => Ok(()),
+            _ => {}
         }
     }
 
@@ -475,36 +460,13 @@ impl UserQuery {
         left: &mut Box<ast::Expr>,
         right: &mut Box<ast::Expr>,
     ) -> Result<(), api::Error> {
-        match left.as_mut() {
-            ast::Expr::Identifier(ident) => {
-                let field_name = ident.to_string();
-                match self.select_field(&field_name)? {
-                    Some(param) => self.rewrite_literal(right, param.resolve().unwrap(), false),
-                    None if field_name == "address" => {
-                        self.rewrite_literal(right, DynSolType::Address, true)
-                    }
-                    _ => Ok(()),
-                }
-            }
-            ast::Expr::CompoundIdentifier(idents) => {
-                if idents.len() == 2 {
-                    let event_name = idents[0].to_string();
-                    let field_name = idents[1].to_string();
-                    match self.select_event_field(&event_name, &field_name)? {
-                        Some(param) => self.rewrite_literal(right, param.resolve().unwrap(), false),
-                        None if field_name == "address" => {
-                            self.rewrite_literal(right, DynSolType::Address, true)
-                        }
-                        _ => Ok(()),
-                    }
-                } else {
-                    Err(api::Error::User(
-                        "only 'event.field' format is supported".to_string(),
-                    ))
-                }
-            }
-            _ => Ok(()),
+        if let Some(param) = self.event_param(left) {
+            self.rewrite_literal(right, param.resolve().unwrap(), false)?;
         }
+        if left.last().map_or(false, |v| v.to_string() == "address") {
+            self.rewrite_literal(right, DynSolType::Address, true)?;
+        }
+        Ok(())
     }
 
     fn validate_query(&mut self, query: &mut ast::Query) -> Result<(), api::Error> {
@@ -575,7 +537,7 @@ impl UserQuery {
                     self.validate_expressions(exprs.as_mut())?;
                 }
                 for projection_item in projection.iter_mut() {
-                    self.rewrite_select_item(projection_item)?;
+                    self.rewrite_select_item(projection_item);
                     match projection_item {
                         ast::SelectItem::UnnamedExpr(expr) => self.validate_expression(expr),
                         ast::SelectItem::ExprWithAlias { expr, alias: _ } => {
@@ -633,7 +595,7 @@ impl UserQuery {
     }
 
     fn validate_column(&mut self, id: &mut ast::Ident) -> Result<(), api::Error> {
-        self.select_field(&id.to_string())?;
+        self.select_field(&id.to_string());
         Ok(())
     }
 
