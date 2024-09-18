@@ -162,6 +162,9 @@ fn abi_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
+    use postgresql_embedded::{PostgreSQL, Settings, Version};
+    use tokio_postgres::{Client, NoTls};
+
     use super::*;
 
     const PG: &sqlparser::dialect::PostgreSqlDialect = &sqlparser::dialect::PostgreSqlDialect {};
@@ -174,8 +177,31 @@ mod tests {
             sqlformat::FormatOptions::default(),
         ))
     }
+    static SCHEMA: &str = include_str!("./sql/schema.sql");
 
-    fn check_sql(event_sigs: Vec<&str>, user_query: &str, want: &str) {
+    async fn test_pg() -> (PostgreSQL, Client) {
+        let pg_settings = Settings {
+            version: Version::new(16, Some(2), Some(3)),
+            ..Default::default()
+        };
+        let mut db = PostgreSQL::new(pg_settings);
+        db.setup().await.expect("setting up pg");
+        db.start().await.expect("starting pg");
+        db.create_database("dozer-test")
+            .await
+            .expect("creating test db");
+        let (client, connection) = tokio_postgres::connect(&db.settings().url("dozer-test"), NoTls)
+            .await
+            .expect("unable to start test database");
+        tokio::spawn(connection);
+        client
+            .batch_execute(SCHEMA)
+            .await
+            .expect("resetting schema");
+        (db, client)
+    }
+
+    async fn check_sql(event_sigs: Vec<&str>, user_query: &str, want: &str) {
         let got = query(user_query, event_sigs, None)
             .unwrap_or_else(|e| panic!("unable to create sql for:\n{} error: {:?}", user_query, e));
         let (got, want) = (
@@ -185,10 +211,12 @@ mod tests {
         if got.to_lowercase().ne(&want.to_lowercase()) {
             panic!("got:\n{}\n\nwant:\n{}\n", got, want);
         }
+        let (_pg_server, pg) = test_pg().await;
+        pg.query(&got, &[]).await.expect("issue with query");
     }
 
-    #[test]
-    fn test_abi_types() {
+    #[tokio::test]
+    async fn test_abi_types() {
         check_sql(
             vec!["Foo(string a, bytes16 b, bytes c, int256 d, int256[] e, string[] f)"],
             r#"
@@ -214,11 +242,11 @@ mod tests {
                     abi_int_array(e) AS e
                 from foo
             "#,
-        );
+        ).await;
     }
 
-    #[test]
-    fn test_variable_casing() {
+    #[tokio::test]
+    async fn test_variable_casing() {
         check_sql(
             vec!["Foo(uint indexed aAA, uint indexed b)"],
             r#"
@@ -238,11 +266,11 @@ mod tests {
                     abi_uint("b") as "b"
                 from foo
             "#,
-        );
+        ).await;
     }
 
-    #[test]
-    fn test_alias_group_by() {
+    #[tokio::test]
+    async fn test_alias_group_by() {
         check_sql(
             vec!["Foo(uint indexed a, uint indexed b)"],
             r#"
@@ -268,11 +296,11 @@ mod tests {
                 group by alpha
                 order by beta desc
             "#,
-        );
+        ).await;
     }
 
-    #[test]
-    fn test_topics() {
+    #[tokio::test]
+    async fn test_topics() {
         check_sql(
             vec!["Transfer(address indexed from, address indexed to, uint indexed tokens)"],
             r#"
@@ -294,11 +322,11 @@ mod tests {
                 where "from" = '\x00000000000000000000000000000000000000000000000000000000deadbeef'
                 and tokens > '\x0000000000000000000000000000000000000000000000000000000000000001'
             "#,
-        );
+        ).await;
     }
 
-    #[test]
-    fn test_topics_and_data() {
+    #[tokio::test]
+    async fn test_topics_and_data() {
         check_sql(
             vec!["Transfer(address indexed from, address indexed to, uint tokens)"],
             r#"
@@ -320,11 +348,11 @@ mod tests {
                 where "from" = '\x00000000000000000000000000000000000000000000000000000000deadbeef'
                 and tokens > '\x0000000000000000000000000000000000000000000000000000000000000001'
             "#,
-        );
+        ).await;
     }
 
-    #[test]
-    fn test_literal_address() {
+    #[tokio::test]
+    async fn test_literal_address() {
         check_sql(
             vec!["Transfer(address indexed from, address indexed to, uint tokens)"],
             r#"
@@ -344,11 +372,11 @@ mod tests {
                 from transfer
                 where address = '\x00000000000000000000000000000000deadbeef'
             "#,
-        );
+        ).await;
     }
 
-    #[test]
-    fn test_select_function_args() {
+    #[tokio::test]
+    async fn test_select_function_args() {
         check_sql(
             vec!["Foo(address indexed a, uint b)"],
             r#"
@@ -368,11 +396,11 @@ mod tests {
                 from foo
                 where a = '\x00000000000000000000000000000000000000000000000000000000deadbeef'
             "#,
-        );
+        ).await;
     }
 
-    #[test]
-    fn test_bool() {
+    #[tokio::test]
+    async fn test_bool() {
         check_sql(
             vec!["Foo(uint indexed a, bool b)"],
             r#"
@@ -393,11 +421,11 @@ mod tests {
                 from foo
                 where a = '\x00000000000000000000000000000000000000000000000000000000deadbeef'
             "#,
-        );
+        ).await;
     }
 
-    #[test]
-    fn test_arrays() {
+    #[tokio::test]
+    async fn test_arrays() {
         check_sql(
             vec!["Foo(uint indexed a, uint[] b, int256[] c)"],
             r#"
@@ -420,11 +448,11 @@ mod tests {
                 from foo
                 where a = '\x00000000000000000000000000000000000000000000000000000000deadbeef'
             "#,
-        );
+        ).await;
     }
 
-    #[test]
-    fn test_erc20_sql() {
+    #[tokio::test]
+    async fn test_erc20_sql() {
         check_sql(
             vec!["\r\nTransfer(address indexed from, address indexed to, uint tokens)\r\n"],
             r#"select "from", "to", tokens from transfer"#,
@@ -443,11 +471,11 @@ mod tests {
                     abi_uint(tokens) as tokens
                 from transfer
             "#,
-        );
+        ).await;
     }
 
-    #[test]
-    fn test_joins() {
+    #[tokio::test]
+    async fn test_joins() {
         check_sql(
             vec!["Foo(uint a, uint b)", "Bar(uint a, uint b)"],
             r#"select t1.b, t2.b from foo t1 left outer join bar t2 on t1.a = t2.a"#,
@@ -472,11 +500,11 @@ mod tests {
                 left join bar as t2
                 on t1.a = t2.a
             "#,
-        );
+        ).await;
     }
 
-    #[test]
-    fn test_joins_on_single_table() {
+    #[tokio::test]
+    async fn test_joins_on_single_table() {
         check_sql(
             vec!["Foo(uint indexed a, uint indexed b)"],
             r#"
@@ -505,11 +533,11 @@ mod tests {
                 on t1.a = t2.a
                 and t1.block_num < t2.block_num
             "#,
-        );
+        ).await;
     }
 
-    #[test]
-    fn test_joins_with_unselected() {
+    #[tokio::test]
+    async fn test_joins_with_unselected() {
         check_sql(
             vec!["Foo(uint a, uint b)", "Bar(uint a, uint b)"],
             r#"select foo.b from foo"#,
@@ -521,11 +549,11 @@ mod tests {
                 )
                 select abi_uint(foo.b) as b from foo
             "#,
-        );
+        ).await;
     }
 
-    #[test]
-    fn test_tmr_news() {
+    #[tokio::test]
+    async fn test_tmr_news() {
         check_sql(vec!["PredictionAdded(uint256 indexed marketId, uint256 indexed predictionId, address indexed predictor, uint256 value, string text, int256[] embedding)"],
             r#"
                 select
@@ -566,11 +594,11 @@ mod tests {
                 FROM predictionadded
                 WHERE address = '\x6e5310add12a6043fee1fbdc82366dcab7f5ad15'
             "#,
-        );
+        ).await;
     }
 
-    #[test]
-    fn test_mud_query() {
+    #[tokio::test]
+    async fn test_mud_query() {
         check_sql(
             vec!["Store_SetRecord(bytes32 indexed tableId, bytes32[] keyTuple, bytes staticData, bytes32 encodedLengths, bytes dynamicData)"],
             r#"select tableId, keyTuple, staticData, encodedLengths, dynamicData from store_setrecord"#,
@@ -593,11 +621,11 @@ mod tests {
                     dynamicdata
                 from store_setrecord
             "#,
-        )
+        ).await;
     }
 
-    #[test]
-    fn test_seaport_query() {
+    #[tokio::test]
+    async fn test_seaport_query() {
         check_sql(
             vec!["OrderFulfilled(bytes32 orderHash, address indexed offerer, address indexed zone, address recipient, (uint8, address, uint256, uint256)[] offer, (uint8, address, uint256, uint256, address)[] consideration)"],
             r#"select orderHash, offerer, zone, recipient, offer, consideration from orderfulfilled"#,
@@ -660,6 +688,6 @@ mod tests {
                 consideration
                 from orderfulfilled
             "#
-        );
+        ).await;
     }
 }
