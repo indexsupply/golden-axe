@@ -590,6 +590,7 @@ impl UserQuery {
             }
             ast::Expr::Substring { expr, .. } => self.validate_expression(expr),
             ast::Expr::Function(f) => self.validate_function(f),
+            ast::Expr::Nested(expr) => self.validate_expression(expr),
             _ => no!(expr),
         }
     }

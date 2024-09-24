@@ -214,6 +214,35 @@ mod tests {
         let (_pg_server, pg) = test_pg().await;
         pg.query(&got, &[]).await.expect("issue with query");
     }
+    #[tokio::test]
+    async fn test_nested_expressions() {
+        check_sql(
+            vec!["Foo(uint a, uint b)"],
+            r#"
+                select a
+                from foo
+                where a = 1
+                and (b = 1 OR b = 0)
+            "#,
+            r#"
+                with foo as not materialized (
+                select
+                    abi_fixed_bytes(data, 0, 32) as a,
+                    abi_fixed_bytes(data, 32, 32) as b
+                from logs
+                where topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
+                )
+                select abi_uint(a) as a
+                from foo
+                where a = '\x0000000000000000000000000000000000000000000000000000000000000001'
+                and (
+                    b = '\x0000000000000000000000000000000000000000000000000000000000000001'
+                    or b = '\x0000000000000000000000000000000000000000000000000000000000000000'
+                )
+            "#,
+        )
+        .await;
+    }
 
     #[tokio::test]
     async fn test_abi_types() {
