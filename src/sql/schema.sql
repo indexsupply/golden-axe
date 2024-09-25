@@ -1,5 +1,14 @@
 create table if not exists config (chain_id bigint primary key);
 
+drop view if exists account_limits;
+create view account_limits as
+    select
+        'face'              as secret,
+        10                  as timeout,
+        10                  as rate,
+        '{}'::text[]        as origins,
+        '{1}'::bigint[]     as chains;
+
 create table if not exists blocks(
 	num numeric,
 	topic bytea,

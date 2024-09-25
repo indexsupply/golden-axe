@@ -1,31 +1,37 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
+    fmt::Debug,
     net::SocketAddr,
+    num::NonZeroU32,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
 use axum::{
-    extract::{rejection::JsonRejection, ConnectInfo, FromRequest},
+    extract::{rejection::JsonRejection, ConnectInfo, FromRequest, FromRequestParts},
     http::StatusCode,
 };
 use eyre::eyre;
+use governor::{Quota, RateLimiter};
+use nonzero::nonzero;
 use serde::{Deserialize, Serialize};
 
 use deadpool_postgres::Pool;
 use serde_json::{json, Value};
-use tokio::sync::{broadcast, Semaphore};
+use tokio::sync::broadcast;
 
 #[derive(Clone)]
 pub struct Config {
     pub pool: Pool,
     pub broadcaster: Arc<Broadcaster>,
-    pub limits: Arc<Mutex<HashMap<String, Arc<Semaphore>>>>,
+    pub limits: Arc<Mutex<HashMap<String, AccountLimit>>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Error {
     User(String),
+    Timeout(Option<String>),
+    TooManyRequests(Option<String>),
 
     #[serde(skip)]
     Server(Box<dyn std::error::Error + Send + Sync>),
@@ -60,6 +66,14 @@ pub struct ErrorMessage {
 impl axum::response::IntoResponse for Error {
     fn into_response(self) -> axum::response::Response {
         let (status, message) = match self {
+            Self::Timeout(msg) => (
+                StatusCode::REQUEST_TIMEOUT,
+                msg.unwrap_or(String::from("request timed out")),
+            ),
+            Self::TooManyRequests(msg) => (
+                StatusCode::TOO_MANY_REQUESTS,
+                msg.unwrap_or(String::from("too many requests")),
+            ),
             Self::User(msg) => (StatusCode::BAD_REQUEST, msg),
             Self::Server(e) => {
                 tracing::error!(%e, "server-error={:?}", e);
@@ -137,38 +151,42 @@ impl Broadcaster {
     pub fn add(&self) -> broadcast::Receiver<u64> {
         self.clients.subscribe()
     }
-
     pub fn broadcast(&self, block: u64) {
         let _ = self.clients.send(block);
     }
 }
 
-pub async fn rate_limit(
-    axum::extract::State(config): axum::extract::State<Config>,
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+pub async fn limit(
+    ConnectInfo(conn_info): ConnectInfo<SocketAddr>,
+    account_limit: AccountLimit,
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Result<axum::response::Response, Error> {
-    let params = request.uri().query().unwrap_or_default();
-    let decoded = serde_urlencoded::from_str::<HashMap<String, String>>(params).unwrap_or_default();
-    let client_id = decoded
-        .get("api_key")
-        .cloned()
-        .unwrap_or_else(|| addr.ip().to_string());
-    let semaphore = {
-        let mut limiters = config.limits.lock().unwrap();
-        limiters
-            .entry(client_id.clone())
-            .or_insert_with(|| Arc::new(Semaphore::new(5)))
-            .clone()
-    };
-    let req = async {
-        let _permit = semaphore.acquire().await.unwrap();
-        next.run(request).await
-    };
-    match tokio::time::timeout(Duration::from_secs(10), req).await {
+    if !account_limit.origins.is_empty() {
+        match request.headers().get("host") {
+            None => return Err(Error::User("missing host header".to_string())),
+            Some(host) => {
+                if let Ok(host) = host.to_str() {
+                    if !account_limit
+                        .origins
+                        .contains(host.split(':').next().unwrap_or(host))
+                    {
+                        return Err(Error::User(format!("host {} not allowed", host)));
+                    }
+                }
+            }
+        }
+    }
+    if account_limit
+        .rate
+        .check_key(&conn_info.ip().to_string())
+        .is_err()
+    {
+        return Err(Error::TooManyRequests(None));
+    }
+    match tokio::time::timeout(account_limit.timeout, next.run(request)).await {
         Ok(response) => Ok(response),
-        Err(_) => Err(Error::User("request timed out".to_string())),
+        Err(_) => Err(Error::Timeout(None)),
     }
 }
 
@@ -177,5 +195,79 @@ pub async fn handle_service_error(error: tower::BoxError) -> Error {
         Error::Server(eyre!("server is overloaded").into())
     } else {
         Error::Server(eyre!("unknown").into())
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct AccountLimit {
+    secret: String,
+    origins: HashSet<String>,
+    timeout: Duration,
+    rate: Arc<governor::DefaultKeyedRateLimiter<String>>,
+}
+
+impl AccountLimit {
+    fn default() -> Self {
+        AccountLimit {
+            secret: String::default(),
+            origins: HashSet::new(),
+            timeout: Duration::from_secs(10),
+            rate: Arc::new(governor::DefaultKeyedRateLimiter::dashmap(
+                Quota::per_second(nonzero!(10u32)),
+            )),
+        }
+    }
+    #[tracing::instrument(skip_all)]
+    pub async fn from_pg(
+        chain_id: i64,
+        pg: &tokio_postgres::Client,
+    ) -> eyre::Result<HashMap<String, AccountLimit>> {
+        Ok(pg
+            .query(
+                "
+                    select secret, timeout, rate, origins
+                    from account_limits
+                    where $1 = any(chains)
+                ",
+                &[&chain_id],
+            )
+            .await?
+            .iter()
+            .map(|row| AccountLimit {
+                secret: row.get("secret"),
+                timeout: Duration::from_secs(row.get::<&str, i32>("timeout") as u64),
+                rate: Arc::new(RateLimiter::keyed(Quota::per_second(
+                    NonZeroU32::new(row.get::<&str, i32>("rate") as u32).unwrap(),
+                ))),
+                origins: row
+                    .get::<&str, Vec<String>>("origins")
+                    .into_iter()
+                    .collect(),
+            })
+            .map(|al| (al.secret.clone(), al))
+            .collect())
+    }
+}
+
+#[axum::async_trait]
+impl FromRequestParts<Config> for AccountLimit {
+    type Rejection = Error;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        config: &Config,
+    ) -> Result<Self, Self::Rejection> {
+        let params = parts.uri.query().unwrap_or_default();
+        let decoded =
+            serde_urlencoded::from_str::<HashMap<String, String>>(params).unwrap_or_default();
+        let client_id = decoded.get("api_key").cloned().unwrap_or_default();
+        tracing::Span::current().record("api_key", client_id.clone());
+        Ok(config
+            .limits
+            .lock()
+            .unwrap()
+            .entry(client_id.clone())
+            .or_insert_with(AccountLimit::default)
+            .clone())
     }
 }

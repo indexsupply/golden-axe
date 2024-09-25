@@ -271,6 +271,25 @@ async fn backup(args: ServerArgs) -> Result<()> {
     }
 }
 
+async fn accounts(args: ServerArgs, config: api::Config) -> Result<()> {
+    let mut builder = SslConnector::builder(SslMethod::tls()).expect("tls builder");
+    builder.set_verify(SslVerifyMode::NONE);
+    let connector = MakeTlsConnector::new(builder.build());
+    let (pg, conn) = tokio_postgres::connect(&args.pg_url, connector).await?;
+    tokio::spawn(async move {
+        if let Err(e) = conn.await {
+            panic!("database writer error: {}", e)
+        }
+    });
+    let eth_client = ProviderBuilder::new().on_http(args.eth_url.clone());
+    let chain_id = eth_client.get_chain_id().await?;
+    loop {
+        let limits = api::AccountLimit::from_pg(chain_id as i64, &pg).await?;
+        *config.limits.lock().unwrap() = limits;
+        tokio::time::sleep(Duration::from_secs(10)).await;
+    }
+}
+
 async fn server(args: ServerArgs) {
     let config = api::Config {
         pool: api_ro_pg(&args.pg_url, &args.ro_password),
@@ -291,7 +310,11 @@ async fn server(args: ServerArgs) {
                  .extensions()
                  .get::<MatchedPath>()
                  .map(MatchedPath::as_str);
-             tracing::info_span!("http", path, status = tracing::field::Empty)
+             tracing::info_span!(
+                 "http", path,
+                 status = tracing::field::Empty,
+                 api_key = tracing::field::Empty,
+             )
         })
         .on_response(
             |resp: &axum::http::Response<_>, d: Duration, span: &tracing::Span| {
@@ -317,7 +340,7 @@ async fn server(args: ServerArgs) {
         .concurrency_limit(1024)
         .layer(axum::middleware::from_fn_with_state(
             config.clone(),
-            api::rate_limit,
+            api::limit,
         ))
         .layer(CorsLayer::permissive())
         .layer(CompressionLayer::new());
@@ -336,19 +359,25 @@ async fn server(args: ServerArgs) {
         .expect("binding to tcp for http server");
 
     let res = tokio::try_join!(
-        tokio::spawn(sync(args.clone(), config.broadcaster.clone())),
-        tokio::spawn(backup(args.clone())),
-        tokio::spawn(
+        flatten(tokio::spawn(accounts(args.clone(), config.clone()))),
+        flatten(tokio::spawn(sync(args.clone(), config.broadcaster.clone()))),
+        flatten(tokio::spawn(backup(args.clone()))),
+        flatten(tokio::spawn(
             axum::serve(listener, app)
                 .into_future()
                 .map_err(|e| eyre!("serving http: {}", e))
-        ),
-    )
-    .expect("unable to join tasks");
+        )),
+    );
     match res {
-        (Err(e), _, _) => panic!("sync error: {}", e),
-        (_, Err(e), _) => panic!("backup error: {}", e),
-        (_, _, Err(e)) => panic!("server error: {}", e),
+        Err(err) => panic!("{}", err),
         _ => println!("all done"),
+    }
+}
+
+async fn flatten<T>(handle: tokio::task::JoinHandle<Result<T>>) -> Result<T> {
+    match handle.await {
+        Ok(Ok(result)) => Ok(result),
+        Ok(Err(err)) => Err(err),
+        Err(err) => Err(eyre!("handle error: {}", err)),
     }
 }
