@@ -1,5 +1,5 @@
 use alloy::{
-    dyn_abi::{DynSolType, Specifier},
+    dyn_abi::{DynSolType, DynSolValue, Specifier},
     hex,
     json_abi::{Event, EventParam},
     primitives::U256,
@@ -431,6 +431,7 @@ impl UserQuery {
                 let n = U256::from_str(str).wrap_err("unable to decode number")?;
                 n.abi_encode()
             }
+            ast::Expr::Value(ast::Value::Boolean(b)) => DynSolValue::Bool(*b).abi_encode(),
             _ => return Ok(()),
         };
         match ty {
@@ -442,15 +443,18 @@ impl UserQuery {
                 };
                 *expr = ast::Expr::Value(ast::Value::SingleQuotedString(data));
             }
-            DynSolType::Int(_) => {}
             DynSolType::Uint(_) => {
                 *expr = ast::Expr::Value(ast::Value::SingleQuotedString(format!(
                     r#"\x{}"#,
                     hex::encode(left_pad(data))
                 )))
             }
-            DynSolType::FixedBytes(_) => {}
-            _ => {}
+            _ => {
+                *expr = ast::Expr::Value(ast::Value::SingleQuotedString(format!(
+                    r#"\x{}"#,
+                    hex::encode(data)
+                )))
+            }
         };
         Ok(())
     }

@@ -247,10 +247,11 @@ mod tests {
     #[tokio::test]
     async fn test_abi_types() {
         check_sql(
-            vec!["Foo(string a, bytes16 b, bytes c, int256 d, int256[] e, string[] f)"],
+            vec!["Foo(string a, bytes16 b, bytes c, int256 d, int256[] e, string[] f, bool g)"],
             r#"
-                select a, b, c, d, e
+                select a, b, c, d, e, g
                 from foo
+                where g = true
             "#,
             r#"
                 with foo as not materialized (
@@ -259,17 +260,21 @@ mod tests {
                         abi_fixed_bytes(data, 32, 32) AS b,
                         abi_bytes(abi_dynamic(data, 64)) AS c,
                         abi_fixed_bytes(data, 96, 32) AS d,
-                        abi_dynamic(data, 128) AS e
+                        abi_dynamic(data, 128) AS e,
+                        abi_fixed_bytes(data, 192, 32) AS g
                     from logs
-                    where topics [1] = '\x6fe6093b8d28edb17b4f226fe18fa404c1f70e87ac4489bc59f5e5227ac313d4'
+                    where topics [1] = '\xfd2ebf78a81dba87ac294ee45944682ec394bb42128c245fca0eeab2d699c315'
                 )
                 select
                     a,
                     b,
                     c,
                     abi_int(d) AS d,
-                    abi_int_array(e) AS e
+                    abi_int_array(e) AS e,
+                    abi_bool(g) AS g
                 from foo
+                where g = '\x0000000000000000000000000000000000000000000000000000000000000001'
+
             "#,
         ).await;
     }
