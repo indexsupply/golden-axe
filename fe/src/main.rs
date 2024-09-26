@@ -9,6 +9,7 @@ mod web;
 use axum::{
     body::Body,
     extract::MatchedPath,
+    http::{StatusCode, Uri},
     routing::{get, post},
     Router,
 };
@@ -162,6 +163,7 @@ async fn main() -> Result<()> {
         .route("/change-plan", post(account::change_plan))
         .route("/create-api-key", post(account::create_api_key))
         .route("/delete-api-key", post(account::delete_api_key))
+        .fallback(fallback)
         .layer(service)
         .with_state(state);
 
@@ -172,4 +174,8 @@ async fn main() -> Result<()> {
     )
     .await?;
     Ok(())
+}
+
+async fn fallback(uri: Uri) -> (StatusCode, String) {
+    (StatusCode::NOT_FOUND, format!("No route for {uri}"))
 }
