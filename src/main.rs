@@ -318,7 +318,7 @@ async fn server(args: ServerArgs) {
         })
         .on_response(
             |resp: &axum::http::Response<_>, d: Duration, span: &tracing::Span| {
-                span.record("status", resp.status().as_str());
+                span.record("status", resp.status().as_u16());
                 let _guard = span.enter();
                 metrics::counter!("api.requests").increment(1);
                 metrics::histogram!("api.latency").record(d.as_millis() as f64);
