@@ -260,8 +260,8 @@ impl FromRequestParts<Config> for AccountLimit {
         let params = parts.uri.query().unwrap_or_default();
         let decoded =
             serde_urlencoded::from_str::<HashMap<String, String>>(params).unwrap_or_default();
-        let client_id = decoded.get("api_key").cloned().unwrap_or_default();
-        tracing::Span::current().record("api_key", client_id.clone());
+        let client_id = decoded.get("api-key").cloned().unwrap_or_default();
+        tracing::Span::current().record("api-key", client_id.clone());
         Ok(config
             .limits
             .lock()
