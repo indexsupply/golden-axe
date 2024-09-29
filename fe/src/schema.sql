@@ -23,12 +23,15 @@ create table if not exists plan_changes (
     owner_email text not null,
     name text not null,
     chains bigint[] not null default '{}',
+    rate int default 10,
+    timeout int default 10,
     created_at timestamptz default now()
 );
 
 create table if not exists api_keys (
     owner_email text not null,
     secret bytea not null,
+    origins text[] not null default '{}',
     created_at timestamptz default now(),
     deleted_at timestamptz
 );

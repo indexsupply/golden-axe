@@ -45,19 +45,30 @@
             display: flex;
             flex-direction: row;
         }
-        .api-key .url {
+        .api-key .header {
+            font-weight: bold;
+        }
+        .api-key .secret {
             font-family: monospace;
-            width: 80%;
+            width: 40%;
             white-space: nowrap;
             display: inline-block;
             overflow: hidden;
             text-overflow: ellipsis;
         }
+        .api-key .origins {
+            text-align: left;
+            width: 20%;
+        }
+        .api-key .created_at {
+            text-align: left;
+            width: 20%;
+        }
         .api-key .delete {
             text-align: right;
             width: 20%;
         }
-        #create-api-key {
+        #new-api-key {
             border-top: 1px solid black;
             padding: 10px 0 0 0;
             text-align: right;
@@ -77,6 +88,7 @@
         }
         #menu h3 {
             text-align: center;
+            padding-bottom: 12px;
             border-bottom: 2px solid black;
         }
         .option.current {
@@ -171,15 +183,22 @@
         </div>
         <div id="api-keys">
             <h2>API Keys</h2>
+            <div class="api-key header">
+                <div class="secret header"><span>key</span></div>
+                <div class="origins header"><span>origins</span></div>
+                <div class="created_at header"><span>created_at</span></div>
+            </div>
             {{#each api_keys }}
             <div class="api-key">
-                <div class="url"><span>{{ url }}</span></div>
-                <div class="delete"><a href="{{ url }}">delete</a></div>
+                <div class="secret"><span>{{ secret }}</span></div>
+                <div class="origins"><span>{{ origins }}</span></div>
+                <div class="created_at"><span>{{ created_at }}</span></div>
+                <div class="delete"><a href="{{ secret }}">delete</a></div>
             </div>
             {{/each}}
         </div>
-        <div id="create-api-key">
-            <a href="">create api key</a>
+        <div id="new-api-key">
+            <a href="/new-api-key">new api key</a>
         </div>
         <div id="plan">
             <h2>Plan</h2>
@@ -188,25 +207,28 @@
                     <h3>Indie</h3>
                     <ul>
                         <li>2 Chains</li>
-                        <li>10 Concurrent Sessions</li>
+                        <li>5 requests per second per client</li>
+                        <li>100 connected clients</li>
                         <li>Community Support</li>
                     </ul>
-                    <div class="price">$19</div>
+                    <div class="price">$20 per month</div>
                 </div>
                 <div class="option" name="pro">
                     <h3>Pro</h3>
                     <ul>
                         <li>Unlimited Chains</li>
-                        <li>100 Concurrent Sessions</li>
+                        <li>10 requests per second per client</li>
+                        <li>1,000 connected clients</li>
                         <li>Premium Support</li>
                     </ul>
-                    <div class="price">$99</div>
+                    <div class="price">$100 per month</div>
                 </div>
                 <div class="option" name="extreme">
                     <h3>Dedicated</h3>
                     <ul>
-                        <li>No Limits</li>
+                        <li>Custom Chains</li>
                         <li>Custom Tuned Performance</li>
+                        <li>Custom Database Indexing</li>
                         <li>Support with SLA</li>
                     </ul>
                     <div class="price">Custom</div>
@@ -318,27 +340,9 @@
         });
       }
 
-      function createApiKey(event) {
-        event.preventDefault();
-        fetch("/create-api-key", {
-          method: "POST",
-          headers: {'Content-Type': 'application/json'},
-        }).then(response => {
-          if (response.ok) {
-            window.location.reload();
-          } else {
-            response.text().then(msg => {
-              document.getElementById("error").textContent = msg;
-            });
-          }
-        })
-      }
-
       function deleteApiKey(event) {
         event.preventDefault();
-        const href = this.getAttribute('href');
-        const params = new URLSearchParams(new URL(href).search);
-        const secret = params.get("api-key");
+        const secret = this.getAttribute('href');
         if (!confirm(`delete api key: ${secret.substring(0,4)}...?`)) {
           return;
         }
@@ -414,12 +418,7 @@
           .getElementById("change-plan")
           .addEventListener("click", changePlan);
 
-        document
-          .querySelector("#create-api-key a")
-          .addEventListener("click", createApiKey);
-
-
-        document.querySelectorAll(".api-key").forEach(div => {
+        document.querySelectorAll(".api-key:not(.header)").forEach(div => {
           div.addEventListener("mouseover", event => {
             div.classList.add("highlight");
           });

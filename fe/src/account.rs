@@ -4,7 +4,7 @@ use axum::{
     Json,
 };
 use axum_extra::extract::SignedCookieJar;
-use eyre::{Context, Result};
+use eyre::{eyre, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -30,34 +30,16 @@ pub async fn index(
     Ok((flash, resp).into_response())
 }
 
-pub async fn delete_api_key(
-    State(state): State<web::State>,
-    flash: axum_flash::Flash,
-    jar: SignedCookieJar,
-    Json(secret): Json<String>,
-) -> Result<impl IntoResponse, web::Error> {
-    let user = session::User::from_jar(jar).unwrap();
-    let pg = state.pool.get().await?;
-    let secret = hex::decode(secret).wrap_err("unable to hex decode secret")?;
-    api_key::delete(&pg, &user.email, secret).await?;
-    let flash = flash.success("endpoint deleted");
-    Ok((flash, axum::http::StatusCode::OK).into_response())
-}
-
-pub async fn create_api_key(
-    State(state): State<web::State>,
-    flash: axum_flash::Flash,
-    jar: SignedCookieJar,
-) -> Result<impl IntoResponse, web::Error> {
-    let user = session::User::from_jar(jar).unwrap();
-    let pg = state.pool.get().await?;
-    api_key::create(&pg, &user.email).await?;
-    let flash = flash.success("api key created");
-    Ok((flash, axum::http::StatusCode::OK).into_response())
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct Plan {
+    name: String,
+    rate: i32,
+    timeout: i32,
+    chains: Vec<i64>,
+}
+
+#[derive(Deserialize)]
+pub struct PlanChangeRequest {
     name: String,
     chains: Vec<i64>,
 }
@@ -66,17 +48,28 @@ pub async fn change_plan(
     State(state): State<web::State>,
     flash: axum_flash::Flash,
     jar: SignedCookieJar,
-    Json(change): Json<Plan>,
+    Json(change): Json<PlanChangeRequest>,
 ) -> Result<impl IntoResponse, web::Error> {
+    let (rps, ttl): (i32, i32) = match change.name.to_lowercase().as_str() {
+        "indie" => (10, 10),
+        "pro" => (100, 60),
+        "dedicated" => (100, 60),
+        _ => {
+            return Err(web::Error(eyre!("plan not supported")));
+        }
+    };
     let user = session::User::from_jar(jar).unwrap();
     let pg = state.pool.get().await?;
     pg.query(
-        "insert into plan_changes (owner_email, name, chains) values ($1, $2, $3)",
-        &[&user.email, &change.name, &change.chains],
+        "
+            insert into plan_changes (owner_email, name, rate, timeout, chains)
+            values ($1, $2, $3, $4, $5)
+        ",
+        &[&user.email, &change.name, &rps, &ttl, &change.chains],
     )
     .await?;
-    let flash = if &change.name == "extreme" {
-        flash.success("⚡️upgraded your plan to: EXTREME⚡️")
+    let flash = if &change.name == "pro" {
+        flash.success("⚡️upgraded your plan to: PRO⚡️")
     } else {
         flash.success(format!("changed your plan to: {}", &change.name))
     };
@@ -110,14 +103,14 @@ pub async fn account(
     Ok((flash, Html(rendered_html)).into_response())
 }
 
-async fn current_plan(
+pub async fn current_plan(
     pg: &tokio_postgres::Client,
     email: &str,
 ) -> Result<Option<Plan>, web::Error> {
     let res = pg
         .query(
             "
-            select name, chains
+            select name, rate, timeout, chains
             from plan_changes
             where owner_email = $1
             order by created_at desc
@@ -131,8 +124,10 @@ async fn current_plan(
     } else {
         let row = res.first().expect("should be at leaset 1 plan_change");
         Ok(Some(Plan {
-            name: row.get(0),
-            chains: row.get(1),
+            name: row.get("name"),
+            rate: row.get("rate"),
+            timeout: row.get("timeout"),
+            chains: row.get("chains"),
         }))
     }
 }

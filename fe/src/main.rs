@@ -161,8 +161,9 @@ async fn main() -> Result<()> {
         .route("/logout", get(session::logout))
         .route("/account", get(account::account))
         .route("/change-plan", post(account::change_plan))
-        .route("/create-api-key", post(account::create_api_key))
-        .route("/delete-api-key", post(account::delete_api_key))
+        .route("/new-api-key", get(api_key::handlers::new))
+        .route("/create-api-key", post(api_key::handlers::create))
+        .route("/delete-api-key", post(api_key::handlers::delete))
         .fallback(fallback)
         .layer(service)
         .with_state(state);
