@@ -45,8 +45,12 @@
             display: flex;
             flex-direction: row;
         }
+        .api-key:last-child {
+            border-bottom: 1px solid black;
+        }
         .api-key .header {
             font-weight: bold;
+            margin-bottom: 5px;
         }
         .api-key .secret {
             font-family: monospace;
@@ -73,7 +77,6 @@
             width: 10%;
         }
         #new-api-key {
-            border-top: 1px solid black;
             padding: 10px 0 0 0;
             text-align: right;
         }
@@ -187,11 +190,13 @@
         </div>
         <div id="api-keys">
             <h2>API Keys</h2>
+            {{#if (gt (len api_keys) 0)}}
             <div class="api-key header">
                 <div class="secret header"><span>key</span></div>
                 <div class="origins header"><span>origins</span></div>
                 <div class="created_at header"><span>created_at</span></div>
             </div>
+            {{/if}}
             {{#each api_keys }}
             <div class="api-key">
                 <div class="secret"><span>{{ secret }}</span></div>
