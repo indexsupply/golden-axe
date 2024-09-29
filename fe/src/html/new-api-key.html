@@ -53,7 +53,7 @@
             <p><span class="capitalize">{{plan.name}}</span> includes {{ plan.rate }} requests per second</p>
             <p>The rate limit is applied per ip address. Each client IP address has the ability to make {{plan.rate}} requests per second.</p>
             <h2>Request Timeout</h2>
-            <p><span class="capitalize">{{plan.name}}</span> has a {{ plan.rate }} second request timeout</p>
+            <p><span class="capitalize">{{plan.name}}</span> has a {{plan.timeout}} second request timeout</p>
             <h2>Origin Domains</h2>
             <p>
                 <em>Optionally </em>provide a comma separated list of domain names.
