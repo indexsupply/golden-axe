@@ -34,7 +34,7 @@ pub async fn delete(pg: &Client, owner_email: &str, secret: Vec<u8>) -> Result<(
 }
 
 pub async fn create(pg: &Client, owner_email: &str) -> Result<(), web::Error> {
-    let mut secret = vec![0u8; 32];
+    let mut secret = vec![0u8; 16];
     getrandom(&mut secret).wrap_err("unable to generate secret")?;
     pg.query(
         "insert into api_keys(owner_email, secret) values ($1, $2)",
