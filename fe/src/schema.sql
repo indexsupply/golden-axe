@@ -36,9 +36,27 @@ create table if not exists api_keys (
     deleted_at timestamptz
 );
 
+create index if not exists api_keys_owner_email
+on api_keys(owner_email);
+
 create table if not exists collabs(
     owner_email text not null,
     email text not null,
     created_at timestamptz default now() not null,
     disabled_at timestamptz
 );
+
+create view account_limits as
+    with current_plans as (
+        select distinct on (owner_email) owner_email, chains, rate, timeout
+        from plan_changes
+        order by owner_email, created_at desc
+    )
+    select
+        secret,
+        timeout,
+        rate,
+        origins,
+        chains
+    from api_keys
+    left join current_plans on current_plans.owner_email = api_keys.owner_email;
