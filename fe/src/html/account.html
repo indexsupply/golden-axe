@@ -6,7 +6,7 @@
             type="image/x-icon"
         />
         <meta charset="utf-8" />
-        <title>Index Supply | Account</title>
+        <title>Index Supply / Account</title>
         <style>
         body {
             font-family: Times New Roman;
@@ -40,12 +40,18 @@
         .navigation.Error {
             color: red;
         }
+        #api-keys {
+            width: 100%;
+            border-top: 1px solid #E5E4E2;
+            border-left: 1px solid #E5E4E2;
+            padding-left: 10px;
+        }
         .api-key {
             width: 100%;
             display: flex;
             flex-direction: row;
         }
-        .api-key:last-child {
+        .api-key:last-of-type {
             border-bottom: 1px solid black;
         }
         .api-key .header {
@@ -82,6 +88,10 @@
         }
         #plan {
             width: 100%;
+            border-top: 1px solid #E5E4E2;
+            border-left: 1px solid #E5E4E2;
+            padding-left: 10px;
+            padding-bottom: 10px;
         }
         #menu {
             width: 100%;
@@ -131,6 +141,18 @@
         #card {
             height: 100%;
             width: 100%;
+            border-top: 1px solid #E5E4E2;
+            border-left: 1px solid #E5E4E2;
+            padding-left: 10px;
+            padding-bottom: 10px;
+        }
+        @keyframes pulse {
+          0% { background-color: rgba(0, 0, 0, 0); }
+          50% { background-color: #D0F0C0; }
+          100% { background-color: rgba(0, 0, 0, 0); }
+        }
+        #card.loading {
+            animation: pulse 2s infinite;
         }
         #current-card {
             display: flex;
@@ -151,7 +173,6 @@
             text-align: left;
             font-size: 13px;
             line-height: 17px;
-            margin-top: 12px;
         }
         #card-element {
             border: 1px solid black;
@@ -188,26 +209,23 @@
                 {{/with}}
             </div>
         </div>
-        <div id="api-keys">
-            <h2>API Keys</h2>
-            {{#if (gt (len api_keys) 0)}}
-            <div class="api-key header">
-                <div class="secret header"><span>key</span></div>
-                <div class="origins header"><span>origins</span></div>
-                <div class="created_at header"><span>created_at</span></div>
+        <div id="card">
+            <h2>Payment</h2>
+            {{#with payment_method.card }}
+            <div id="current-card">
+                <span>{{ brand }} {{ last4 }} {{ exp_month }}/{{ exp_year }} </span>
+                <a id="show-new-card" href="">new card</a>
             </div>
-            {{/if}}
-            {{#each api_keys }}
-            <div class="api-key">
-                <div class="secret"><span>{{ secret }}</span></div>
-                <div class="origins"><span>{{ origins }}</span></div>
-                <div class="created_at"><span>{{ created_at }}</span></div>
-                <div class="delete"><a href="{{ secret }}">delete</a></div>
+            {{else}}
+            <div id="current-card">
+                <a id="show-new-card" class="hidden" href="">new card</a>
             </div>
-            {{/each}}
-        </div>
-        <div id="new-api-key">
-            <a href="/new-api-key">new api key</a>
+            {{/with }}
+            <div id="new-card" {{#if payment_method.card }} class="hidden" {{/if}}>
+                <div id="card-element"><!-- Stripe card Element --></div>
+                <a id="submit" href="#">add card</a>
+            </div>
+            <div id="error" role="alert"></div>
         </div>
         <div id="plan">
             <h2>Plan</h2>
@@ -258,23 +276,28 @@
                 <a href="">change plan</a>
             </div>
         </div>
-        <div id="card">
-            <h2>Payment</h2>
-            {{#with payment_method.card }}
-            <div id="current-card">
-                <span>{{ brand }} {{ last4 }} {{ exp_month }}/{{ exp_year }} </span>
-                <a id="show-new-card" href="">new card</a>
+        <div id="api-keys">
+            <h2>API Keys</h2>
+            <div id="keys">
+            {{#if (gt (len api_keys) 0)}}
+            <div class="api-key header">
+                <div class="secret header"><span>key</span></div>
+                <div class="origins header"><span>origins</span></div>
+                <div class="created_at header"><span>created_at</span></div>
             </div>
-            {{else}}
-            <div id="current-card">
-                <a id="show-new-card" class="hidden" href="">new card</a>
+            {{/if}}
+            {{#each api_keys }}
+            <div class="api-key">
+                <div class="secret"><span>{{ secret }}</span></div>
+                <div class="origins"><span>{{ origins }}</span></div>
+                <div class="created_at"><span>{{ created_at }}</span></div>
+                <div class="delete"><a href="{{ secret }}">delete</a></div>
             </div>
-            {{/with }}
-            <div id="new-card" {{#if payment_method.card }} class="hidden" {{/if}}>
-                <div id="card-element"><!-- Stripe card Element --></div>
-                <a id="submit" href="#">add card</a>
+            {{/each}}
             </div>
-            <div id="error" role="alert"></div>
+            <div id="new-api-key">
+                <a href="/new-api-key">new api key</a>
+            </div>
         </div>
     </body>
     <script src="https://js.stripe.com/v3/" defer></script>
@@ -292,6 +315,7 @@
           button.addEventListener("click", function (event) {
               event.preventDefault();
               disableSubmit = true;
+              document.getElementById("card").classList.add("loading");
               stripe
                   .confirmCardSetup("{{ client_secret }}", {
                       payment_method: { card: card },
@@ -299,11 +323,15 @@
                   .then(function (result) {
                       if (result.error) {
                         disableSubmit = false;
+                        document.getElementById("card").classList.remove("loading");
                         document.getElementById("error").textContent = result.error.message;
                       } else {
                           stripe
                             .retrieveSetupIntent("{{ client_secret }}")
-                            .then(function (result) { disableSubmit = false });
+                            .then(function (result) {
+                              disableSubmit = false
+                              document.getElementById("card").classList.remove("loading");
+                            });
                           location.reload();
                       }
                   });
