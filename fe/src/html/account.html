@@ -27,7 +27,8 @@
             width: 30px;
         }
         .navigation {
-            padding-top: 5px;
+            width: 100%;
+            padding: 10px;
             font-size: large;
             display: flex;
             flex-direction: row;
@@ -42,9 +43,8 @@
         }
         #api-keys {
             width: 100%;
-            border-top: 1px solid #E5E4E2;
-            border-left: 1px solid #E5E4E2;
-            padding-left: 10px;
+            border: 1px solid #E5E4E2;
+            padding: 10px;
         }
         .api-key {
             width: 100%;
@@ -88,10 +88,8 @@
         }
         #plan {
             width: 100%;
-            border-top: 1px solid #E5E4E2;
-            border-left: 1px solid #E5E4E2;
-            padding-left: 10px;
-            padding-bottom: 10px;
+            border: 1px solid #E5E4E2;
+            padding: 10px;
         }
         #menu {
             width: 100%;
@@ -141,10 +139,8 @@
         #card {
             height: 100%;
             width: 100%;
-            border-top: 1px solid #E5E4E2;
-            border-left: 1px solid #E5E4E2;
-            padding-left: 10px;
-            padding-bottom: 10px;
+            border: 1px solid #E5E4E2;
+            padding: 10px;
         }
         @keyframes pulse {
           0% { background-color: rgba(0, 0, 0, 0); }
@@ -194,10 +190,6 @@
             <div>
                 {{#each flash }}
                 <marquee class="{{level}}">{{ message }}</marquee>
-                {{ else }}
-                {{#with user }}
-                <marquee>welcome back: {{ email }}</marquee>
-                {{/with }}
                 {{/each}}
             </div>
             <div>
@@ -270,6 +262,14 @@
                 <div>
                     <input type="checkbox" name="baseSepolia" value="84532">
                     <label for="baseSepolia">Base Sepolia</label>
+                </div>
+                <div>
+                    <input type="checkbox" name="mainnet" value="1">
+                    <label for="mainnet">Mainnet</label>
+                </div>
+                <div>
+                    <input type="checkbox" name="zora" value="7777777">
+                    <label for="zora">Zora</label>
                 </div>
             </div>
             <div id="change-plan">
