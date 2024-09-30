@@ -58,4 +58,5 @@ create view account_limits as
         origins,
         chains
     from api_keys
-    left join current_plans on current_plans.owner_email = api_keys.owner_email;
+    left join current_plans on current_plans.owner_email = api_keys.owner_email
+    where api_keys.deleted_at is null;
