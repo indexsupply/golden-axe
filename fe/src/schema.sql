@@ -13,8 +13,6 @@ where invalidated_at is null;
 
 create table if not exists accounts(
     owner_email text not null,
-    name text,
-    chains bigint[],
     stripe_id text not null,
     primary key (owner_email)
 );
@@ -46,6 +44,7 @@ create table if not exists collabs(
     disabled_at timestamptz
 );
 
+drop view if exists account_limits;
 create view account_limits as
     with current_plans as (
         select distinct on (owner_email) owner_email, chains, rate, timeout
