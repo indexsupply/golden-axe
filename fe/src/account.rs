@@ -49,6 +49,7 @@ pub mod handlers {
         let mut pg = state.pool.get().await?;
         let mut pgtx = pg.transaction().await?;
         plan.insert(&mut pgtx).await?;
+        pgtx.commit().await?;
 
         let flash = if &plan.name == "pro" {
             flash.success("⚡️upgraded your plan to: PRO⚡️")
