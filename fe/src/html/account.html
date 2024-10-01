@@ -177,6 +177,9 @@
         .hidden {
             visibility: hidden;
         }
+        .opaque {
+            opacity: 10%;
+        }
         .highlight {
             background-color: lightyellow;
         }
@@ -202,13 +205,14 @@
             </div>
         </div>
         <div id="card">
-            <h2>Payment</h2>
             {{#with payment_method.card }}
+            <h2>Current Credit Card</h2>
             <div id="current-card">
                 <span>{{ brand }} {{ last4 }} {{ exp_month }}/{{ exp_year }} </span>
                 <a id="show-new-card" href="">new card</a>
             </div>
             {{else}}
+            <h2>Please Add Your Credit Card To Get Started</h2>
             <div id="current-card">
                 <a id="show-new-card" class="hidden" href="">new card</a>
             </div>
@@ -219,7 +223,7 @@
             </div>
             <div id="error" role="alert"></div>
         </div>
-        <div id="plan">
+        <div id="plan" {{#unless payment_method.card }} class="opaque" {{/unless}}>
             <h2>Plan</h2>
             <div id="menu">
                 <div class="option" name="indie">
@@ -276,7 +280,7 @@
                 <a href="">change plan</a>
             </div>
         </div>
-        <div id="api-keys">
+        <div id="api-keys" {{#unless payment_method.card }} class="opaque" {{/unless}}>
             <h2>API Keys</h2>
             <div id="keys">
             {{#if (gt (len api_keys) 0)}}
@@ -302,7 +306,8 @@
     </body>
     <script src="https://js.stripe.com/v3/" defer></script>
     <script defer>
-      var disableSubmit = false;
+
+    var disableSubmit = false;
       var addCard = function () {
         if (disableSubmit) {
           return;
@@ -445,7 +450,6 @@
         const planChains = [];
         setCurrentPlan("indie");
         {{/if}}
-
 
         document
           .getElementById("show-new-card")
