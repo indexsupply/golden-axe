@@ -126,7 +126,7 @@ impl Plan {
 impl From<PlanChangeRequest> for Plan {
     fn from(change: PlanChangeRequest) -> Self {
         let (rps, ttl): (i32, i32) = match change.name.to_lowercase().as_str() {
-            "indie" => (10, 10),
+            "indie" => (5, 10),
             "pro" => (100, 60),
             "dedicated" => (100, 60),
             _ => (0, 0),
