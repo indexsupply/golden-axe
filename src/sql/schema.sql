@@ -1,5 +1,8 @@
 create table if not exists config (chain_id bigint primary key);
 
+-- for testing rate limiting
+-- in production GAFE_PG_URL should be set
+-- and this view will be provided by GAFE PG.
 drop view if exists account_limits;
 create view account_limits as
     select
@@ -7,7 +10,7 @@ create view account_limits as
         10                  as timeout,
         10                  as rate,
         '{}'::text[]        as origins,
-        '{1}'::bigint[]     as chains;
+        '{7777777}'::bigint[]     as chains;
 
 create table if not exists blocks(
 	num numeric,

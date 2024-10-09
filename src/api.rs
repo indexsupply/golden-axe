@@ -1,10 +1,8 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fmt::Debug,
     net::SocketAddr,
-    num::NonZeroU32,
     sync::{Arc, Mutex},
-    time::Duration,
 };
 
 use axum::{
@@ -12,19 +10,30 @@ use axum::{
     http::StatusCode,
 };
 use eyre::eyre;
-use governor::{Quota, RateLimiter};
-use nonzero::nonzero;
 use serde::{Deserialize, Serialize};
 
 use deadpool_postgres::Pool;
 use serde_json::{json, Value};
 use tokio::sync::broadcast;
 
+use crate::gafe;
+
+pub async fn handle_service_error(error: tower::BoxError) -> Error {
+    if error.is::<tower::load_shed::error::Overloaded>() {
+        Error::Server(eyre!("server is overloaded").into())
+    } else {
+        Error::Server(eyre!("unknown").into())
+    }
+}
+
 #[derive(Clone)]
 pub struct Config {
     pub pool: Pool,
     pub broadcaster: Arc<Broadcaster>,
-    pub limits: Arc<Mutex<HashMap<String, AccountLimit>>>,
+    pub open_limit: Arc<gafe::AccountLimit>,
+    pub free_limit: Arc<gafe::AccountLimit>,
+    pub account_limits: Arc<Mutex<HashMap<String, Arc<gafe::AccountLimit>>>>,
+    pub gafe: gafe::Connection,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -158,7 +167,7 @@ impl Broadcaster {
 
 pub async fn limit(
     ConnectInfo(conn_info): ConnectInfo<SocketAddr>,
-    account_limit: AccountLimit,
+    account_limit: Arc<gafe::AccountLimit>,
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Result<axum::response::Response, Error> {
@@ -182,7 +191,9 @@ pub async fn limit(
         .check_key(&conn_info.ip().to_string())
         .is_err()
     {
-        return Err(Error::TooManyRequests(None));
+        return Err(Error::TooManyRequests(Some(String::from(
+            "Rate limited. Create or upgrade API Key at: https://www.indexsupply.net",
+        ))));
     }
     match tokio::time::timeout(account_limit.timeout, next.run(request)).await {
         Ok(response) => Ok(response),
@@ -190,85 +201,25 @@ pub async fn limit(
     }
 }
 
-pub async fn handle_service_error(error: tower::BoxError) -> Error {
-    if error.is::<tower::load_shed::error::Overloaded>() {
-        Error::Server(eyre!("server is overloaded").into())
-    } else {
-        Error::Server(eyre!("unknown").into())
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct AccountLimit {
-    secret: String,
-    origins: HashSet<String>,
-    timeout: Duration,
-    rate: Arc<governor::DefaultKeyedRateLimiter<String>>,
-}
-
-impl AccountLimit {
-    fn default() -> Self {
-        AccountLimit {
-            secret: String::default(),
-            origins: HashSet::new(),
-            timeout: Duration::from_secs(10),
-            rate: Arc::new(governor::DefaultKeyedRateLimiter::dashmap(
-                Quota::per_second(nonzero!(10u32)),
-            )),
-        }
-    }
-    #[tracing::instrument(skip_all)]
-    pub async fn from_pg(
-        chain_id: i64,
-        pg: &tokio_postgres::Client,
-    ) -> eyre::Result<HashMap<String, AccountLimit>> {
-        Ok(pg
-            .query(
-                "
-                    select secret, timeout, rate, origins
-                    from account_limits
-                    where $1 = any(chains)
-                ",
-                &[&chain_id],
-            )
-            .await?
-            .iter()
-            .map(|row| AccountLimit {
-                secret: row.get("secret"),
-                timeout: Duration::from_secs(row.get::<&str, i32>("timeout") as u64),
-                rate: Arc::new(RateLimiter::keyed(Quota::per_second(
-                    NonZeroU32::new(row.get::<&str, i32>("rate") as u32).unwrap(),
-                ))),
-                origins: row
-                    .get::<&str, Vec<String>>("origins")
-                    .into_iter()
-                    .collect(),
-            })
-            .map(|al| (al.secret.clone(), al))
-            .collect())
-    }
-}
-
 #[axum::async_trait]
-impl FromRequestParts<Config> for AccountLimit {
+impl FromRequestParts<Config> for Arc<gafe::AccountLimit> {
     type Rejection = Error;
-
     async fn from_request_parts(
         parts: &mut axum::http::request::Parts,
         config: &Config,
     ) -> Result<Self, Self::Rejection> {
+        if !config.gafe.live().await {
+            return Ok(config.open_limit.clone());
+        }
         let params = parts.uri.query().unwrap_or_default();
         let decoded =
             serde_urlencoded::from_str::<HashMap<String, String>>(params).unwrap_or_default();
         let client_id = decoded.get("api-key").cloned().unwrap_or_default();
         let client_id_short = &client_id[..client_id.len().min(4)];
         tracing::Span::current().record("api-key", client_id_short);
-        Ok(config
-            .limits
-            .lock()
-            .unwrap()
-            .entry(client_id.clone())
-            .or_insert_with(AccountLimit::default)
-            .clone())
+        match config.account_limits.lock().unwrap().get(&client_id) {
+            Some(limit) => Ok(limit.clone()),
+            None => Ok(config.free_limit.clone()),
+        }
     }
 }

@@ -1,6 +1,7 @@
 mod api;
 mod api_sql;
 mod backup;
+mod gafe;
 mod s256;
 mod sql_generate;
 mod sql_test;
@@ -92,6 +93,9 @@ struct ServerArgs {
     #[arg(long = "pg", env = "PG_URL", default_value = "postgres://localhost/ga")]
     pg_url: String,
 
+    #[arg(long = "gafe-pg", env = "GAFE_PG_URL")]
+    gafe_pg_url: Option<String>,
+
     #[arg(short = 'l', env = "LISTEN", default_value = "0.0.0.0:8000")]
     listen: String,
 
@@ -112,7 +116,7 @@ struct ServerArgs {
     #[clap(long, action = clap::ArgAction::SetTrue)]
     no_sync: bool,
 
-    #[clap(long, action = clap::ArgAction::SetTrue)]
+    #[clap(long, env = "NO_BACKUP", action = clap::ArgAction::SetTrue)]
     no_backup: bool,
 
     #[clap(
@@ -271,21 +275,13 @@ async fn backup(args: ServerArgs) -> Result<()> {
     }
 }
 
-async fn accounts(args: ServerArgs, config: api::Config) -> Result<()> {
-    let mut builder = SslConnector::builder(SslMethod::tls()).expect("tls builder");
-    builder.set_verify(SslVerifyMode::NONE);
-    let connector = MakeTlsConnector::new(builder.build());
-    let (pg, conn) = tokio_postgres::connect(&args.pg_url, connector).await?;
-    tokio::spawn(async move {
-        if let Err(e) = conn.await {
-            panic!("database writer error: {}", e)
-        }
-    });
+async fn account_limits(args: ServerArgs, config: api::Config) -> Result<()> {
     let eth_client = ProviderBuilder::new().on_http(args.eth_url.clone());
     let chain_id = eth_client.get_chain_id().await?;
     loop {
-        let limits = api::AccountLimit::from_pg(chain_id as i64, &pg).await?;
-        *config.limits.lock().unwrap() = limits;
+        if let Some(limits) = config.gafe.load_account_limits(chain_id as i64).await {
+            *config.account_limits.lock().unwrap() = limits;
+        }
         tokio::time::sleep(Duration::from_secs(10)).await;
     }
 }
@@ -294,7 +290,10 @@ async fn server(args: ServerArgs) {
     let config = api::Config {
         pool: api_ro_pg(&args.pg_url, &args.ro_password),
         broadcaster: api::Broadcaster::new(),
-        limits: Arc::new(Mutex::new(HashMap::new())),
+        account_limits: Arc::new(Mutex::new(HashMap::new())),
+        free_limit: Arc::new(gafe::AccountLimit::free()),
+        open_limit: Arc::new(gafe::AccountLimit::open()),
+        gafe: gafe::Connection::new(args.gafe_pg_url.clone()).await,
     };
 
     let prom_record = PrometheusBuilder::new()
@@ -359,7 +358,7 @@ async fn server(args: ServerArgs) {
         .expect("binding to tcp for http server");
 
     let res = tokio::try_join!(
-        flatten(tokio::spawn(accounts(args.clone(), config.clone()))),
+        flatten(tokio::spawn(account_limits(args.clone(), config.clone()))),
         flatten(tokio::spawn(sync(args.clone(), config.broadcaster.clone()))),
         flatten(tokio::spawn(backup(args.clone()))),
         flatten(tokio::spawn(
