@@ -171,6 +171,9 @@ pub async fn limit(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Result<axum::response::Response, Error> {
+    if let Some(origin) = request.headers().get("origin") {
+        tracing::info!("origin: {:?}", origin.to_str());
+    }
     if !account_limit.origins.is_empty() {
         match request.headers().get("host") {
             None => return Err(Error::User("missing host header".to_string())),
