@@ -109,7 +109,10 @@ impl Connection {
         let pg = pg_opt.as_ref().unwrap();
         let res = pg
             .query(
-                "select secret, timeout, rate, origins from account_limits where $1 = any(chains)",
+                "
+                select encode(secret, 'hex') as secret, timeout, rate, origins
+                from account_limits where $1 = any(chains)
+                ",
                 &[&chain_id],
             )
             .await;
