@@ -178,7 +178,7 @@ pub async fn limit(
                 if let Ok(host) = host.to_str() {
                     if !account_limit
                         .origins
-                        .contains(host.split(':').next().unwrap_or(host))
+                        .contains(host.split(':').next().unwrap_or(host).trim())
                     {
                         return Err(Error::User(format!("host {} not allowed", host)));
                     }

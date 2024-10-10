@@ -132,6 +132,8 @@ impl Connection {
                     origins: row
                         .get::<&str, Vec<String>>("origins")
                         .into_iter()
+                        .map(|s| s.to_lowercase())
+                        .map(|s| s.trim().to_string())
                         .collect(),
                 })
                 .map(|al| (al.secret.clone(), Arc::new(al)))
