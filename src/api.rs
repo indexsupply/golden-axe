@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use deadpool_postgres::Pool;
 use serde_json::{json, Value};
 use tokio::sync::broadcast;
+use url::Url;
 
 use crate::gafe;
 
@@ -167,24 +168,17 @@ impl Broadcaster {
 
 pub async fn limit(
     ConnectInfo(conn_info): ConnectInfo<SocketAddr>,
+    origin_domain: Option<OriginDomain>,
     account_limit: Arc<gafe::AccountLimit>,
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Result<axum::response::Response, Error> {
-    if let Some(origin) = request.headers().get("origin") {
-        tracing::info!("origin: {:?}", origin.to_str());
-    }
     if !account_limit.origins.is_empty() {
-        match request.headers().get("host") {
-            None => return Err(Error::User("missing host header".to_string())),
-            Some(host) => {
-                if let Ok(host) = host.to_str() {
-                    if !account_limit
-                        .origins
-                        .contains(host.split(':').next().unwrap_or(host).trim())
-                    {
-                        return Err(Error::User(format!("host {} not allowed", host)));
-                    }
+        match origin_domain {
+            None => tracing::error!("missing origin"),
+            Some(domain) => {
+                if !account_limit.origins.contains(&domain) {
+                    tracing::error!("origin {} not allowed", domain);
                 }
             }
         }
@@ -204,6 +198,27 @@ pub async fn limit(
     }
 }
 
+type OriginDomain = String;
+
+#[axum::async_trait]
+impl FromRequestParts<Config> for Option<OriginDomain> {
+    type Rejection = Error;
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _: &Config,
+    ) -> Result<Self, Self::Rejection> {
+        if let Some(origin_header) = parts.headers.get("origin") {
+            if let Ok(origin) = origin_header.to_str() {
+                if let Ok(origin) = Url::parse(origin) {
+                    if let Some(domain) = origin.domain() {
+                        return Ok(Some(OriginDomain::from(domain)));
+                    }
+                }
+            }
+        }
+        return Ok(None);
+    }
+}
 #[axum::async_trait]
 impl FromRequestParts<Config> for Arc<gafe::AccountLimit> {
     type Rejection = Error;
