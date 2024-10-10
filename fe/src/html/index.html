@@ -304,7 +304,10 @@ limit 100
         function apiURL(path, params = new URLSearchParams()) {
             let chain = document.getElementById("chain-selection").value;
             params.set("chain", chain);
-            params.set("api-key", apiKey());
+            let key = apiKey();
+            if (key) {
+              params.set("api-key", key);
+            }
             return `{{ api_url }}${path}?${params}`;
         }
 
