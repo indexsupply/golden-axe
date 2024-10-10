@@ -337,11 +337,11 @@ async fn server(args: ServerArgs) {
         .layer(HandleErrorLayer::new(api::handle_service_error))
         .load_shed()
         .concurrency_limit(1024)
+        .layer(CorsLayer::permissive())
         .layer(axum::middleware::from_fn_with_state(
             config.clone(),
             api::limit,
         ))
-        .layer(CorsLayer::permissive())
         .layer(CompressionLayer::new());
 
     let app = Router::new()
