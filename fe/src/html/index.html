@@ -195,6 +195,18 @@ limit 100
                                 <option value="7777777">Zora</option>
                             </select>
                         </div>
+                        {{#if api_keys}}
+                        <div>
+                            <label for="api-key-selection">API Key</label>
+                            <select id="api-key-selection">
+                                {{#each api_keys}}
+                                <option value="{{ secret }}">
+                                    {{ (trunc secret 6) }}...
+                                </option>
+                                {{/each}}
+                            </select>
+                        </div>
+                        {{/if}}
                     </div>
                     <div class="query-options-right">
                         <div><input type="submit" value="Submit" /></div>
@@ -271,9 +283,17 @@ limit 100
         let sseHandler = {};
         let blockHeight = 0;
 
+        function apiKey() {
+            const select = document.getElementById("api-key-selection");
+            if (select) {
+                return select.options[select.selectedIndex].value;
+            }
+        }
+
         function apiURL(path, params = new URLSearchParams()) {
             let chain = document.getElementById("chain-selection").value;
             params.set("chain", chain);
+            params.set("api-key", apiKey());
             return `{{ api_url }}${path}?${params}`;
         }
 

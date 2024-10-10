@@ -25,10 +25,17 @@ pub mod handlers {
         jar: SignedCookieJar,
     ) -> Result<impl IntoResponse, web::Error> {
         let user = session::User::from_jar(jar);
+        let api_keys = if let Some(user) = &user {
+            let pg = state.pool.get().await?;
+            Some(api_key::list(&pg, &user.email).await?)
+        } else {
+            None
+        };
         let resp = Html(state.templates.render(
             "index",
             &json!({
                 "api_url": state.api_url,
+                "api_keys": api_keys,
                 "user": user,
                 "flash": FlashMessage::from(flash.clone()),
             }),

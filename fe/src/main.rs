@@ -130,7 +130,11 @@ async fn main() -> Result<()> {
     #[folder = "src/html"]
     #[include = "*.html"]
     struct Assets;
+
+    handlebars::handlebars_helper!(trunc: |s: String, n: usize| s.chars().take(n).collect::<String>());
+
     let mut reg = handlebars::Handlebars::new();
+    reg.register_helper("trunc", Box::new(trunc));
     reg.set_dev_mode(true);
     reg.register_embed_templates_with_extension::<Assets>(".html")?;
 
