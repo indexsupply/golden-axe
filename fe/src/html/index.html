@@ -273,6 +273,17 @@ limit 100
             response.appendChild(p);
         }
 
+        function printRateLimit() {
+          const p = document.createElement("p");
+          p.classList.add("error");
+          {{#with user}}
+          p.textContent = "Too many requests for this chain. Please upgrade to PRO or check to see if you have selected this chain in your account page.";
+          {{ else }}
+          p.textContent = "The free plan includes ~5 requests per minute. Log in and select a paid plan for more requests.";
+          {{/with}}
+          response.appendChild(p);
+        }
+
         function resetTable() {
             const response = document.getElementById("response");
             const table = document.createElement("table");
@@ -355,7 +366,10 @@ limit 100
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(form2JSON()),
             });
-            if (!response.ok) {
+            if (response.status == 429) {
+                resetTable();
+                printRateLimit();
+            } else if (!response.ok) {
                 const { message } = await response.json();
                 resetTable();
                 printError(message);
