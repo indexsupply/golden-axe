@@ -275,11 +275,9 @@ async fn backup(args: ServerArgs) -> Result<()> {
     }
 }
 
-async fn account_limits(args: ServerArgs, config: api::Config) -> Result<()> {
-    let eth_client = ProviderBuilder::new().on_http(args.eth_url.clone());
-    let chain_id = eth_client.get_chain_id().await?;
+async fn account_limits(config: api::Config) -> Result<()> {
     loop {
-        if let Some(limits) = config.gafe.load_account_limits(chain_id as i64).await {
+        if let Some(limits) = config.gafe.load_account_limits().await {
             *config.account_limits.lock().unwrap() = limits;
         }
         tokio::time::sleep(Duration::from_secs(10)).await;
@@ -287,13 +285,19 @@ async fn account_limits(args: ServerArgs, config: api::Config) -> Result<()> {
 }
 
 async fn server(args: ServerArgs) {
+    let chain_id = ProviderBuilder::new()
+        .on_http(args.eth_url.clone())
+        .get_chain_id()
+        .await
+        .expect("unable to request chain_id");
     let config = api::Config {
+        chain_id,
         pool: api_ro_pg(&args.pg_url, &args.ro_password),
         broadcaster: api::Broadcaster::new(),
         account_limits: Arc::new(Mutex::new(HashMap::new())),
         free_limit: Arc::new(gafe::AccountLimit::free()),
         open_limit: Arc::new(gafe::AccountLimit::open()),
-        gafe: gafe::Connection::new(args.gafe_pg_url.clone()).await,
+        gafe: gafe::Connection::new(args.gafe_pg_url.clone(), chain_id).await,
     };
 
     let prom_record = PrometheusBuilder::new()
@@ -358,7 +362,7 @@ async fn server(args: ServerArgs) {
         .expect("binding to tcp for http server");
 
     let res = tokio::try_join!(
-        flatten(tokio::spawn(account_limits(args.clone(), config.clone()))),
+        flatten(tokio::spawn(account_limits(config.clone()))),
         flatten(tokio::spawn(sync(args.clone(), config.broadcaster.clone()))),
         flatten(tokio::spawn(backup(args.clone()))),
         flatten(tokio::spawn(

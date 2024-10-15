@@ -6,11 +6,24 @@ create table if not exists config (chain_id bigint primary key);
 drop view if exists account_limits;
 create view account_limits as
     select
-        '\xface'::bytea             as secret,
-        10                          as timeout,
-        10                          as rate,
-        '{" foo.com", " www.foo.com "}'::text[]                as origins,
-        '{7777777}'::bigint[]       as chains;
+        '\xface'::bytea                         as secret,
+        10                                      as timeout,
+        10                                      as rate,
+        '{" foo.com", " www.foo.com "}'::text[] as origins,
+        '{7777777}'::bigint[]                   as chains;
+
+-- for testing. in production ga instances should write to
+-- gafe's database.
+ create unlogged table if not exists user_queries(
+    chain bigint,
+    api_key text,
+    events text[],
+    user_query text,
+    rewritten_query text,
+    generated_query text,
+    latency int,
+    created_at timestamptz default now()
+);
 
 create table if not exists blocks(
 	num numeric,

@@ -30,7 +30,7 @@ const PG: &sqlparser::dialect::PostgreSqlDialect = &sqlparser::dialect::PostgreS
 /// and validates the query against the provided event signatures.
 /// The SQL API implements onlny a subset of SQL so un-supported
 /// SQL results in an error.
-pub fn process(user_query: &str, event_sigs: Vec<&str>) -> Result<RewrittenQuery, api::Error> {
+pub fn process(user_query: &str, event_sigs: &[&str]) -> Result<RewrittenQuery, api::Error> {
     let mut query = UserQuery::new(event_sigs)?;
     let new_query = query.process(user_query)?;
     Ok(RewrittenQuery {
@@ -186,10 +186,10 @@ impl ExprExt for ast::Expr {
 }
 
 impl UserQuery {
-    fn new(event_sigs: Vec<&str>) -> Result<UserQuery, api::Error> {
+    fn new(event_sigs: &[&str]) -> Result<UserQuery, api::Error> {
         let mut events = HashMap::new();
         let cleaned_event_sigs: Vec<&str> = event_sigs
-            .into_iter()
+            .iter()
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
             .collect_vec();

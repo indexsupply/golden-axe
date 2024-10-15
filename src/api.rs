@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    fmt::Debug,
+    fmt::{self, Debug},
     net::SocketAddr,
     sync::{Arc, Mutex},
 };
@@ -29,6 +29,7 @@ pub async fn handle_service_error(error: tower::BoxError) -> Error {
 
 #[derive(Clone)]
 pub struct Config {
+    pub chain_id: u64,
     pub pool: Pool,
     pub broadcaster: Arc<Broadcaster>,
     pub open_limit: Arc<gafe::AccountLimit>,
@@ -198,6 +199,32 @@ pub async fn limit(
     }
 }
 
+#[derive(Clone)]
+pub struct Key(String);
+
+impl fmt::Display for Key {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[axum::async_trait]
+impl FromRequestParts<Config> for Key {
+    type Rejection = Error;
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _: &Config,
+    ) -> Result<Self, Self::Rejection> {
+        let params = parts.uri.query().unwrap_or_default();
+        let decoded =
+            serde_urlencoded::from_str::<HashMap<String, String>>(params).unwrap_or_default();
+        let key = decoded.get("api-key").cloned().unwrap_or_default();
+        let short_key = &key[..key.len().min(4)];
+        tracing::Span::current().record("api-key", short_key);
+        Ok(Key(key))
+    }
+}
+
 type OriginDomain = String;
 
 #[axum::async_trait]
@@ -219,6 +246,7 @@ impl FromRequestParts<Config> for Option<OriginDomain> {
         return Ok(None);
     }
 }
+
 #[axum::async_trait]
 impl FromRequestParts<Config> for Arc<gafe::AccountLimit> {
     type Rejection = Error;

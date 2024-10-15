@@ -22,14 +22,38 @@ use tokio_postgres::types::Type;
 
 use crate::{api, s256, sql_generate};
 
+macro_rules! log_query {
+    ($config:expr, $api_key:expr, $query:expr, $block:block) => {{
+        let start_query = std::time::SystemTime::now();
+        {
+            $block
+        };
+        let latency = std::time::SystemTime::now()
+            .duration_since(start_query)
+            .unwrap()
+            .as_millis() as u64;
+        $config
+            .gafe
+            .log_query($api_key.to_string(), $query, latency)
+            .await;
+    }};
+}
+
 pub async fn handle(
+    api_key: api::Key,
     State(state): State<api::Config>,
     Form(req): Form<Request>,
 ) -> Result<Json<Response>, api::Error> {
-    handle_json(State(state.clone()), api::Json(vec![req.clone()])).await
+    handle_json(
+        api_key.clone(),
+        State(state.clone()),
+        api::Json(vec![req.clone()]),
+    )
+    .await
 }
 
 pub async fn handle_sse(
+    api_key: api::Key,
     State(conf): State<api::Config>,
     Form(req): Form<Request>,
 ) -> axum::response::Sse<impl Stream<Item = Result<SSEvent, Infallible>>> {
@@ -37,7 +61,7 @@ pub async fn handle_sse(
     let mut rx = conf.broadcaster.add();
     let stream = async_stream::stream! {
         loop {
-            let resp = handle_json(State(conf.clone()), api::Json(vec![req.clone()])).await.expect("unable to make request");
+            let resp = handle_json(api_key.clone(), State(conf.clone()), api::Json(vec![req.clone()])).await.expect("unable to make request");
             let last_block = resp.0.block_height;
             yield Ok(SSEvent::default().json_data(resp.0).expect("unable to seralize json"));
             rx.recv().await.expect("unable to receive new block update");
@@ -64,10 +88,11 @@ pub struct Response {
 }
 
 pub async fn handle_json(
-    State(state): State<api::Config>,
+    api_key: api::Key,
+    State(config): State<api::Config>,
     api::Json(req): api::Json<Vec<Request>>,
 ) -> Result<Json<Response>, api::Error> {
-    let mut pg = state.pool.get().await.wrap_err("getting conn from pool")?;
+    let mut pg = config.pool.get().await.wrap_err("getting conn from pool")?;
     let pgtx = pg
         .build_transaction()
         .isolation_level(tokio_postgres::IsolationLevel::RepeatableRead)
@@ -81,7 +106,9 @@ pub async fn handle_json(
             r.event_signatures.iter().map(|s| s.as_str()).collect(),
             r.block_height,
         )?;
-        res.push(handle_rows(pgtx.query(&query, &[]).await?)?);
+        log_query!(config, api_key, query, {
+            res.push(handle_rows(pgtx.query(&query.generated_query, &[]).await?)?);
+        });
     }
     Ok(Json(Response {
         block_height: pgtx

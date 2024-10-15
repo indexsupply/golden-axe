@@ -7,27 +7,20 @@ use itertools::Itertools;
 
 use crate::{api, user_query};
 
+pub struct Query {
+    pub event_sigs: Vec<String>,
+    pub user_query: String,
+    pub rewritten_query: String,
+    pub generated_query: String,
+}
+
 pub fn query(
     user_query: &str,
     event_sigs: Vec<&str>,
     from: Option<u64>,
-) -> Result<String, api::Error> {
-    tracing::debug!(
-        "event_sigs: {} user_query: {}",
-        event_sigs
-            .iter()
-            .map(|s| s.trim())
-            .collect::<Vec<&str>>()
-            .join(","),
-        user_query
-            .trim()
-            .replace(['\n', '\t'], " ")
-            .split_whitespace()
-            .collect::<Vec<&str>>()
-            .join(" "),
-    );
-    let res = user_query::process(user_query, event_sigs)?;
-    let query: Vec<String> = vec![
+) -> Result<Query, api::Error> {
+    let res = user_query::process(user_query, &event_sigs)?;
+    let query = [
         "with".to_string(),
         limit_block_range(from),
         res.selections
@@ -36,9 +29,14 @@ pub fn query(
             .collect::<Result<Vec<_>, _>>()?
             .join(","),
         res.new_query.to_string(),
-    ];
-    tracing::debug!("query: {}", query.join(" "));
-    Ok(query.join(" "))
+    ]
+    .join(" ");
+    Ok(Query {
+        event_sigs: event_sigs.into_iter().map(|s| s.to_string()).collect(),
+        user_query: user_query.to_string(),
+        rewritten_query: res.new_query,
+        generated_query: query,
+    })
 }
 
 fn limit_block_range(from: Option<u64>) -> String {
@@ -203,7 +201,8 @@ mod tests {
 
     async fn check_sql(event_sigs: Vec<&str>, user_query: &str, want: &str) {
         let got = query(user_query, event_sigs, None)
-            .unwrap_or_else(|e| panic!("unable to create sql for:\n{} error: {:?}", user_query, e));
+            .unwrap_or_else(|e| panic!("unable to create sql for:\n{} error: {:?}", user_query, e))
+            .generated_query;
         let (got, want) = (
             fmt_sql(&got).unwrap_or_else(|_| panic!("unable to format got: {}", got)),
             fmt_sql(want).unwrap_or_else(|_| panic!("unable to format want: {}", want)),
