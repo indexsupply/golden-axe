@@ -22,34 +22,26 @@ use tokio_postgres::types::Type;
 
 use crate::{api, s256, sql_generate};
 
-macro_rules! log_query {
-    ($config:expr, $api_key:expr, $query:expr, $block:block) => {{
-        let start_query = std::time::SystemTime::now();
-        {
-            $block
-        };
-        let latency = std::time::SystemTime::now()
-            .duration_since(start_query)
-            .unwrap()
-            .as_millis() as u64;
-        $config
-            .gafe
-            .log_query($api_key.to_string(), $query, latency)
-            .await;
-    }};
-}
-
-pub async fn handle(
+pub async fn handle_get(
     api_key: api::Key,
-    State(state): State<api::Config>,
+    State(config): State<api::Config>,
     Form(req): Form<Request>,
 ) -> Result<Json<Response>, api::Error> {
-    handle_json(
+    query(
+        true,
         api_key.clone(),
-        State(state.clone()),
+        State(config.clone()),
         api::Json(vec![req.clone()]),
     )
     .await
+}
+
+pub async fn handle_post(
+    api_key: api::Key,
+    State(config): State<api::Config>,
+    api::Json(req): api::Json<Vec<Request>>,
+) -> Result<Json<Response>, api::Error> {
+    query(true, api_key.clone(), State(config.clone()), api::Json(req)).await
 }
 
 pub async fn handle_sse(
@@ -59,9 +51,16 @@ pub async fn handle_sse(
 ) -> axum::response::Sse<impl Stream<Item = Result<SSEvent, Infallible>>> {
     let mut req = req.clone();
     let mut rx = conf.broadcaster.add();
+    let mut log_enabled = true;
     let stream = async_stream::stream! {
         loop {
-            let resp = handle_json(api_key.clone(), State(conf.clone()), api::Json(vec![req.clone()])).await.expect("unable to make request");
+            let resp = query(
+                log_enabled,
+                api_key.clone(),
+                State(conf.clone()),
+                api::Json(vec![req.clone()]),
+            ).await.expect("unable to make request");
+            log_enabled = false; //only log first sse query
             let last_block = resp.0.block_height;
             yield Ok(SSEvent::default().json_data(resp.0).expect("unable to seralize json"));
             rx.recv().await.expect("unable to receive new block update");
@@ -69,6 +68,27 @@ pub async fn handle_sse(
         }
     };
     Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+macro_rules! log_query {
+    ($enabled:expr, $config:expr, $api_key:expr, $query:expr, $block:block) => {{
+        if !$enabled {
+            $block
+        } else {
+            let start_query = std::time::SystemTime::now();
+            {
+                $block
+            };
+            let latency = std::time::SystemTime::now()
+                .duration_since(start_query)
+                .unwrap()
+                .as_millis() as u64;
+            $config
+                .gafe
+                .log_query($api_key.to_string(), $query, latency)
+                .await;
+        }
+    }};
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -87,7 +107,8 @@ pub struct Response {
     pub result: Vec<Rows>,
 }
 
-pub async fn handle_json(
+async fn query(
+    log_enabled: bool,
     api_key: api::Key,
     State(config): State<api::Config>,
     api::Json(req): api::Json<Vec<Request>>,
@@ -106,7 +127,7 @@ pub async fn handle_json(
             r.event_signatures.iter().map(|s| s.as_str()).collect(),
             r.block_height,
         )?;
-        log_query!(config, api_key, query, {
+        log_query!(log_enabled, config, api_key, query, {
             res.push(handle_rows(pgtx.query(&query.generated_query, &[]).await?)?);
         });
     }

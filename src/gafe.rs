@@ -148,7 +148,7 @@ impl Connection {
         )
     }
 
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(level = "debug" skip_all)]
     pub async fn log_query(&self, api_key: String, query: sql_generate::Query, latency: u64) {
         let pg = self.pg.clone();
         let chain_id = self.chain_id;
