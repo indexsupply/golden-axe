@@ -260,7 +260,7 @@
                 </div>
             </form>
             <div id="examples">
-                <h2>Query Examples</h2>
+                <h2>Examples</h2>
                 {{#each examples }}
                 <div class="query" data-chain="{{chain}}" data-sql="{{sql}}" data-events="{{(join events "\n")}}">
                     <div class="desc">{{ desc }}</div>
@@ -270,7 +270,7 @@
                 {{/each}}
             </div>
             <div id="history">
-                <h2>Query History</h2>
+                <h2>History</h2>
                 {{#each history}}
                 <div class="query" data-chain="{{chain}}" data-sql="{{sql}}" data-events="{{(join events "\n")}}">
                     <div class="timing">
