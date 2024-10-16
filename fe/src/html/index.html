@@ -320,12 +320,17 @@
       }
 
       function clickHistory(event) {
+        //We don't prevent default becuase we want to reload the page
+        //to get the latest history from the db.
         const url = new URL(window.location.href);
         url.searchParams.set("history", true);
         window.history.replaceState({}, '', url);
       }
 
       function showHistory() {
+        //There is no event here because showHistory is determined on
+        //page load. If there is ?history=true in the url
+        //then we call this function and then remove the param from the url.
         resetTable();
         hideExampleQueries();
         document.getElementById("history").style.display = 'block';
@@ -496,11 +501,11 @@
                 let height = data["block_height"];
                 let result = data["result"][0];
                 if (result.length > 0) {
-                    resetTable();
-                    addHeaderRow(result.shift());
-                    addDataRow(result.slice(0, 100));
-                    updateStats(height, result.length);
-                    startHandler();
+                  resetTable();
+                  addHeaderRow(result.shift());
+                  addDataRow(result.slice(0, 100));
+                  updateStats(height, result.length);
+                  startHandler();
                 } else {
                     resetTable();
                     printInfo("no rows");
@@ -509,16 +514,14 @@
         }
 
         function cmdEnter(event) {
-            if (event.keyCode == 13 && event.metaKey) {
-                let query = document.getElementById("query");
-                query.value = query.value.trim();
-                document.getElementById("request").dispatchEvent(
-                    new Event("submit", {
-                        bubbles: true,
-                        cancelable: true,
-                    }),
-                );
-            }
+          if (event.keyCode == 13 && event.metaKey) {
+            event.preventDefault();
+            let query = document.getElementById("query");
+            query.value = query.value.trim();
+            document.getElementById("request").dispatchEvent(
+              new Event("submit", {bubbles: true, cancelable: true}),
+            );
+          }
         }
 
         function jk(event) {
