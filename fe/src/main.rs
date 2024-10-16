@@ -2,6 +2,7 @@ mod account;
 mod api_docs;
 mod api_key;
 mod email;
+mod query;
 mod session;
 mod stripe;
 mod web;
@@ -23,7 +24,7 @@ use metrics_util::layers::Layer as MetricsUtilLayer;
 use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
 use postgres_openssl::MakeTlsConnector;
 use rust_embed::Embed;
-use std::{future::ready, net::SocketAddr, str::FromStr};
+use std::{collections::HashMap, future::ready, net::SocketAddr, str::FromStr};
 use tower_http::trace::TraceLayer;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
@@ -132,13 +133,23 @@ async fn main() -> Result<()> {
     struct Assets;
 
     handlebars::handlebars_helper!(trunc: |s: String, n: usize| s.chars().take(n).collect::<String>());
+    handlebars::handlebars_helper!(join: |s: Vec<String>, sep: String| s.join(&sep));
 
     let mut reg = handlebars::Handlebars::new();
     reg.register_helper("trunc", Box::new(trunc));
+    reg.register_helper("join", Box::new(join));
     reg.set_dev_mode(true);
     reg.register_embed_templates_with_extension::<Assets>(".html")?;
 
+    let example: HashMap<String, Vec<query::Query>> =
+        toml::from_str(include_str!("../examples.toml")).expect("unable to read toml");
+    let examples = example
+        .get("queries")
+        .expect("missing queries from example toml")
+        .clone();
+
     let state = web::State {
+        examples,
         api_url: args.api_url,
         key: session_key,
         templates: reg,

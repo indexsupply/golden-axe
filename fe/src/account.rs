@@ -13,7 +13,7 @@ pub mod handlers {
     use serde_json::json;
 
     use crate::{
-        api_key, session,
+        api_key, query, session,
         web::{self, FlashMessage},
     };
 
@@ -25,9 +25,14 @@ pub mod handlers {
         jar: SignedCookieJar,
     ) -> Result<impl IntoResponse, web::Error> {
         let user = session::User::from_jar(jar);
+        let pg = state.pool.get().await?;
         let api_keys = if let Some(user) = &user {
-            let pg = state.pool.get().await?;
             Some(api_key::list(&pg, &user.email).await?)
+        } else {
+            None
+        };
+        let history = if let Some(user) = &user {
+            Some(query::history(&pg, &user.email).await?)
         } else {
             None
         };
@@ -36,6 +41,8 @@ pub mod handlers {
             &json!({
                 "api_url": state.api_url,
                 "api_keys": api_keys,
+                "examples": state.examples,
+                "history": history,
                 "user": user,
                 "flash": FlashMessage::from(flash.clone()),
             }),

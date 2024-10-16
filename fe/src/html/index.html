@@ -55,7 +55,6 @@
             }
             #request {
                 width: 100%;
-                padding-bottom: 10px;
             }
             #events {
                 width: 99%;
@@ -73,10 +72,13 @@
                 display: flex;
                 flex-direction: row;
                 justify-content: space-between;
+                padding-bottom: 10px;
+                border-bottom: 1px dotted gray;
             }
             .query-options-left {
                 display: flex;
                 flex-direction: row;
+                align-items: baseline;
                 gap: 20px;
             }
             .query-options-right {
@@ -88,12 +90,75 @@
             #live-query {
                 padding-bottom: 1px;
             }
+            #examples {
+                display: none;
+                width: 102%;
+            }
+            #history {
+                display: none;
+                width: 102%;
+                overflow-y: scroll;
+                scrollbar-width: thin;
+                max-height: 400px;
+            }
+            .query {
+                width: 98%;
+                padding: 10px 0 10px 0;
+                margin: 0 0 5px 0;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                border: 1px solid #E5E4E2;
+            }
+            .query:hover {
+                cursor: pointer;
+                background-color: lightyellow;
+                transition: background-color 0.1s ease-in-out;
+            }
+            .query .timing {
+                display: flex;
+                flex-direction: row;
+            }
+            .query .desc {
+                width: calc(100% - 5px);
+                margin-left: 5px;
+                font-size: large;
+                font-weight: bold;
+                width: 100%;
+            }
+            .query .latency {
+                font-size: small;
+                font-family: monospace;
+                margin-right: 5px;
+            }
+            .query .created_at {
+                width: calc(100% - 5px);
+                margin-left: 5px;
+                font-size: small;
+                font-family: monospace;
+                width: 100%;
+            }
+            .query .event {
+                width: calc(100% - 10px);
+                margin-left: 10px;
+                font-family: monospace;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .query .sql {
+                width: calc(100% - 10px);
+                margin-left: 10px;
+                font-family: monospace;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
             #stats {
                 display: none;
                 width: 100%;
                 padding-top: 5px;
                 padding-bottom: 10px;
-                border-top: 1px dotted gray;
             }
             #block-height {
                 font-size: medium;
@@ -158,28 +223,8 @@
         </div>
         <main>
             <form action="/query" id="request" method="POST">
-                <textarea
-                    id="events"
-                    type="text"
-                    placeholder="Event Signatures"
-                >
-NameRegistered(string name, bytes32 indexed label, address indexed owner, uint256 expires)
-                </textarea>
-                <textarea
-                    id="query"
-                    type="text"
-                    placeholder="SQL Query"
-                    autofocus
-                >
-select
-    tx_hash,
-    name,
-    owner
-from nameregistered
-where address = '\x4ccb0bb02fcaba27e82a56646e81d8c5bc4119a5'
-order by block_num desc
-limit 100
-                </textarea>
+                <textarea id="events" type="text" placeholder="Event Signatures"></textarea>
+                <textarea id="query" type="text" placeholder="SQL Query" autofocus></textarea>
                 <div id="query-options">
                     <div class="query-options-left">
                         <div>
@@ -193,9 +238,7 @@ limit 100
                                 <option value="84532">Base Sepolia</option>
                                 <option value="1">Main</option>
                                 <option value="911867">Odyssey</option>
-                                <option value="4801">
-                                    World Chain Sepolia
-                                </option>
+                                <option value="4801">World Chain Sepolia</option>
                                 <option value="7777777">Zora</option>
                             </select>
                         </div>
@@ -204,19 +247,42 @@ limit 100
                             <label for="api-key-selection">API Key</label>
                             <select id="api-key-selection">
                                 {{#each api_keys}}
-                                <option value="{{ secret }}">
-                                    {{ (trunc secret 6) }}...
-                                </option>
+                                <option value="{{ secret }}">{{ (trunc secret 6) }}...</option>
                                 {{/each}}
                             </select>
                         </div>
+                        <div><a id="request-query-history" href="">History</a></div>
                         {{/if}}
+                        <div><a id="request-query-examples" href="">Examples</a></div>
                     </div>
                     <div class="query-options-right">
                         <div><input type="submit" value="Submit" /></div>
                     </div>
                 </div>
             </form>
+            <div id="examples">
+                <h2>Query Examples</h2>
+                {{#each examples }}
+                <div class="query" data-chain="{{chain}}" data-sql="{{sql}}" data-events="{{(join events "\n")}}">
+                    <div class="desc">{{ desc }}</div>
+                    <div class="event">{{(join events ",")}}</div>
+                    <div class="sql">{{ sql }}</div>
+                </div>
+                {{/each}}
+            </div>
+            <div id="history">
+                <h2>Query History</h2>
+                {{#each history}}
+                <div class="query" data-chain="{{chain}}" data-sql="{{sql}}" data-events="{{(join events "\n")}}">
+                    <div class="timing">
+                        <div class="created_at">{{ created_at }}</div>
+                        <div class="latency"><em>{{ latency }}ms</em></div>
+                    </div>
+                    <div class="event">{{(join events ",")}}</div>
+                    <div class="sql">{{ sql }}</div>
+                </div>
+                {{/each}}
+            </div>
             <div id="stats">
                 <span>Last Block:</span>
                 <span id="block-height"></span>
@@ -227,6 +293,42 @@ limit 100
         </main>
     </body>
     <script>
+      function querySelected(event) {
+        const div = event.target.closest("div.query");
+        const chain = div.getAttribute("data-chain");
+        const sql = div.getAttribute("data-sql");
+        const events = div.getAttribute("data-events");
+        setOrAddChain(chain);
+        document.getElementById("query").value = sql;
+        document.getElementById("events").value = events;
+
+        document
+          .querySelectorAll('div.query')
+          .forEach((div) => div.classList.remove('highlight'));
+        div.classList.add("highlight");
+      }
+
+      function showExampleQueries(event) {
+        event.preventDefault();
+        resetTable();
+        hideQueryHistory();
+        document.getElementById("examples").style.display = 'block';
+      }
+
+      function hideExampleQueries() {
+        document.getElementById("examples").style.display = 'none';
+      }
+
+      function showQueryHistory(event) {
+        const url = new URL(window.location.href);
+        url.searchParams.set("history", true);
+        window.history.replaceState({}, '', url);
+      }
+
+      function hideQueryHistory() {
+        document.getElementById("history").style.display = 'none';
+      }
+
         function addHeaderRow(row) {
             const table = document.querySelector("#response table");
             let tr = table.insertRow(0);
@@ -289,6 +391,7 @@ limit 100
         }
 
         function resetTable() {
+            document.getElementById("stats").style.display = 'none';
             const response = document.getElementById("response");
             const table = document.createElement("table");
             response.innerHTML = "";
@@ -366,6 +469,8 @@ limit 100
 
         async function submitQuery(event) {
             event.preventDefault();
+            hideExampleQueries();
+            hideQueryHistory();
             closeHandler();
             form2url();
             const response = await fetch(apiURL("/query"), {
@@ -467,6 +572,21 @@ limit 100
             if (chain) {
                 setOrAddChain(chain);
             }
+            /*
+              When History is clicked, ?history=true is added to the
+              url and the page is redirected. As we are loading the page
+              if we find a history=true param then we should show the history
+              and then remove the param from the URL so that if/when the user
+              grabs the URL to share/save the history param is not included.
+            */
+            let history = params.get("history");
+            if (history) {
+              document.getElementById("history").style.display = "block";
+              params.delete("history");
+              const url = new URL(window.location.href);
+              url.search = params;
+              window.history.replaceState({}, '', url);
+            }
         }
 
         window.addEventListener("popstate", function (event) {
@@ -487,6 +607,22 @@ limit 100
             document
                 .getElementById("live-query")
                 .addEventListener("change", changeLiveQuery);
+            document
+                .getElementById("request-query-examples")
+                .addEventListener("click", showExampleQueries);
+            document
+                .getElementById("request-query-history")
+                .addEventListener("click", showQueryHistory);
+            document
+              .querySelectorAll("div.query")
+              .forEach((div) => div.addEventListener("click", querySelected));
+            document
+              .getElementById("query")
+              .addEventListener("click", () => {
+                document
+                  .querySelectorAll('div.query')
+                  .forEach((div) => div.classList.remove('highlight'));
+              });
         });
     </script>
 </html>

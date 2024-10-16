@@ -1,0 +1,47 @@
+[[queries]]
+chain = 84532
+desc = "ERC721 Current Token Holders (self join)"
+events = [
+    "Transfer(address indexed from, address indexed to, uint indexed tokenId)",
+]
+sql = """
+select t1."to", t1.tokenId, t1.block_num
+from transfer t1
+left join transfer t2
+on t1.tokenId = t2.tokenId
+and t1.block_num < t2.block_num
+and t1.address = t2.address
+where t1.address = 0xE81b94b09B9dE001b75f2133A0Fb37346f7E8BA4
+and t2.tokenId is null
+"""
+
+[[queries]]
+chain = 8453
+desc = "Base Name Registrations"
+events = [
+    "NameRegistered(string name, bytes32 indexed label, address indexed owner, uint256 expires)",
+]
+sql = """
+select
+    tx_hash,
+    name,
+    owner
+from nameregistered
+where address = 0x4ccb0bb02fcaba27e82a56646e81d8c5bc4119a5
+order by block_num desc
+limit 100
+"""
+
+[[queries]]
+chain = 8453
+desc = "Daimo Name Registrations"
+events = ["Registered(bytes32 indexed name, address indexed addr)"]
+sql = """
+select
+  block_num,
+  h2s(name) name,
+  addr
+from registered
+where address = 0x4430A644B215a187a3daa5b114fA3f3d9DeBc17D
+order by block_num desc
+"""

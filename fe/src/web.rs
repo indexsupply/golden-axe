@@ -6,7 +6,7 @@ use reqwest::StatusCode;
 use rust_embed::Embed;
 use serde::Serialize;
 
-use crate::{email, stripe};
+use crate::{email, query, stripe};
 
 #[derive(Embed)]
 #[folder = "src/docs"]
@@ -28,6 +28,7 @@ pub struct State {
     pub sendgrid: email::Client,
     pub stripe_pub_key: String,
     pub stripe: stripe::Client,
+    pub examples: Vec<query::Query>,
 }
 
 impl FromRef<State> for Key {

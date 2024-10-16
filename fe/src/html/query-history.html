@@ -1,0 +1,71 @@
+<!doctype html>
+    <head>
+        <link
+            rel="icon"
+            href="https://indexsupply.net/ga.ico"
+            type="image/x-icon"
+        />
+        <meta charset="utf-8" />
+        <title>Index Supply / Query History</title>
+        <style>
+        body {
+            font-family: Times New Roman;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        a:link,
+        a:visited,
+        a:hover,
+        a:active {
+            color: blue;
+            text-decoration: none;
+        }
+        .header img {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 30px;
+        }
+        .navigation {
+            width: 100%;
+            padding: 10px;
+            font-size: large;
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+            height: 30px;
+        }
+        .navigation .Success {
+            color: green;
+        }
+        .navigation.Error {
+            color: red;
+        }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <img src="https://indexsupply.net/beta.png" />
+        </div>
+        <div class="navigation">
+            <div>
+                {{#each flash }}
+                <marquee class="{{level}}">{{ message }}</marquee>
+                {{/each}}
+            </div>
+            <div>
+                {{#with user}}
+                <a href="/logout">log out</a>,
+                <a href="/">home</a>
+                {{else}}
+                <a href="/login">log in</a>
+                {{/with}}
+            </div>
+        </div>
+    </body>
+    <script defer>
+      document.addEventListener("DOMContentLoaded", () => {
+        console.log("hello world");
+      });
+    </script>
+</html>
