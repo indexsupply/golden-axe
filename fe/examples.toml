@@ -1,4 +1,18 @@
 [[queries]]
+chain = 8453
+desc = "Daimo Name Registrations"
+events = ["Registered(bytes32 indexed name, address indexed addr)"]
+sql = """
+select
+  block_num,
+  h2s(name) name,
+  addr
+from registered
+where address = 0x4430A644B215a187a3daa5b114fA3f3d9DeBc17D
+order by block_num desc
+"""
+
+[[queries]]
 chain = 84532
 desc = "ERC721 Current Token Holders (self join)"
 events = [
@@ -30,18 +44,4 @@ from nameregistered
 where address = 0x4ccb0bb02fcaba27e82a56646e81d8c5bc4119a5
 order by block_num desc
 limit 100
-"""
-
-[[queries]]
-chain = 8453
-desc = "Daimo Name Registrations"
-events = ["Registered(bytes32 indexed name, address indexed addr)"]
-sql = """
-select
-  block_num,
-  h2s(name) name,
-  addr
-from registered
-where address = 0x4430A644B215a187a3daa5b114fA3f3d9DeBc17D
-order by block_num desc
 """

@@ -559,6 +559,11 @@
 
         function url2form() {
             const params = new URLSearchParams(window.location.search);
+            if (params.size == 0) {
+              document.querySelector("#examples > div.query").click();
+              return;
+            }
+
             let query = params.get("query");
             if (query) {
                 document.getElementById("query").value = query;
@@ -596,7 +601,6 @@
         });
 
         document.addEventListener("DOMContentLoaded", function () {
-            url2form();
             document
                 .getElementById("query")
                 .addEventListener("keydown", cmdEnter);
@@ -615,13 +619,7 @@
             document
               .querySelectorAll("div.query")
               .forEach((div) => div.addEventListener("click", querySelected));
-            document
-              .getElementById("query")
-              .addEventListener("click", () => {
-                document
-                  .querySelectorAll('div.query')
-                  .forEach((div) => div.classList.remove('highlight'));
-              });
+            url2form();
         });
     </script>
 </html>
