@@ -91,6 +91,7 @@
                 padding-bottom: 1px;
             }
             #examples {
+                display: none;
                 width: 102%;
             }
             #history {
@@ -308,7 +309,11 @@
       }
 
       function showExampleQueries(event) {
-        event.preventDefault();
+        //It's possible to call this function from a click
+        //or on page load so we don't always have an event.
+        if (event) {
+          event.preventDefault();
+        }
         resetTable();
         hideQueryHistory();
         document.getElementById("examples").style.display = 'block';
@@ -587,7 +592,7 @@
         function url2form() {
             const params = new URLSearchParams(window.location.search);
             if (params.size == 0) {
-              document.querySelector("#examples > div.query").click();
+              showExampleQueries();
               return;
             }
 
@@ -646,6 +651,7 @@
             document
               .querySelectorAll("div.query")
               .forEach((div) => div.addEventListener("click", querySelected));
+
             url2form();
         });
     </script>
