@@ -45,3 +45,14 @@ where address = 0x4ccb0bb02fcaba27e82a56646e81d8c5bc4119a5
 order by block_num desc
 limit 100
 """
+[[queries]]
+chain = 7777777
+desc = "Zora Mint Comments from a Random User"
+events = [
+    "MintComment(address indexed sender, address indexed collection, uint256 indexed tokenId, uint256 quantity, string comment)",
+]
+sql = """
+select sender, comment
+from mintcomment
+where sender = 0x1d14d9e297dfbce003f5a8ebcf8cba7faee70b91
+"""
