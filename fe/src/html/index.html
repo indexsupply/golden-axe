@@ -569,18 +569,19 @@
         }
 
         function setOrAddChain(chain) {
-            let select = document.getElementById("chain-selection");
-            Array.from(select.options).forEach((opt, i) => {
-                if (opt.value === chain) {
-                    select.selectedIndex = i;
-                    return;
-                }
-            });
-            let opt = document.createElement("option");
-            opt.value = chain;
-            opt.text = chain;
-            select.add(opt);
-            select.value = chain;
+          let select = document.getElementById("chain-selection");
+          let options = Array.from(select.options);
+          for (let i = 0; i < options.length; i++) {
+            if (options[i].value === chain) {
+              select.selectedIndex = i;
+              return;
+            }
+          }
+          let opt = document.createElement("option");
+          opt.value = chain;
+          opt.text = chain;
+          select.add(opt);
+          select.value = chain;
         }
 
         function url2form() {
