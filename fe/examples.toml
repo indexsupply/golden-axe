@@ -52,7 +52,7 @@ events = [
     "MintComment(address indexed sender, address indexed collection, uint256 indexed tokenId, uint256 quantity, string comment)",
 ]
 sql = """
-select sender, comment
+select comment
 from mintcomment
 where sender = 0x1d14d9e297dfbce003f5a8ebcf8cba7faee70b91
 """
