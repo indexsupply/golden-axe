@@ -14,7 +14,7 @@ pub struct Query {
     pub created_at: Option<time::OffsetDateTime>,
 }
 
-pub async fn history(
+pub async fn user_history(
     pg: &tokio_postgres::Client,
     owner_email: &str,
 ) -> Result<Vec<Query>, web::Error> {

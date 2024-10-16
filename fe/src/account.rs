@@ -32,7 +32,7 @@ pub mod handlers {
             None
         };
         let history = if let Some(user) = &user {
-            Some(query::history(&pg, &user.email).await?)
+            Some(query::user_history(&pg, &user.email).await?)
         } else {
             None
         };
