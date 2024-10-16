@@ -223,7 +223,7 @@
         <main>
             <form action="/query" id="request" method="POST">
                 <textarea id="events" type="text" placeholder="Event Signatures"></textarea>
-                <textarea id="query" type="text" placeholder="SQL Query" autofocus></textarea>
+                <textarea id="query" type="text" tabindex="1" placeholder="SQL Query"></textarea>
                 <div id="query-options">
                     <div class="query-options-left">
                         <div>
@@ -312,16 +312,23 @@
         resetTable();
         hideQueryHistory();
         document.getElementById("examples").style.display = 'block';
+        document.querySelector("#examples > div.query").click();
       }
 
       function hideExampleQueries() {
         document.getElementById("examples").style.display = 'none';
       }
 
-      function showQueryHistory(event) {
+      function clickHistory(event) {
         const url = new URL(window.location.href);
         url.searchParams.set("history", true);
         window.history.replaceState({}, '', url);
+      }
+
+      function showHistory() {
+        resetTable();
+        hideExampleQueries();
+        document.getElementById("history").style.display = 'block';
       }
 
       function hideQueryHistory() {
@@ -514,6 +521,22 @@
             }
         }
 
+        function jk(event) {
+          if (event.key == "ArrowDown" || event.key == "j") {
+              const examples = document.querySelectorAll("#examples > div.query");
+              const selected = document.querySelector("#examples > div.query.highlight");
+              if (selected.nextElementSibling) {
+                selected.nextElementSibling.click();
+              }
+            } else if (event.key = "ArrowUp" || event.key == "k") {
+              const examples = document.querySelectorAll("#examples > div.query");
+              const selected = document.querySelector("#examples > div.query.highlight");
+              if (selected.previousElementSibling) {
+                selected.previousElementSibling.click();
+              }
+            }
+        }
+
         function form2JSON() {
             let query = document.getElementById("query").value;
             let eventSigs = document.getElementById("events").value.split("\n");
@@ -585,7 +608,7 @@
             */
             let history = params.get("history");
             if (history) {
-              document.getElementById("history").style.display = "block";
+              showHistory();
               params.delete("history");
               const url = new URL(window.location.href);
               url.search = params;
@@ -601,9 +624,9 @@
         });
 
         document.addEventListener("DOMContentLoaded", function () {
-            document
-                .getElementById("query")
-                .addEventListener("keydown", cmdEnter);
+            document.addEventListener("keydown", jk);
+            document.addEventListener("keydown", cmdEnter);
+
             document
                 .getElementById("request")
                 .addEventListener("submit", submitQuery);
@@ -615,7 +638,7 @@
                 .addEventListener("click", showExampleQueries);
             document
                 .querySelectorAll("#request-query-history")
-                .forEach((div) => div.addEventListener("click", showQueryHistory));
+                .forEach((div) => div.addEventListener("click", clickHistory));
             document
               .querySelectorAll("div.query")
               .forEach((div) => div.addEventListener("click", querySelected));
