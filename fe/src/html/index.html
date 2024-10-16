@@ -610,8 +610,8 @@
                 .getElementById("request-query-examples")
                 .addEventListener("click", showExampleQueries);
             document
-                .getElementById("request-query-history")
-                .addEventListener("click", showQueryHistory);
+                .querySelectorAll("#request-query-history")
+                .forEach((div) => div.addEventListener("click", showQueryHistory));
             document
               .querySelectorAll("div.query")
               .forEach((div) => div.addEventListener("click", querySelected));
