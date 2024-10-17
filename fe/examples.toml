@@ -13,6 +13,23 @@ order by block_num desc
 """
 
 [[queries]]
+chain = 8453
+desc = "Unique Senders/Receivers of ERC-721 Transfers per Block"
+events = [
+    "Transfer(address indexed from, address indexed to, uint indexed tokenId)",
+]
+sql = """
+select
+  count(distinct(tx_hash)) transactions,
+  count(distinct("from")) senders,
+  count(distinct("to")) receivers
+from transfer
+group by block_num
+order by block_num desc
+limit 1
+"""
+
+[[queries]]
 chain = 84532
 desc = "ERC721 Current Token Holders (self join)"
 events = [
