@@ -117,7 +117,7 @@ impl Connection {
         let res = pg
             .query(
                 "
-                select encode(secret, 'hex') as secret, timeout, rate, origins
+                select secret, timeout, rate, origins
                 from account_limits where $1 = any(chains)
                 ",
                 &[&U64::from(self.chain_id)],

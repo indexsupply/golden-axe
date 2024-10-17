@@ -6,7 +6,7 @@ create table if not exists config (chain_id bigint primary key);
 drop view if exists account_limits;
 create view account_limits as
     select
-        '\xface'::bytea                         as secret,
+        'face'                                  as secret,
         10                                      as timeout,
         10                                      as rate,
         '{" foo.com", " www.foo.com "}'::text[] as origins,
