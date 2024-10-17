@@ -20,6 +20,7 @@ events = [
 ]
 sql = """
 select
+  block_num,
   count(distinct(tx_hash)) transactions,
   count(distinct("from")) senders,
   count(distinct("to")) receivers
