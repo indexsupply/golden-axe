@@ -356,28 +356,29 @@
             });
         }
 
-        function addDataRow(rows) {
-            let table = document.querySelector("#response table");
-            rows.forEach((row) => {
-                let tr = document.createElement("tr");
-                row.forEach((col, i) => {
-                    let td = document.createElement("td");
-                    td.textContent = col;
-                    tr.appendChild(td);
-                });
-                if (table.rows.length > 1) {
-                    table.insertBefore(tr, table.rows[1]);
-                } else {
-                    table.appendChild(tr);
-                }
-                tr.classList.add("highlight");
-                setTimeout(() => {
-                    tr.classList.remove("highlight");
-                }, 500);
+        function addRow(rows, shouldAppend) {
+          let table = document.querySelector("#response table");
+          rows.forEach((row) => {
+            let tr = document.createElement("tr");
+            row.forEach((col, i) => {
+              let td = document.createElement("td");
+              td.textContent = col;
+              tr.appendChild(td);
             });
-            while (table.rows.length > 100) {
-                table.deleteRow(-1);
+            if (shouldAppend) {
+              table.appendChild(tr);
+            } else {
+              table.insertBefore(tr, table.rows[1]);
             }
+            tr.classList.add("highlight");
+            setTimeout(() => {
+              tr.classList.remove("highlight");
+            }, 500);
+          });
+          while (table.rows.length > 100) {
+            //-1 removes the last row of the table
+            table.deleteRow(-1);
+          }
         }
 
         function printInfo(msg) {
@@ -476,7 +477,15 @@
                     return;
                 }
                 result.shift(); //remove column names
-                addDataRow(result);
+                /*
+                  When we are adding data to the table from an SSE update
+                  we have to take care of 2 things:
+                  1. Add the data to the table by prepending instead of appending.
+                      New data should be at the top of the table.
+                  2. If there are multiple reseults from an SSE update then
+                      we want to prepend them in reverse order.
+                */
+                addRow(result.reverse(), false);
                 updateStats(newHeight, result.length);
             };
             sseHandler.onerror = function (e) {
@@ -509,7 +518,7 @@
                 if (result.length > 0) {
                   resetTable();
                   addHeaderRow(result.shift());
-                  addDataRow(result.slice(0, 100));
+                  addRow(result.slice(0, 100), true);
                   updateStats(height, result.length);
                   startHandler();
                 } else {
