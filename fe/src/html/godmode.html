@@ -1,0 +1,174 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <title>godmode</title>
+        <style>
+            body {
+                font-family: Times New Roman;
+                max-width: 800px;
+                margin: 0 auto;
+            }
+            a:link,
+            a:visited,
+            a:hover,
+            a:active {
+                color: blue;
+                text-decoration: none;
+            }
+            .header {
+                width: 100%;
+                margin: 0 0 20px 0;
+            }
+            .header img {
+                width: 50%;
+                display: block;
+                margin-left: auto;
+                margin-right: auto;
+            }
+            #history {
+                width: 100%;
+            }
+            .query {
+                width: 98%;
+                padding: 10px 5px 10px 5px;
+                margin: 0 0 5px 0;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                border: 1px solid #E5E4E2;
+                font-size: small;
+                font-family: monospace;
+            }
+            .query:hover {
+                cursor: pointer;
+                background-color: lightyellow;
+                transition: background-color 0.1s ease-in-out;
+            }
+            .query .timing {
+                display: flex;
+                flex-direction: row;
+            }
+            .query .created_at {
+                width: 100%;
+            }
+            .query .event {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .query .sql {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .highlight {
+                background-color: lightyellow;
+                transition: background-color 0.25s ease-in-out;
+            }
+            .error {
+                padding: 20px;
+                font-size: x-large;
+                color: #eb2d3a;
+            }
+            .info {
+                padding: 20px;
+                font-size: x-large;
+                color: #000000;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="header"><img src="https://indexsupply.net/godmode.png" /></div>
+        <main>
+            <div id="history">
+                {{#each history}}
+                <div class="query" data-chain="{{chain}}" data-sql="{{sql}}" data-events="{{(join events "\n")}}">
+                    <div class="timing">
+                        <div class="created_at">{{ created_at }}</div>
+                        <div class="latency"><em>{{ latency }}ms</em></div>
+                    </div>
+                    <div class="owner">{{ owner_email }}</div>
+                    <div class="event">{{(join events ",")}}</div>
+                    <div class="sql">{{ sql }}</div>
+                </div>
+                {{/each}}
+            </div>
+        </main>
+    </body>
+    <script>
+      function querySelected(event) {
+        const div = event.target.closest("div.query");
+        const chain = div.getAttribute("data-chain");
+        const sql = div.getAttribute("data-sql");
+        const events = div.getAttribute("data-events");
+        setOrAddChain(chain);
+        document.getElementById("query").value = sql;
+        document.getElementById("events").value = events;
+
+        document
+          .querySelectorAll('div.query')
+          .forEach((div) => div.classList.remove('highlight'));
+        div.classList.add("highlight");
+      }
+
+      function clickHistory(event) {
+        //We don't prevent default becuase we want to reload the page
+        //to get the latest history from the db.
+        const url = new URL(window.location.href);
+        url.searchParams.set("history", true);
+        window.history.replaceState({}, '', url);
+      }
+
+      function showHistory() {
+        //There is no event here because showHistory is determined on
+        //page load. If there is ?history=true in the url
+        //then we call this function and then remove the param from the url.
+        resetTable();
+        hideExampleQueries();
+        document.getElementById("history").style.display = 'block';
+      }
+
+      function hideQueryHistory() {
+        document.getElementById("history").style.display = 'none';
+      }
+
+      function cmdEnter(event) {
+        if (event.keyCode == 13 && event.metaKey) {
+          event.preventDefault();
+          let query = document.getElementById("query");
+          query.value = query.value.trim();
+          document.getElementById("request").dispatchEvent(
+            new Event("submit", {bubbles: true, cancelable: true}),
+          );
+        }
+      }
+
+      function jk(event) {
+        if (document.activeElement.tagName.toLowerCase() === "textarea") {
+          return;
+        }
+        if (event.key == "ArrowDown" || event.key == "j") {
+          const examples = document.querySelectorAll("#examples > div.query");
+          const selected = document.querySelector("#examples > div.query.highlight");
+          if (selected.nextElementSibling) {
+            selected.nextElementSibling.click();
+          }
+        } else if (event.key == "ArrowUp" || event.key == "k") {
+          const examples = document.querySelectorAll("#examples > div.query");
+          const selected = document.querySelector("#examples > div.query.highlight");
+          if (selected.previousElementSibling) {
+            selected.previousElementSibling.click();
+          }
+        }
+      }
+
+      document.addEventListener("DOMContentLoaded", function () {
+        document.addEventListener("keydown", jk);
+        document.addEventListener("keydown", cmdEnter);
+        document
+          .querySelectorAll("div.query")
+          .forEach((div) => div.addEventListener("click", querySelected));
+      });
+    </script>
+</html>

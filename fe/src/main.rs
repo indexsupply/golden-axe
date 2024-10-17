@@ -2,6 +2,7 @@ mod account;
 mod api_docs;
 mod api_key;
 mod email;
+mod god_mode;
 mod query;
 mod session;
 mod stripe;
@@ -167,6 +168,7 @@ async fn main() -> Result<()> {
     let service = tower::ServiceBuilder::new().layer(tracing);
     let app = Router::new()
         .route("/", get(account::handlers::index))
+        .route("/godmode", get(god_mode::index))
         .route("/docs", get(api_docs::index))
         .route("/query", get(account::handlers::index))
         .route("/metrics", get(move || ready(prom_handler.render())))
