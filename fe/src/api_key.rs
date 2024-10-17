@@ -1,32 +1,25 @@
-use std::time::SystemTime;
-
 use eyre::Context;
 use getrandom::getrandom;
-use serde::ser::{Serialize, SerializeStruct, Serializer};
+use serde::Serialize;
 use tokio_postgres::Client;
 
 use crate::web;
 
+time::serde::format_description!(
+    short,
+    OffsetDateTime,
+    "[year]-[month]-[day] [hour]:[minute]:[second]"
+);
+
+#[derive(Clone, Debug, Serialize)]
 pub struct ApiKey {
-    secret: Vec<u8>,
+    secret: String,
     origins: Vec<String>,
-    created_at: SystemTime,
+    #[serde(skip_deserializing, with = "short")]
+    created_at: time::OffsetDateTime,
 }
 
-impl Serialize for ApiKey {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut state = serializer.serialize_struct("ApiKey", 3)?;
-        state.serialize_field("secret", &hex::encode(&self.secret))?;
-        state.serialize_field(
-            "created_at",
-            &humantime::format_rfc3339_seconds(self.created_at).to_string(),
-        )?;
-        state.serialize_field("origins", &self.origins.join(","))?;
-        state.end()
-    }
-}
-
-pub async fn delete(pg: &Client, owner_email: &str, secret: Vec<u8>) -> Result<(), web::Error> {
+pub async fn delete(pg: &Client, owner_email: &str, secret: String) -> Result<(), web::Error> {
     pg.query(
         "update api_keys set deleted_at = now() where owner_email = $1 and secret = $2",
         &[&owner_email, &secret],
@@ -45,7 +38,7 @@ pub async fn create(pg: &Client, owner_email: &str, origins: String) -> Result<(
     };
     pg.query(
         "insert into api_keys(owner_email, secret, origins) values ($1, $2, $3)",
-        &[&owner_email, &secret, &origins],
+        &[&owner_email, &hex::encode(secret), &origins],
     )
     .await?;
     Ok(())
@@ -81,7 +74,6 @@ pub mod handlers {
         Form, Json,
     };
     use axum_extra::extract::SignedCookieJar;
-    use eyre::Context;
     use serde::Deserialize;
     use serde_json::json;
 
@@ -133,7 +125,6 @@ pub mod handlers {
     ) -> Result<impl IntoResponse, web::Error> {
         let user = session::User::from_jar(jar).unwrap();
         let pg = state.pool.get().await?;
-        let secret = hex::decode(secret).wrap_err("unable to hex decode secret")?;
         super::delete(&pg, &user.email, secret).await?;
         let flash = flash.success("endpoint deleted");
         Ok((flash, axum::http::StatusCode::OK).into_response())

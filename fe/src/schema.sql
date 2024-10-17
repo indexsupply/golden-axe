@@ -28,7 +28,7 @@ create table if not exists plan_changes (
 
 create table if not exists api_keys (
     owner_email text not null,
-    secret bytea not null,
+    secret text not null,
     origins text[] not null default '{}',
     created_at timestamptz default now(),
     deleted_at timestamptz
@@ -71,3 +71,9 @@ create unlogged table if not exists user_queries(
     latency int,
     created_at timestamptz default now()
 );
+
+--alter table api_keys rename secret to secret_old;
+--alter table api_keys add column secret text;
+--update api_keys set secret = encode(secret_old, 'hex');
+--alter table api_keys alter column secret set not null;
+--alter table api_keys alter column secret_old drop not null;

@@ -301,7 +301,7 @@
             {{#each api_keys }}
             <div class="api-key">
                 <div class="secret"><span>{{ secret }}</span></div>
-                <div class="origins"><span>{{ origins }}</span></div>
+                <div class="origins"><span>{{ (join origins ",") }}</span></div>
                 <div class="created_at"><span>{{ created_at }}</span></div>
                 <div class="delete"><a href="{{ secret }}">delete</a></div>
             </div>

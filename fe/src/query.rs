@@ -23,7 +23,7 @@ pub async fn user_history(
             "
             select chain, events, user_query, latency, created_at
             from user_queries
-            where api_key in (select encode(secret, 'hex') from api_keys where owner_email = $1)
+            where api_key in (select secret from api_keys where owner_email = $1)
             order by created_at desc
             limit 100
             ",
