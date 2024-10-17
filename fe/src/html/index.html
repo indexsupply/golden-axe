@@ -530,6 +530,9 @@
         }
 
         function jk(event) {
+          if (document.activeElement.tagName.toLowerCase() === "textarea") {
+            return;
+          }
           if (event.key == "ArrowDown" || event.key == "j") {
               const examples = document.querySelectorAll("#examples > div.query");
               const selected = document.querySelector("#examples > div.query.highlight");
