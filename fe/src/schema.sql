@@ -71,9 +71,3 @@ create unlogged table if not exists user_queries(
     latency int,
     created_at timestamptz default now()
 );
-
---alter table api_keys rename secret to secret_old;
---alter table api_keys add column secret text;
---update api_keys set secret = encode(secret_old, 'hex');
---alter table api_keys alter column secret set not null;
---alter table api_keys alter column secret_old drop not null;
