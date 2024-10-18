@@ -2,9 +2,10 @@ use crate::web::Error;
 use crate::{session, web};
 use axum::extract::{FromRequestParts, State};
 use axum::response::{Html, IntoResponse};
+use axum::Form;
 use axum_extra::extract::SignedCookieJar;
 use eyre::{eyre, Context};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use time::OffsetDateTime;
 
@@ -24,14 +25,35 @@ struct UserQuery {
     created_at: OffsetDateTime,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+pub struct Request {
+    owner_email: Option<String>,
+}
+
+impl Request {
+    fn sql(&self) -> String {
+        let mut predicates = Vec::new();
+        if let Some(email) = &self.owner_email {
+            predicates.push(format!("owner_email like '%{}%'", email))
+        }
+        if predicates.is_empty() {
+            String::new()
+        } else {
+            format!("where {}", predicates.join(" and "))
+        }
+    }
+}
+
 pub async fn index(
-    State(state): State<web::State>,
     _: God,
+    State(state): State<web::State>,
+    Form(req): Form<Request>,
 ) -> Result<impl IntoResponse, web::Error> {
     let pg = state.pool.get().await.wrap_err("getting db connection")?;
     let history = pg
         .query(
-            "
+            &format!(
+                "
                 select
                     coalesce(nullif(owner_email, ''), 'free') owner_email,
                     events,
@@ -40,9 +62,12 @@ pub async fn index(
                     user_queries.created_at
                 from user_queries
                 left join api_keys on api_keys.secret = user_queries.api_key
+                {}
                 order by user_queries.created_at desc
                 limit 100
-            ",
+                ",
+                req.sql()
+            ),
             &[],
         )
         .await?

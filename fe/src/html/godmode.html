@@ -16,6 +16,12 @@
                 color: blue;
                 text-decoration: none;
             }
+            form {
+                display: flex;
+                flex-direction: row;
+                justify-content: space-between;
+                margin-bottom: 10px;
+            }
             .header {
                 width: 100%;
                 margin: 0 0 20px 0;
@@ -81,6 +87,10 @@
     <body>
         <div class="header"><img src="https://indexsupply.net/godmode.png" width="400" height="78"/></div>
         <main>
+            <form action="/godmode">
+                <div><input type="text" name="owner_email" placeholder="email"></div>
+                <div><input type="submit" value="search" /></div>
+            </form>
             <div id="history">
                 {{#each history}}
                 <div class="query" data-chain="{{chain}}" data-sql="{{sql}}" data-events="{{(join events "\n")}}">
