@@ -422,7 +422,10 @@ impl UserQuery {
     ) -> Result<(), api::Error> {
         let data = match expr {
             ast::Expr::Value(ast::Value::SingleQuotedString(str)) => {
-                hex::decode(str.replace(r#"\x"#, "")).wrap_err("decoding hex string")?
+                match hex::decode(str.replace(r#"\x"#, "")) {
+                    Ok(s) => s,
+                    Err(_) => DynSolValue::String(str.clone()).abi_encode(),
+                }
             }
             ast::Expr::Value(ast::Value::HexStringLiteral(str)) => {
                 hex::decode(str).wrap_err("decoding hex string")?

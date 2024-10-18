@@ -385,6 +385,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_literal_string() {
+        check_sql(
+            vec!["Foo(string bar)"],
+            r#"select bar from foo where bar = 'baz'"#,
+            r#"
+                with foo as not materialized (
+                    select
+                        convert_from(
+                            rtrim(abi_bytes(abi_dynamic(data, 0)), '\x00'),
+                            'UTF8'
+                        ) AS bar
+                    from logs
+                    where topics [1] = '\x9f0b7f1630bdb7d474466e2dfef0fb9dff65f7a50eec83935b68f77d0808f08a'
+                )
+                select bar
+                from foo
+                where bar = '\x0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000362617a0000000000000000000000000000000000000000000000000000000000'
+            "#,
+        ).await;
+    }
+
+    #[tokio::test]
     async fn test_literal_address() {
         check_sql(
             vec!["Transfer(address indexed from, address indexed to, uint tokens)"],
