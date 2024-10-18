@@ -101,46 +101,25 @@
         const div = event.target.closest("div.query");
         const chain = div.getAttribute("data-chain");
         const sql = div.getAttribute("data-sql");
-        const events = div.getAttribute("data-events");
-        setOrAddChain(chain);
-        document.getElementById("query").value = sql;
-        document.getElementById("events").value = events;
+        const events = div.getAttribute("data-events").split("\n");
 
-        document
-          .querySelectorAll('div.query')
-          .forEach((div) => div.classList.remove('highlight'));
-        div.classList.add("highlight");
-      }
-
-      function clickHistory(event) {
-        //We don't prevent default becuase we want to reload the page
-        //to get the latest history from the db.
-        const url = new URL(window.location.href);
-        url.searchParams.set("history", true);
-        window.history.replaceState({}, '', url);
-      }
-
-      function showHistory() {
-        //There is no event here because showHistory is determined on
-        //page load. If there is ?history=true in the url
-        //then we call this function and then remove the param from the url.
-        resetTable();
-        hideExampleQueries();
-        document.getElementById("history").style.display = 'block';
-      }
-
-      function hideQueryHistory() {
-        document.getElementById("history").style.display = 'none';
+        let params = new URLSearchParams();
+        params.append("query", sql);
+        params.append("chain", chain);
+        events.forEach((sig) => params.append("event_signatures", sig.trim()));
+        let url = new URL(window.location.href);
+        url.pathname = "query";
+        url.search = params.toString();
+        window.open(url, '_blank');
       }
 
       function cmdEnter(event) {
         if (event.keyCode == 13 && event.metaKey) {
           event.preventDefault();
-          let query = document.getElementById("query");
-          query.value = query.value.trim();
-          document.getElementById("request").dispatchEvent(
-            new Event("submit", {bubbles: true, cancelable: true}),
-          );
+          const selected = document.querySelector("#history > div.query.highlight");
+          if (selected) {
+            selected.click();
+          }
         }
       }
 
@@ -149,16 +128,24 @@
           return;
         }
         if (event.key == "ArrowDown" || event.key == "j") {
-          const examples = document.querySelectorAll("#examples > div.query");
-          const selected = document.querySelector("#examples > div.query.highlight");
+          const examples = document.querySelectorAll("#history > div.query");
+          const selected = document.querySelector("#history > div.query.highlight");
           if (selected.nextElementSibling) {
-            selected.nextElementSibling.click();
+            document
+              .querySelectorAll('div.query')
+              .forEach((div) => div.classList.remove('highlight'));
+            selected.nextElementSibling.classList.add("highlight");
+            selected.scrollIntoView({behavior: "smooth", block: "center"});
           }
         } else if (event.key == "ArrowUp" || event.key == "k") {
-          const examples = document.querySelectorAll("#examples > div.query");
-          const selected = document.querySelector("#examples > div.query.highlight");
+          const examples = document.querySelectorAll("#history > div.query");
+          const selected = document.querySelector("#history > div.query.highlight");
           if (selected.previousElementSibling) {
-            selected.previousElementSibling.click();
+            document
+              .querySelectorAll('div.query')
+              .forEach((div) => div.classList.remove('highlight'));
+            selected.previousElementSibling.classList.add("highlight");
+            selected.scrollIntoView({behavior: "smooth", block: "center"});
           }
         }
       }
@@ -166,6 +153,7 @@
       document.addEventListener("DOMContentLoaded", function () {
         document.addEventListener("keydown", jk);
         document.addEventListener("keydown", cmdEnter);
+        document.querySelector("#history > div.query").classList.add("highlight");
         document
           .querySelectorAll("div.query")
           .forEach((div) => div.addEventListener("click", querySelected));
