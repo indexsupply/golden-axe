@@ -147,12 +147,7 @@
             <span>Company</span>
             <ul>
                 <li><a href="https://indexsupply.com">Index Supply</a></li>
-                <li>
-                    <a href="https://indexsupply.com/sql">SQL API Blog Post</a>
-                </li>
-                <li>
-                    <a href="https://github.com/indexsupply/code">Github</a>
-                </li>
+                <li><a href="https://github.com/indexsupply/code">Github</a></li>
             </ul>
         </nav>
         <main>
@@ -168,9 +163,7 @@
                 <span>,</span>
                 <a href="https://twitter.com/indexsupply">@indexsupply</a>
                 <span>,</span>
-                <a href="https://github.com/indexsupply"
-                    >github.com/indexsupply</a
-                >
+                <a href="https://github.com/indexsupply">github.com/indexsupply</a>
             </footer>
         </main>
     </body>
@@ -202,11 +195,7 @@
             h.addEventListener("mouseenter", (e) => {
                 const a = h.querySelector("a");
                 if (!a) {
-                    const base =
-                        location.protocol +
-                        "//" +
-                        location.host +
-                        location.pathname;
+                    const base = location.protocol + "//" + location.host + location.pathname;
                     const href = `${base}#${h.id}`;
                     h.innerHTML = `${original} <a href="${href}">#</a>`;
                 }
