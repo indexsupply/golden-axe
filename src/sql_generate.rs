@@ -112,7 +112,11 @@ fn abi_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
             pos * 32,
             alias
         )),
-        DynSolType::String => Ok(format!(r#"abi_dynamic(data, {}) {}"#, pos * 32, alias)),
+        DynSolType::String => Ok(format!(
+            r#"abi_bytes(abi_dynamic(data, {})) {}"#,
+            pos * 32,
+            alias
+        )),
         DynSolType::FixedBytes(_) => {
             Ok(format!("abi_fixed_bytes(data, {}, 32) {}", pos * 32, alias))
         }
@@ -387,7 +391,7 @@ mod tests {
             r#"select bar from foo where bar = 'baz'"#,
             r#"
                 with foo as not materialized (
-                    select abi_dynamic(data, 0) as bar
+                    select abi_bytes(abi_dynamic(data, 0)) as bar
                     from logs
                     where topics [1] = '\x9f0b7f1630bdb7d474466e2dfef0fb9dff65f7a50eec83935b68f77d0808f08a'
                 )
