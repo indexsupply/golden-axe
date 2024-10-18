@@ -35,10 +35,15 @@ And the response
 
 Here are the currently supported chains. Each query must be run against a single chain and the chain is specified in the request params for `GET` requests and the `Chain` header for `POST` requests.
 
-| Name                         | Id    |
-|------------------------------|-------|
-| Base                         | 8453  |
-| Base Sepolia                 | 84532 |
+| Name                         | Id     |
+|------------------------------|--------|
+| Base                         | 8453   |
+| Base Sepolia                 | 84532  |
+| Main                         | 1      |
+| Odyssey                      | 911867 |
+| World Chain                  | 480    |
+| World Chain Sepolia          | 481    |
+| Zora                         | 7777777|
 
 Email [support@indexsupply.com](mailto:support@indexsupply.com) to request new chains.
 
@@ -197,9 +202,6 @@ IN, and NOT IN operators. Other operators include:
     %
     +
     -
-    BETWEEN
-    LIKE
-    ILIKE
     <
     >
     =
