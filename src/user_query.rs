@@ -431,7 +431,7 @@ impl UserQuery {
                     Ok(s) => s,
                     Err(_) => DynSolValue::String(str.clone())
                         .abi_encode()
-                        .get(32..)
+                        .get(64..)
                         .unwrap_or(&[])
                         .to_vec(),
                 }
