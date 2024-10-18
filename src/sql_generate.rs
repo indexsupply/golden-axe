@@ -112,11 +112,7 @@ fn abi_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
             pos * 32,
             alias
         )),
-        DynSolType::String => Ok(format!(
-            r#"convert_from(rtrim(abi_bytes(abi_dynamic(data, {})), '\x00'), 'UTF8') {}"#,
-            pos * 32,
-            alias
-        )),
+        DynSolType::String => Ok(format!(r#"abi_dynamic(data, {}) {}"#, pos * 32, alias)),
         DynSolType::FixedBytes(_) => {
             Ok(format!("abi_fixed_bytes(data, {}, 32) {}", pos * 32, alias))
         }
@@ -255,7 +251,7 @@ mod tests {
             r#"
                 with foo as not materialized (
                     select
-                        convert_from(rtrim(abi_bytes(abi_dynamic(data, 0)), '\x00'), 'UTF8') AS a,
+                        abi_dynamic(data, 0) AS a,
                         abi_fixed_bytes(data, 32, 32) AS b,
                         abi_bytes(abi_dynamic(data, 64)) AS c,
                         abi_fixed_bytes(data, 96, 32) AS d,
@@ -265,7 +261,7 @@ mod tests {
                     where topics [1] = '\xfd2ebf78a81dba87ac294ee45944682ec394bb42128c245fca0eeab2d699c315'
                 )
                 select
-                    a,
+                    abi_string(a) as a,
                     b,
                     c,
                     abi_int(d) AS d,
@@ -391,17 +387,13 @@ mod tests {
             r#"select bar from foo where bar = 'baz'"#,
             r#"
                 with foo as not materialized (
-                    select
-                        convert_from(
-                            rtrim(abi_bytes(abi_dynamic(data, 0)), '\x00'),
-                            'UTF8'
-                        ) AS bar
+                    select abi_dynamic(data, 0) as bar
                     from logs
                     where topics [1] = '\x9f0b7f1630bdb7d474466e2dfef0fb9dff65f7a50eec83935b68f77d0808f08a'
                 )
-                select bar
+                select abi_string(bar) as bar
                 from foo
-                where bar = '\x0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000362617a0000000000000000000000000000000000000000000000000000000000'
+                where bar = '\x000000000000000000000000000000000000000000000000000000000000000362617a0000000000000000000000000000000000000000000000000000000000'
             "#,
         ).await;
     }
@@ -632,7 +624,7 @@ mod tests {
                         topics[3] as "predictionId",
                         topics[4] as "predictor",
                         abi_fixed_bytes(data, 0, 32) as "value",
-                        convert_from(rtrim(abi_bytes(abi_dynamic(data, 32)), '\x00'), 'UTF8') as "text",
+                        abi_dynamic(data, 32) as "text",
                         abi_dynamic(data, 64) as "embedding"
                     from logs
                     where topics[1] = '\xce9c0df4181cf7f57cf163a3bc9d3102b1af09f4dcfed92644a72f5ca70fdfdf'
@@ -644,7 +636,7 @@ mod tests {
                     abi_uint("predictionId") AS "predictionId",
                     abi_address("predictor") AS "predictor",
                     abi_uint("value") as "value",
-                    "text",
+                    abi_string("text") as "text",
                     abi_int_array("embedding") as "embedding"
                 FROM predictionadded
                 WHERE address = '\x6e5310add12a6043fee1fbdc82366dcab7f5ad15'

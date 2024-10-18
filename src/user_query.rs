@@ -359,6 +359,11 @@ impl UserQuery {
                 ast::Ident::new("abi_uint"),
                 expr.clone(),
             )),
+            DynSolType::String => Some(wrap_function(
+                alias,
+                ast::Ident::new("abi_string"),
+                expr.clone(),
+            )),
             DynSolType::Array(arr) => match arr.as_ref() {
                 DynSolType::Uint(_) => Some(wrap_function(
                     alias,
@@ -424,7 +429,11 @@ impl UserQuery {
             ast::Expr::Value(ast::Value::SingleQuotedString(str)) => {
                 match hex::decode(str.replace(r#"\x"#, "")) {
                     Ok(s) => s,
-                    Err(_) => DynSolValue::String(str.clone()).abi_encode(),
+                    Err(_) => DynSolValue::String(str.clone())
+                        .abi_encode()
+                        .get(32..)
+                        .unwrap_or(&[])
+                        .to_vec(),
                 }
             }
             ast::Expr::Value(ast::Value::HexStringLiteral(str)) => {
@@ -624,7 +633,7 @@ impl UserQuery {
 
     fn validate_function(&mut self, function: &mut ast::Function) -> Result<(), api::Error> {
         let name = function.name.to_string().to_lowercase();
-        const VALID_FUNCS: [&str; 14] = [
+        const VALID_FUNCS: [&str; 15] = [
             "min",
             "max",
             "sum",
@@ -639,6 +648,7 @@ impl UserQuery {
             "abi_uint_array",
             "abi_int_array",
             "abi_fixed_bytes_array",
+            "abi_string",
         ];
         if !VALID_FUNCS.contains(&name.as_str()) {
             return no!(format!(r#"'{}' function"#, name));
