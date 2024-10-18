@@ -429,11 +429,7 @@ impl UserQuery {
             ast::Expr::Value(ast::Value::SingleQuotedString(str)) => {
                 match hex::decode(str.replace(r#"\x"#, "")) {
                     Ok(s) => s,
-                    Err(_) => DynSolValue::String(str.clone())
-                        .abi_encode()
-                        .get(64..)
-                        .unwrap_or(&[])
-                        .to_vec(),
+                    Err(_) => str.as_bytes().to_vec(),
                 }
             }
             ast::Expr::Value(ast::Value::HexStringLiteral(str)) => {
