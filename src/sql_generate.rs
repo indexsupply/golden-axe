@@ -255,7 +255,7 @@ mod tests {
             r#"
                 with foo as not materialized (
                     select
-                        abi_dynamic(data, 0) AS a,
+                        abi_bytes(abi_dynamic(data, 0)) AS a,
                         abi_fixed_bytes(data, 32, 32) AS b,
                         abi_bytes(abi_dynamic(data, 64)) AS c,
                         abi_fixed_bytes(data, 96, 32) AS d,
@@ -631,7 +631,7 @@ mod tests {
                         topics[3] as "predictionId",
                         topics[4] as "predictor",
                         abi_fixed_bytes(data, 0, 32) as "value",
-                        abi_dynamic(data, 32) as "text",
+                        abi_bytes(abi_dynamic(data, 32)) as "text",
                         abi_dynamic(data, 64) as "embedding"
                     from logs
                     where topics[1] = '\xce9c0df4181cf7f57cf163a3bc9d3102b1af09f4dcfed92644a72f5ca70fdfdf'
