@@ -14,6 +14,24 @@ order by block_num desc
 
 [[queries]]
 chain = 8453
+desc = "ERC-1155 Transfer Batch (arrays)"
+events = [
+    "TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] amounts)",
+]
+sql = """
+select
+  log_idx,
+  "from",
+  "to",
+  ids,
+  amounts
+from transferbatch
+where block_num = 21258465
+and log_idx = 4
+"""
+
+[[queries]]
+chain = 8453
 desc = "Unique Senders/Receivers of ERC-721 Transfers per Block"
 events = [
     "Transfer(address indexed from, address indexed to, uint indexed tokenId)",
