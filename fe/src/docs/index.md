@@ -1,11 +1,12 @@
-Index Supply's SQL API is a hosted HTTP API that allows you to run SQL queries on Ethereum Event Logs. Each query must also include a set of human readable ABI signatures _(ie `Transfer(from address, to address, tokens uint)`)_. This design allows you to query any event instantaneously and without configuration!
+The SQL API is a hosted HTTP API for running SQL queries on Ethereum Event Logs.
 
-You can use this API from your backend or from the browser.
+You can use this API from your backend or from your user's browser.
 
 Here is an example query
 
 ```
 curl -G https://api.indexsupply.net/query \
+    --data-urlencode 'chain=8453' \
     --data-urlencode 'query=select "from", "to", tokens from transfer limit 1' \
     --data-urlencode 'event_signatures=Transfer(address indexed from, address indexed to, uint tokens)' \
     | jq .
@@ -33,7 +34,7 @@ And the response
 
 ## Chains {#chains}
 
-Here are the currently supported chains. Each query must be run against a single chain and the chain is specified in the request params for `GET` requests and the `Chain` header for `POST` requests.
+Here are the currently supported chains.
 
 | Name                         | Id     |
 |------------------------------|--------|
@@ -44,6 +45,8 @@ Here are the currently supported chains. Each query must be run against a single
 | World Chain                  | 480    |
 | World Chain Sepolia          | 481    |
 | Zora                         | 7777777|
+
+For `POST` requests, use the `Chain: 8453` header. For `GET` requests use the `?chain=8543` query param.
 
 Email [support@indexsupply.com](mailto:support@indexsupply.com) to request new chains.
 
@@ -73,7 +76,7 @@ In the case of a chain reorg, clients will receive a block height that is lower 
 
 ## Response {#query-response .reference}
 
-Regardless of the kind of query (ie get, post, single, batch) there is a single kind of response object returned. The response is JSON and includes the block height at which the query(s) were executed and a 3-dimensional array.
+Regardless of the kind of query (ie get, post, single, batch) there is a single response object. The response is JSON and includes the block height at which the query(s) were executed and a 3-dimensional array.
 
 ```
 {
@@ -82,7 +85,7 @@ Regardless of the kind of query (ie get, post, single, batch) there is a single 
 }
 ```
 
-The first array dimension maps to the number of queries submitted. In the case of `GET/query` and `GET/query-live` this outer array will always have `length=1` (meaning the result is at: `result[0]`).
+The first, outer array dimension relates to the number of queries submitted (one for single and many for batch). In the case of `GET /query` and `GET /query-live` this outer array will always have `length=1` (meaning the result is: `result[0]`).
 
 The second array dimension represents the number of rows returned from the query. This array can be empty (`length=0`) in the case that the query returned no rows.
 
@@ -90,9 +93,19 @@ If a query did return a set of rows, then the second array will always contain a
 
 The third array dimension represents column values. In the case of the column names, this will be an array of strings. In the case of column values, it will be an array with the following types:
 
-All inner (3rd dimension) array will have the same length.
+| ABI Type | JSON Type           |
+|----------|---------------------|
+| bool     | bool                |
+| bytesN   | hexadecimal string  |
+| string   | string              |
+| intN     | decimal string      |
+| uintN    | decimal string      |
 
-## `GET  /query` {#get-query .reference }
+Arrays of these types will be a JSON array of the type.
+
+All inner (3rd dimension) arrays will have the same length.
+
+## `GET /query` {#get-query .reference }
 
 ### Request {#get-query-request}
 
@@ -106,7 +119,7 @@ Query Parameters
 - `sql`. A SQL query referencing tables and columns from the `event_signatures`. See [SQL](#sql) for more details on the query language.
 - `event_signatures`. A single [human readable event signature][3]
 
-## `GET  /query-live` {#get-query-live .reference }
+## `GET /query-live` {#get-query-live .reference }
 
 The request parameters for `/query-live` is identical to [`GET /query`](#get-query-request).
 
