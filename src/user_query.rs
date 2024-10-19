@@ -478,6 +478,9 @@ impl UserQuery {
         if left.last().map_or(false, |v| v.to_string() == "address") {
             self.rewrite_literal(right, DynSolType::Address, true)?;
         }
+        if left.last().map_or(false, |v| v.to_string() == "tx_hash") {
+            self.rewrite_literal(right, DynSolType::FixedBytes(32), false)?;
+        }
         Ok(())
     }
 

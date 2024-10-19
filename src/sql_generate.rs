@@ -410,11 +410,13 @@ mod tests {
                 select tokens
                 from transfer
                 where address = 0x00000000000000000000000000000000deadbeef
+                and tx_hash = 0xface000000000000000000000000000000000000000000000000000000000000
             "#,
             r#"
                 with transfer as not materialized (
                     select
                         address,
+                        tx_hash,
                         abi_fixed_bytes(data, 0, 32) AS tokens
                     from logs
                     where topics [1] = '\xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
@@ -422,6 +424,7 @@ mod tests {
                 select abi_uint(tokens) as tokens
                 from transfer
                 where address = '\x00000000000000000000000000000000deadbeef'
+                and tx_hash = '\xface000000000000000000000000000000000000000000000000000000000000'
             "#,
         ).await;
     }
