@@ -148,6 +148,33 @@ Chain: 84532
 
 ## SQL {#sql .reference}
 
+When you provide an event signature `Foo(uint indexed bar, uint baz)` you effectively have a table named `foo` with a numeric columns named `bar` and `baz` that you can query:
+
+```
+select baz from foo where bar = 1
+```
+
+### EVM Columns {#evm-columns}
+In addition to event data, there are other EVM columns available:
+
+| Column    | Type    | Description                        |
+|-----------|---------|---------------------               |
+| address   | bytea   | contract address emitting the event|
+| block_num | numeric |                                    |
+| log_idx   | numeric |                                    |
+| tx_hash   | bytea   |                                    |
+
+These can be used with the event data. For example:
+
+```
+select block_num, log_idx, baz
+from foo
+where address = 0x0000000000000000000000000000000000000000
+and bar = 1
+```
+
+### SQL Details {#sql-details}
+
 The SQL API supports a subset of the Postgres SQL language. Here is a brief overview of the supported syntax:
 
 ```
