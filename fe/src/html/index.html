@@ -90,6 +90,13 @@
             #live-query {
                 padding-bottom: 1px;
             }
+            #response {
+                width: 100%;
+                overflow-x: auto;
+                font-family: monospace;
+                font-size: medium;
+                margin-top: 5px;
+            }
             #examples {
                 display: none;
                 width: 102%;
@@ -166,17 +173,10 @@
                 font-family: monospace;
                 padding-right: 10px;
             }
-            #response {
-                width: 100%;
-                overflow-x: auto;
-                font-family: monospace;
-                font-size: medium;
-                margin-top: 5px;
-            }
             #response table {
                 width: 100%;
             }
-            th {
+            #response th {
                 font-size: medium;
                 padding-bottom: 5px;
                 text-align: left;
@@ -199,6 +199,11 @@
                 padding: 20px;
                 font-size: x-large;
                 color: #000000;
+            }
+            #loading {
+                display: none;
+                margin-top: 100px;
+                text-align: center;
             }
             #timeout {
                 display: none;
@@ -271,78 +276,83 @@
                     </div>
                 </div>
             </form>
-            <div id="examples">
-                <h2>Examples</h2>
-                {{#each examples }}
-                <div class="query" data-chain="{{chain}}" data-sql="{{sql}}" data-events="{{(join events "\n")}}">
-                    <div class="desc">{{ desc }}</div>
-                    <div class="event">{{(join events ",")}}</div>
-                    <div class="sql">{{ sql }}</div>
-                </div>
-                {{/each}}
-            </div>
-            <div id="history">
-                <h2>History</h2>
-                {{#each history}}
-                <div class="query" data-chain="{{chain}}" data-sql="{{sql}}" data-events="{{(join events "\n")}}">
-                    <div class="timing">
-                        <div class="created_at">{{ created_at }}</div>
-                        <div class="latency"><em>{{ latency }}ms</em></div>
+            <div id="response">
+                <div id="examples">
+                    <h2>Examples</h2>
+                    {{#each examples }}
+                    <div class="query" data-chain="{{chain}}" data-sql="{{sql}}" data-events="{{(join events "\n")}}">
+                        <div class="desc">{{ desc }}</div>
+                        <div class="event">{{(join events ",")}}</div>
+                        <div class="sql">{{ sql }}</div>
                     </div>
-                    <div class="event">{{(join events ",")}}</div>
-                    <div class="sql">{{ sql }}</div>
+                    {{/each}}
                 </div>
-                {{/each}}
-            </div>
-            <div id="stats">
-                <span>Last Block:</span>
-                <span id="block-height"></span>
-                <span>Num Rows:</span>
-                <span id="num-rows"></span>
-            </div>
-            <div id="response"></div>
-            <div id="timeout">
-                <p><img src="https://indexsupply.net/hourglass.gif"/><strong>This particular query is taking too much time.</strong></p>
-                <p>There are several reasons why a query may be taking too much time.</p>
-                <ol>
-                    <li>The Event is common and has millions of rows. For instance: <code>Transfer</code> or <code>Swap</code></li>
-                    <li>The Event and Contract have millions of rows. For instance: <code>USDC</code></li>
-                    <li>
-                        The Event is common and there is a predicate on a non-indexed field. <br /><br />
-                        When an event contains an indexed field <em>(eg <code>Foo(address indexed bar, uint256 baz)</code>)</em>
-                        and there is a query <code>select baz from foo where bar = 0x... and baz > 42</code> the query planner
-                        will use a database index to find all <code>Foo</code> events <code>where bar = 0x...</code> but if that
-                        set contains millions of rows then the database will have to scan each of them checking for
-                        <code>baz > 42</code> -- which takes time with large data sets.
-                    </li>
-                </ol>
-                <p>Here are tips for fast queries</p>
-                <ol>
-                    <li>Use<code>`where address = 0x000...000`</code> when possible. If a particular event is popular (eg Transfer(...)) and if you are only interested in Transfers for a particular contract, then adding the address predicate will speed up the query.</li>
-                    <li>
-                        Use <code>`where block_num > X`</code> or <code>`where block_num >= X and block_num < Y`</code>
-                        to paginate through a large dataset. In general, adding <code>block_num</code> predicates
-                        to your query will positively impact performance.
-                        <br />
-                        <br />
-                        In fact, <em>live queries </em> are sub-millisecond becase they only query recent blocks.
-                    </li>
-                    <li>
-                        Consider using events with <strong>indexed</strong> fields. Each indexed field in the event
-                        signature is indexed in the database. If you are designing a new contract, keep this in mind.
-                    </li>
-                    <li>
-                        If none of these tips help, there may be a bug!
-                        Please report to <a href="mailto:support@indexsupply.com">support@indexsupply.com</a> and
-                        include the link to your query.
-                    </li>
-                    <li>
-                        Finally, if you need low latency access to non-indexed data, the <strong>Dedicated</strong> plan
-                        will allow you to create custom database indexes over non-indexed data resulting in sub-millisecond
-                        queries. Please create an account or reach out to
-                        <a href="mailto:support@indexsupply.com">support@indexsupply.com</a> for assistance.
-                    </li>
-                </ol>
+                <div id="history">
+                    <h2>History</h2>
+                    {{#each history}}
+                    <div class="query" data-chain="{{chain}}" data-sql="{{sql}}" data-events="{{(join events "\n")}}">
+                        <div class="timing">
+                            <div class="created_at">{{ created_at }}</div>
+                            <div class="latency"><em>{{ latency }}ms</em></div>
+                        </div>
+                        <div class="event">{{(join events ",")}}</div>
+                        <div class="sql">{{ sql }}</div>
+                    </div>
+                    {{/each}}
+                </div>
+                <div id="stats">
+                    <span>Last Block:</span>
+                    <span id="block-height"></span>
+                    <span>Num Rows:</span>
+                    <span id="num-rows"></span>
+                </div>
+                <table><thead></thead><tbody></tbody></table>
+                <div id="loading">
+                    <img src="https://indexsupply.net/book.gif">
+                </div>
+                <div id="timeout">
+                    <p><img src="https://indexsupply.net/hourglass-last.gif"/><strong>This particular query is taking too much time.</strong></p>
+                    <p>There are several reasons why a query may be taking too much time.</p>
+                    <ol>
+                        <li>The Event is common and has millions of rows. For instance: <code>Transfer</code> or <code>Swap</code></li>
+                        <li>The Event and Contract have millions of rows. For instance: <code>USDC</code></li>
+                        <li>
+                            The Event is common and there is a predicate on a non-indexed field. <br /><br />
+                            When an event contains an indexed field <em>(eg <code>Foo(address indexed bar, uint256 baz)</code>)</em>
+                            and there is a query <code>select baz from foo where bar = 0x... and baz > 42</code> the query planner
+                            will use a database index to find all <code>Foo</code> events <code>where bar = 0x...</code> but if that
+                            set contains millions of rows then the database will have to scan each of them checking for
+                            <code>baz > 42</code> -- which takes time with large data sets.
+                        </li>
+                    </ol>
+                    <p>Here are tips for fast queries</p>
+                    <ol>
+                        <li>Use<code>`where address = 0x000...000`</code> when possible. If a particular event is popular (eg Transfer(...)) and if you are only interested in Transfers for a particular contract, then adding the address predicate will speed up the query.</li>
+                        <li>
+                            Use <code>`where block_num > X`</code> or <code>`where block_num >= X and block_num < Y`</code>
+                            to paginate through a large dataset. In general, adding <code>block_num</code> predicates
+                            to your query will positively impact performance.
+                            <br />
+                            <br />
+                            In fact, <em>live queries </em> are sub-millisecond becase they only query recent blocks.
+                        </li>
+                        <li>
+                            Consider using events with <strong>indexed</strong> fields. Each indexed field in the event
+                            signature is indexed in the database. If you are designing a new contract, keep this in mind.
+                        </li>
+                        <li>
+                            If none of these tips help, there may be a bug!
+                            Please report to <a href="mailto:support@indexsupply.com">support@indexsupply.com</a> and
+                            include the link to your query.
+                        </li>
+                        <li>
+                            Finally, if you need low latency access to non-indexed data, the <strong>Dedicated</strong> plan
+                            will allow you to create custom database indexes over non-indexed data resulting in sub-millisecond
+                            queries. Please create an account or reach out to
+                            <a href="mailto:support@indexsupply.com">support@indexsupply.com</a> for assistance.
+                        </li>
+                    </ol>
+                </div>
             </div>
         </main>
     </body>
@@ -362,25 +372,33 @@
         div.classList.add("highlight");
       }
 
-      function showExampleQueries(event) {
+      function showExamples(event) {
         //It's possible to call this function from a click
         //or on page load so we don't always have an event.
         if (event) {
           event.preventDefault();
         }
-        resetTable();
-        hideQueryHistory();
+        resetResponse();
         document.getElementById("examples").style.display = 'block';
         document.querySelector("#examples > div.query").click();
       }
 
-      function hideExampleQueries() {
-        document.getElementById("examples").style.display = 'none';
+      function showTimeout() {
+        resetResponse();
+        document.getElementById("timeout").style.display = 'block';
       }
 
-      function showTimeout() {
-        resetTable();
-        document.getElementById("timeout").style.display = 'block';
+      function showHistory() {
+        //There is no event here because showHistory is determined on
+        //page load. If there is ?history=true in the url
+        //then we call this function and then remove the param from the url.
+        resetResponse();
+        document.getElementById("history").style.display = 'block';
+      }
+
+      function showTable() {
+        resetResponse();
+        document.querySelector("#response table").style.display = 'table';
       }
 
       function clickHistory(event) {
@@ -391,22 +409,9 @@
         window.history.replaceState({}, '', url);
       }
 
-      function showHistory() {
-        //There is no event here because showHistory is determined on
-        //page load. If there is ?history=true in the url
-        //then we call this function and then remove the param from the url.
-        resetTable();
-        hideExampleQueries();
-        document.getElementById("history").style.display = 'block';
-      }
-
-      function hideQueryHistory() {
-        document.getElementById("history").style.display = 'none';
-      }
-
       function addHeaderRow(row) {
-        const table = document.querySelector("#response table");
-        let tr = table.insertRow(0);
+        let thead = document.querySelector("#response table thead");
+        let tr = thead.insertRow(0);
         row.forEach((col, i) => {
           const th = document.createElement("th");
           th.textContent = col;
@@ -415,7 +420,7 @@
       }
 
       function addRow(rows, shouldAppend) {
-        let table = document.querySelector("#response table");
+        let tbody = document.querySelector("#response table tbody");
         rows.forEach((row) => {
           let tr = document.createElement("tr");
           row.forEach((col, i) => {
@@ -424,19 +429,24 @@
             tr.appendChild(td);
           });
           if (shouldAppend) {
-            table.appendChild(tr);
+            tbody.appendChild(tr);
           } else {
-            table.insertBefore(tr, table.rows[1]);
+            tbody.insertBefore(tr, tbody.rows[0]);
           }
           tr.classList.add("highlight");
           setTimeout(() => {
             tr.classList.remove("highlight");
           }, 500);
         });
-        while (table.rows.length > 100) {
+        while (tbody.rows.length > 100) {
           //-1 removes the last row of the table
-          table.deleteRow(-1);
+          tbody.deleteRow(-1);
         }
+      }
+
+      function resetResponse() {
+        document.querySelectorAll('#response table tr').forEach(row => row.remove());
+        document.querySelectorAll('#response > *').forEach(child => child.style.display = 'none');
       }
 
       function printInfo(msg) {
@@ -464,15 +474,6 @@
         p.textContent = "The free plan includes ~5 requests per minute. Log in and select a paid plan for more requests.";
         {{/with}}
         response.appendChild(p);
-      }
-
-      function resetTable() {
-        document.getElementById("timeout").style.display = 'none';
-        document.getElementById("stats").style.display = 'none';
-        const response = document.getElementById("response");
-        const table = document.createElement("table");
-        response.innerHTML = "";
-        response.appendChild(table);
       }
 
       let sseHandler = {};
@@ -554,36 +555,42 @@
 
       async function submitQuery(event) {
         event.preventDefault();
-        hideExampleQueries();
-        hideQueryHistory();
+        resetResponse();
         closeHandler();
         form2url();
+        document.querySelector(`#request input[type="submit"]`).disabled = true;
+        let loaded = false;
+        setTimeout(() => {
+          if (!loaded) {
+            document.getElementById("loading").style.display = 'block';
+          }
+        }, 1000);
         const response = await fetch(apiURL("/query"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(form2JSON()),
         });
+        loaded = true;
+        document.querySelector(`#request input[type="submit"]`).disabled = false;
+        document.getElementById("loading").style.display = 'none';
         if (response.status == 429) {
-          resetTable();
           printRateLimit();
         } else if (response.status == 408) {
           showTimeout();
         } else if (!response.ok) {
           const { message } = await response.json();
-          resetTable();
           printError(message);
         } else {
           const data = await response.json();
           let height = data["block_height"];
           let result = data["result"][0];
           if (result.length > 0) {
-            resetTable();
+            showTable();
             addHeaderRow(result.shift());
             addRow(result.slice(0, 100), true);
             updateStats(height, result.length);
             startHandler();
           } else {
-            resetTable();
             printInfo("no rows");
           }
         }
@@ -666,7 +673,7 @@
       function url2form() {
         const params = new URLSearchParams(window.location.search);
         if (params.size == 0) {
-          showExampleQueries();
+          showExamples();
           return;
         }
 
@@ -717,7 +724,7 @@
             .addEventListener("change", changeLiveQuery);
           document
             .getElementById("request-query-examples")
-            .addEventListener("click", showExampleQueries);
+            .addEventListener("click", showExamples);
           document
             .querySelectorAll("#request-query-history")
             .forEach((div) => div.addEventListener("click", clickHistory));
