@@ -200,6 +200,16 @@
                 font-size: x-large;
                 color: #000000;
             }
+            #timeout {
+                display: none;
+            }
+            #timeout li {
+                padding-bottom: 10px;
+            }
+            #timeout p img {
+                height: 12px;
+                margin-right: 10px;
+            }
         </style>
     </head>
     <body>
@@ -291,6 +301,49 @@
                 <span id="num-rows"></span>
             </div>
             <div id="response"></div>
+            <div id="timeout">
+                <p><img src="https://indexsupply.net/hourglass.gif"/><strong>This particular query is taking too much time.</strong></p>
+                <p>There are several reasons why a query may be taking too much time.</p>
+                <ol>
+                    <li>The Event is common and has millions of rows. For instance: <code>Transfer</code> or <code>Swap</code></li>
+                    <li>The Event and Contract have millions of rows. For instance: <code>USDC</code></li>
+                    <li>
+                        The Event is common and there is a predicate on a non-indexed field. <br /><br />
+                        When an event contains an indexed field <em>(eg <code>Foo(address indexed bar, uint256 baz)</code>)</em>
+                        and there is a query <code>select baz from foo where bar = 0x... and baz > 42</code> the query planner
+                        will use a database index to find all <code>Foo</code> events <code>where bar = 0x...</code> but if that
+                        set contains millions of rows then the database will have to scan each of them checking for
+                        <code>baz > 42</code> -- which takes time with large data sets.
+                    </li>
+                </ol>
+                <p>Here are tips for fast queries</p>
+                <ol>
+                    <li>Use<code>`where address = 0x000...000`</code> when possible. If a particular event is popular (eg Transfer(...)) and if you are only interested in Transfers for a particular contract, then adding the address predicate will speed up the query.</li>
+                    <li>
+                        Use <code>`where block_num > X`</code> or <code>`where block_num >= X and block_num < Y`</code>
+                        to paginate through a large dataset. In general, adding <code>block_num</code> predicates
+                        to your query will positively impact performance.
+                        <br />
+                        <br />
+                        In fact, <em>live queries </em> are sub-millisecond becase they only query recent blocks.
+                    </li>
+                    <li>
+                        Consider using events with <strong>indexed</strong> fields. Each indexed field in the event
+                        signature is indexed in the database. If you are designing a new contract, keep this in mind.
+                    </li>
+                    <li>
+                        If none of these tips help, there may be a bug!
+                        Please report to <a href="mailto:support@indexsupply.com">support@indexsupply.com</a> and
+                        include the link to your query.
+                    </li>
+                    <li>
+                        Finally, if you need low latency access to non-indexed data, the <strong>Dedicated</strong> plan
+                        will allow you to create custom database indexes over non-indexed data resulting in sub-millisecond
+                        queries. Please create an account or reach out to
+                        <a href="mailto:support@indexsupply.com">support@indexsupply.com</a> for assistance.
+                    </li>
+                </ol>
+            </div>
         </main>
     </body>
     <script>
@@ -323,6 +376,11 @@
 
       function hideExampleQueries() {
         document.getElementById("examples").style.display = 'none';
+      }
+
+      function showTimeout() {
+        resetTable();
+        document.getElementById("timeout").style.display = 'block';
       }
 
       function clickHistory(event) {
@@ -382,22 +440,22 @@
         }
 
         function printInfo(msg) {
-            const response = document.getElementById("response");
-            const p = document.createElement("p");
-            p.classList.add("info");
-            p.textContent = msg;
-            response.appendChild(p);
+          const response = document.getElementById("response");
+          const p = document.createElement("p");
+          p.classList.add("info");
+          p.textContent = msg;
+          response.appendChild(p);
         }
 
         function printError(msg) {
-            const response = document.getElementById("response");
-            const p = document.createElement("p");
-            p.classList.add("error");
-            p.textContent = msg;
-            response.appendChild(p);
+          const response = document.getElementById("response");
+          const p = document.createElement("p");
+          p.classList.add("error");
+          p.textContent = msg;
+          response.appendChild(p);
         }
 
-        function printRateLimit() {
+        function printRequestTimeout() {
           const p = document.createElement("p");
           p.classList.add("error");
           {{#with user}}
@@ -409,11 +467,12 @@
         }
 
         function resetTable() {
-            document.getElementById("stats").style.display = 'none';
-            const response = document.getElementById("response");
-            const table = document.createElement("table");
-            response.innerHTML = "";
-            response.appendChild(table);
+          document.getElementById("timeout").style.display = 'none';
+          document.getElementById("stats").style.display = 'none';
+          const response = document.getElementById("response");
+          const table = document.createElement("table");
+          response.innerHTML = "";
+          response.appendChild(table);
         }
 
         let sseHandler = {};
@@ -507,6 +566,8 @@
           if (response.status == 429) {
             resetTable();
             printRateLimit();
+          } else if (response.status == 408) {
+            showTimeout();
           } else if (!response.ok) {
             const { message } = await response.json();
             resetTable();
