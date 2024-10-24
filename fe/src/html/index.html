@@ -494,38 +494,38 @@
         }
 
         async function submitQuery(event) {
-            event.preventDefault();
-            hideExampleQueries();
-            hideQueryHistory();
-            closeHandler();
-            form2url();
-            const response = await fetch(apiURL("/query"), {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(form2JSON()),
-            });
-            if (response.status == 429) {
-                resetTable();
-                printRateLimit();
-            } else if (!response.ok) {
-                const { message } = await response.json();
-                resetTable();
-                printError(message);
+          event.preventDefault();
+          hideExampleQueries();
+          hideQueryHistory();
+          closeHandler();
+          form2url();
+          const response = await fetch(apiURL("/query"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(form2JSON()),
+          });
+          if (response.status == 429) {
+            resetTable();
+            printRateLimit();
+          } else if (!response.ok) {
+            const { message } = await response.json();
+            resetTable();
+            printError(message);
+          } else {
+            const data = await response.json();
+            let height = data["block_height"];
+            let result = data["result"][0];
+            if (result.length > 0) {
+              resetTable();
+              addHeaderRow(result.shift());
+              addRow(result.slice(0, 100), true);
+              updateStats(height, result.length);
+              startHandler();
             } else {
-                const data = await response.json();
-                let height = data["block_height"];
-                let result = data["result"][0];
-                if (result.length > 0) {
-                  resetTable();
-                  addHeaderRow(result.shift());
-                  addRow(result.slice(0, 100), true);
-                  updateStats(height, result.length);
-                  startHandler();
-                } else {
-                    resetTable();
-                    printInfo("no rows");
-                }
+              resetTable();
+              printInfo("no rows");
             }
+          }
         }
 
         function cmdEnter(event) {
