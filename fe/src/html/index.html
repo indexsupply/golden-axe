@@ -404,329 +404,327 @@
         document.getElementById("history").style.display = 'none';
       }
 
-        function addHeaderRow(row) {
-            const table = document.querySelector("#response table");
-            let tr = table.insertRow(0);
-            row.forEach((col, i) => {
-                const th = document.createElement("th");
-                th.textContent = col;
-                tr.appendChild(th);
-            });
-        }
+      function addHeaderRow(row) {
+        const table = document.querySelector("#response table");
+        let tr = table.insertRow(0);
+        row.forEach((col, i) => {
+          const th = document.createElement("th");
+          th.textContent = col;
+          tr.appendChild(th);
+        });
+      }
 
-        function addRow(rows, shouldAppend) {
-          let table = document.querySelector("#response table");
-          rows.forEach((row) => {
-            let tr = document.createElement("tr");
-            row.forEach((col, i) => {
-              let td = document.createElement("td");
-              td.textContent = col;
-              tr.appendChild(td);
-            });
-            if (shouldAppend) {
-              table.appendChild(tr);
-            } else {
-              table.insertBefore(tr, table.rows[1]);
-            }
-            tr.classList.add("highlight");
-            setTimeout(() => {
-              tr.classList.remove("highlight");
-            }, 500);
+      function addRow(rows, shouldAppend) {
+        let table = document.querySelector("#response table");
+        rows.forEach((row) => {
+          let tr = document.createElement("tr");
+          row.forEach((col, i) => {
+            let td = document.createElement("td");
+            td.textContent = col;
+            tr.appendChild(td);
           });
-          while (table.rows.length > 100) {
-            //-1 removes the last row of the table
-            table.deleteRow(-1);
-          }
-        }
-
-        function printInfo(msg) {
-          const response = document.getElementById("response");
-          const p = document.createElement("p");
-          p.classList.add("info");
-          p.textContent = msg;
-          response.appendChild(p);
-        }
-
-        function printError(msg) {
-          const response = document.getElementById("response");
-          const p = document.createElement("p");
-          p.classList.add("error");
-          p.textContent = msg;
-          response.appendChild(p);
-        }
-
-        function printRequestTimeout() {
-          const p = document.createElement("p");
-          p.classList.add("error");
-          {{#with user}}
-          p.textContent = "Too many requests for this chain. Please upgrade to PRO or check to see if you have selected this chain in your account page.";
-          {{ else }}
-          p.textContent = "The free plan includes ~5 requests per minute. Log in and select a paid plan for more requests.";
-          {{/with}}
-          response.appendChild(p);
-        }
-
-        function resetTable() {
-          document.getElementById("timeout").style.display = 'none';
-          document.getElementById("stats").style.display = 'none';
-          const response = document.getElementById("response");
-          const table = document.createElement("table");
-          response.innerHTML = "";
-          response.appendChild(table);
-        }
-
-        let sseHandler = {};
-        let blockHeight = 0;
-
-        function apiKey() {
-            const select = document.getElementById("api-key-selection");
-            if (select) {
-                return select.options[select.selectedIndex].value;
-            }
-        }
-
-        function apiURL(path, params = new URLSearchParams()) {
-            let chain = document.getElementById("chain-selection").value;
-            params.set("chain", chain);
-            let key = apiKey();
-            if (key) {
-              params.set("api-key", key);
-            }
-            return `{{ api_url }}${path}?${params}`;
-        }
-
-        function updateStats(height, nrows) {
-            document.getElementById("stats").style.display = "block";
-            blockHeight = height;
-            document.querySelector("#block-height").textContent = height;
-            document.querySelector("#num-rows").textContent = nrows;
-        }
-
-        function changeLiveQuery(event) {
-            closeHandler();
-            if (event.target.checked) {
-                startHandler();
-            }
-        }
-
-        function closeHandler() {
-            if ("close" in sseHandler) {
-                sseHandler.close();
-            }
-        }
-
-        function startHandler() {
-            function liveQueryEnabled() {
-                return document.getElementById("live-query").checked;
-            }
-            if (!liveQueryEnabled()) {
-                return;
-            }
-            console.log(`sse start: ${blockHeight}`);
-            sseHandler = new EventSource(
-                apiURL("/query-live", form2queryParams()),
-            );
-            sseHandler.onmessage = function (event) {
-                let data = JSON.parse(event.data);
-                let newHeight = data["block_height"];
-                let result = data["result"][0];
-                console.log(`sse latest: ${newHeight}`);
-                if (newHeight <= blockHeight) {
-                    console.log("sse nothing new");
-                    return;
-                }
-                result.shift(); //remove column names
-                /*
-                  When we are adding data to the table from an SSE update
-                  we have to take care of 2 things:
-                  1. Add the data to the table by prepending instead of appending.
-                      New data should be at the top of the table.
-                  2. If there are multiple reseults from an SSE update then
-                      we want to prepend them in reverse order.
-                */
-                addRow(result.reverse(), false);
-                updateStats(newHeight, result.length);
-            };
-            sseHandler.onerror = function (e) {
-                console.log(`sse error: `, e);
-            };
-        }
-
-        async function submitQuery(event) {
-          event.preventDefault();
-          hideExampleQueries();
-          hideQueryHistory();
-          closeHandler();
-          form2url();
-          const response = await fetch(apiURL("/query"), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(form2JSON()),
-          });
-          if (response.status == 429) {
-            resetTable();
-            printRateLimit();
-          } else if (response.status == 408) {
-            showTimeout();
-          } else if (!response.ok) {
-            const { message } = await response.json();
-            resetTable();
-            printError(message);
+          if (shouldAppend) {
+            table.appendChild(tr);
           } else {
-            const data = await response.json();
-            let height = data["block_height"];
-            let result = data["result"][0];
-            if (result.length > 0) {
-              resetTable();
-              addHeaderRow(result.shift());
-              addRow(result.slice(0, 100), true);
-              updateStats(height, result.length);
-              startHandler();
-            } else {
-              resetTable();
-              printInfo("no rows");
-            }
+            table.insertBefore(tr, table.rows[1]);
           }
+          tr.classList.add("highlight");
+          setTimeout(() => {
+            tr.classList.remove("highlight");
+          }, 500);
+        });
+        while (table.rows.length > 100) {
+          //-1 removes the last row of the table
+          table.deleteRow(-1);
         }
+      }
 
-        function cmdEnter(event) {
-          if (event.keyCode == 13 && event.metaKey) {
-            event.preventDefault();
-            let query = document.getElementById("query");
-            query.value = query.value.trim();
-            document.getElementById("request").dispatchEvent(
-              new Event("submit", {bubbles: true, cancelable: true}),
-            );
-          }
+      function printInfo(msg) {
+        const response = document.getElementById("response");
+        const p = document.createElement("p");
+        p.classList.add("info");
+        p.textContent = msg;
+        response.appendChild(p);
+      }
+
+      function printError(msg) {
+        const response = document.getElementById("response");
+        const p = document.createElement("p");
+        p.classList.add("error");
+        p.textContent = msg;
+        response.appendChild(p);
+      }
+
+      function printRequestTimeout() {
+        const p = document.createElement("p");
+        p.classList.add("error");
+        {{#with user}}
+        p.textContent = "Too many requests for this chain. Please upgrade to PRO or check to see if you have selected this chain in your account page.";
+        {{ else }}
+        p.textContent = "The free plan includes ~5 requests per minute. Log in and select a paid plan for more requests.";
+        {{/with}}
+        response.appendChild(p);
+      }
+
+      function resetTable() {
+        document.getElementById("timeout").style.display = 'none';
+        document.getElementById("stats").style.display = 'none';
+        const response = document.getElementById("response");
+        const table = document.createElement("table");
+        response.innerHTML = "";
+        response.appendChild(table);
+      }
+
+      let sseHandler = {};
+      let blockHeight = 0;
+
+      function apiKey() {
+        const select = document.getElementById("api-key-selection");
+        if (select) {
+          return select.options[select.selectedIndex].value;
         }
+      }
 
-        function jk(event) {
-          if (document.activeElement.tagName.toLowerCase() === "textarea") {
+      function apiURL(path, params = new URLSearchParams()) {
+        let chain = document.getElementById("chain-selection").value;
+        params.set("chain", chain);
+        let key = apiKey();
+        if (key) {
+          params.set("api-key", key);
+        }
+        return `{{ api_url }}${path}?${params}`;
+      }
+
+      function updateStats(height, nrows) {
+        document.getElementById("stats").style.display = "block";
+        blockHeight = height;
+        document.querySelector("#block-height").textContent = height;
+        document.querySelector("#num-rows").textContent = nrows;
+      }
+
+      function changeLiveQuery(event) {
+        closeHandler();
+        if (event.target.checked) {
+          startHandler();
+        }
+      }
+
+      function closeHandler() {
+        if ("close" in sseHandler) {
+          sseHandler.close();
+        }
+      }
+
+      function startHandler() {
+        function liveQueryEnabled() {
+          return document.getElementById("live-query").checked;
+        }
+        if (!liveQueryEnabled()) {
+          return;
+        }
+        console.log(`sse start: ${blockHeight}`);
+        sseHandler = new EventSource(
+          apiURL("/query-live", form2queryParams()),
+        );
+        sseHandler.onmessage = function (event) {
+          let data = JSON.parse(event.data);
+          let newHeight = data["block_height"];
+          let result = data["result"][0];
+          console.log(`sse latest: ${newHeight}`);
+          if (newHeight <= blockHeight) {
+            console.log("sse nothing new");
             return;
           }
-          if (event.key == "ArrowDown" || event.key == "j") {
-              const examples = document.querySelectorAll("#examples > div.query");
-              const selected = document.querySelector("#examples > div.query.highlight");
-              if (selected.nextElementSibling) {
-                selected.nextElementSibling.click();
-              }
-            } else if (event.key == "ArrowUp" || event.key == "k") {
-              const examples = document.querySelectorAll("#examples > div.query");
-              const selected = document.querySelector("#examples > div.query.highlight");
-              if (selected.previousElementSibling) {
-                selected.previousElementSibling.click();
-              }
-            }
-        }
+          result.shift(); //remove column names
+          /*
+            When we are adding data to the table from an SSE update
+            we have to take care of 2 things:
+            1. Add the data to the table by prepending instead of appending.
+                New data should be at the top of the table.
+            2. If there are multiple reseults from an SSE update then
+                we want to prepend them in reverse order.
+          */
+          addRow(result.reverse(), false);
+          updateStats(newHeight, result.length);
+        };
+        sseHandler.onerror = function (e) {
+          console.log(`sse error: `, e);
+        };
+      }
 
-        function form2JSON() {
-            let query = document.getElementById("query").value;
-            let eventSigs = document.getElementById("events").value.split("\n");
-            return [{ event_signatures: eventSigs, query: query }];
-        }
-
-        function form2queryParams() {
-            let params = new URLSearchParams();
-            let query = document.getElementById("query").value;
-            params.append("query", query);
-            let eventSigs = document.getElementById("events").value.split("\n");
-            eventSigs.forEach((sig) => {
-                params.append("event_signatures", sig.trim());
-            });
-            let chain = document.getElementById("chain-selection").value;
-            params.set("chain", chain);
-            params.set("block_height", blockHeight);
-            return params;
-        }
-
-        function form2url() {
-            let url = new URL(window.location.href);
-            url.pathname = "query";
-            url.search = form2queryParams().toString();
-            history.pushState(null, "", url);
-            return url.searchParams.toString();
-        }
-
-        function setOrAddChain(chain) {
-          let select = document.getElementById("chain-selection");
-          let options = Array.from(select.options);
-          for (let i = 0; i < options.length; i++) {
-            if (options[i].value === chain) {
-              select.selectedIndex = i;
-              return;
-            }
+      async function submitQuery(event) {
+        event.preventDefault();
+        hideExampleQueries();
+        hideQueryHistory();
+        closeHandler();
+        form2url();
+        const response = await fetch(apiURL("/query"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(form2JSON()),
+        });
+        if (response.status == 429) {
+          resetTable();
+          printRateLimit();
+        } else if (response.status == 408) {
+          showTimeout();
+        } else if (!response.ok) {
+          const { message } = await response.json();
+          resetTable();
+          printError(message);
+        } else {
+          const data = await response.json();
+          let height = data["block_height"];
+          let result = data["result"][0];
+          if (result.length > 0) {
+            resetTable();
+            addHeaderRow(result.shift());
+            addRow(result.slice(0, 100), true);
+            updateStats(height, result.length);
+            startHandler();
+          } else {
+            resetTable();
+            printInfo("no rows");
           }
-          let opt = document.createElement("option");
-          opt.value = chain;
-          opt.text = chain;
-          select.add(opt);
-          select.value = chain;
+        }
+      }
+
+      function cmdEnter(event) {
+        if (event.keyCode == 13 && event.metaKey) {
+          event.preventDefault();
+          let query = document.getElementById("query");
+          query.value = query.value.trim();
+          document.getElementById("request").dispatchEvent(
+            new Event("submit", {bubbles: true, cancelable: true}),
+          );
+        }
+      }
+
+      function jk(event) {
+        if (document.activeElement.tagName.toLowerCase() === "textarea") {
+          return;
+        }
+        if (event.key == "ArrowDown" || event.key == "j") {
+          const examples = document.querySelectorAll("#examples > div.query");
+          const selected = document.querySelector("#examples > div.query.highlight");
+          if (selected.nextElementSibling) {
+            selected.nextElementSibling.click();
+          }
+        } else if (event.key == "ArrowUp" || event.key == "k") {
+          const examples = document.querySelectorAll("#examples > div.query");
+          const selected = document.querySelector("#examples > div.query.highlight");
+          if (selected.previousElementSibling) {
+            selected.previousElementSibling.click();
+          }
+        }
+      }
+
+      function form2JSON() {
+        let query = document.getElementById("query").value;
+        let eventSigs = document.getElementById("events").value.split("\n");
+        return [{ event_signatures: eventSigs, query: query }];
+      }
+
+      function form2queryParams() {
+        let params = new URLSearchParams();
+        let query = document.getElementById("query").value;
+        params.append("query", query);
+        let eventSigs = document.getElementById("events").value.split("\n");
+        eventSigs.forEach((sig) => {
+          params.append("event_signatures", sig.trim());
+        });
+        let chain = document.getElementById("chain-selection").value;
+        params.set("chain", chain);
+        params.set("block_height", blockHeight);
+        return params;
+      }
+
+      function form2url() {
+        let url = new URL(window.location.href);
+        url.pathname = "query";
+        url.search = form2queryParams().toString();
+        history.pushState(null, "", url);
+        return url.searchParams.toString();
+      }
+
+      function setOrAddChain(chain) {
+        let select = document.getElementById("chain-selection");
+        let options = Array.from(select.options);
+        for (let i = 0; i < options.length; i++) {
+          if (options[i].value === chain) {
+            select.selectedIndex = i;
+            return;
+          }
+        }
+        let opt = document.createElement("option");
+        opt.value = chain;
+        opt.text = chain;
+        select.add(opt);
+        select.value = chain;
+      }
+
+      function url2form() {
+        const params = new URLSearchParams(window.location.search);
+        if (params.size == 0) {
+          showExampleQueries();
+          return;
         }
 
-        function url2form() {
-            const params = new URLSearchParams(window.location.search);
-            if (params.size == 0) {
-              showExampleQueries();
-              return;
-            }
-
-            let query = params.get("query");
-            if (query) {
-                document.getElementById("query").value = query;
-            }
-            let eventSigs = params.getAll("event_signatures");
-            if (eventSigs.length > 0) {
-                document.getElementById("events").value = eventSigs.join("\n");
-            }
-            let chain = params.get("chain");
-            if (chain) {
-                setOrAddChain(chain);
-            }
-            /*
-              When History is clicked, ?history=true is added to the
-              url and the page is redirected. As we are loading the page
-              if we find a history=true param then we should show the history
-              and then remove the param from the URL so that if/when the user
-              grabs the URL to share/save the history param is not included.
-            */
-            let history = params.get("history");
-            if (history) {
-              showHistory();
-              params.delete("history");
-              const url = new URL(window.location.href);
-              url.search = params;
-              window.history.replaceState({}, '', url);
-            }
+        let query = params.get("query");
+        if (query) {
+            document.getElementById("query").value = query;
         }
+        let eventSigs = params.getAll("event_signatures");
+        if (eventSigs.length > 0) {
+            document.getElementById("events").value = eventSigs.join("\n");
+        }
+        let chain = params.get("chain");
+        if (chain) {
+            setOrAddChain(chain);
+        }
+        /*
+          When History is clicked, ?history=true is added to the
+          url and the page is redirected. As we are loading the page
+          if we find a history=true param then we should show the history
+          and then remove the param from the URL so that if/when the user
+          grabs the URL to share/save the history param is not included.
+        */
+        let history = params.get("history");
+        if (history) {
+          showHistory();
+          params.delete("history");
+          const url = new URL(window.location.href);
+          url.search = params;
+          window.history.replaceState({}, '', url);
+        }
+      }
 
-        window.addEventListener("popstate", function (event) {
-            url2form();
-        });
-        window.addEventListener("pushstate", function (event) {
-            url2form();
-        });
+      window.addEventListener("popstate", function (event) {
+        url2form();
+      });
+      window.addEventListener("pushstate", function (event) {
+        url2form();
+      });
 
-        document.addEventListener("DOMContentLoaded", function () {
-            document.addEventListener("keydown", jk);
-            document.addEventListener("keydown", cmdEnter);
-
-            document
-                .getElementById("request")
-                .addEventListener("submit", submitQuery);
-            document
-                .getElementById("live-query")
-                .addEventListener("change", changeLiveQuery);
-            document
-                .getElementById("request-query-examples")
-                .addEventListener("click", showExampleQueries);
-            document
-                .querySelectorAll("#request-query-history")
-                .forEach((div) => div.addEventListener("click", clickHistory));
-            document
-              .querySelectorAll("div.query")
-              .forEach((div) => div.addEventListener("click", querySelected));
-
-            url2form();
-        });
+      document.addEventListener("DOMContentLoaded", function () {
+        document.addEventListener("keydown", jk);
+        document.addEventListener("keydown", cmdEnter);
+        document
+          .getElementById("request")
+          .addEventListener("submit", submitQuery);
+          document
+            .getElementById("live-query")
+            .addEventListener("change", changeLiveQuery);
+          document
+            .getElementById("request-query-examples")
+            .addEventListener("click", showExampleQueries);
+          document
+            .querySelectorAll("#request-query-history")
+            .forEach((div) => div.addEventListener("click", clickHistory));
+          document
+            .querySelectorAll("div.query")
+            .forEach((div) => div.addEventListener("click", querySelected));
+          url2form();
+      });
     </script>
 </html>
