@@ -388,6 +388,11 @@
         document.getElementById("timeout").style.display = 'block';
       }
 
+      function showLoading() {
+        resetResponse();
+        document.getElementById("loading").style.display = 'block';
+      }
+
       function showHistory() {
         //There is no event here because showHistory is determined on
         //page load. If there is ?history=true in the url
@@ -450,6 +455,7 @@
       }
 
       function printInfo(msg) {
+        resetResponse();
         const response = document.getElementById("response");
         const p = document.createElement("p");
         p.classList.add("info");
@@ -458,6 +464,7 @@
       }
 
       function printError(msg) {
+        resetResponse();
         const response = document.getElementById("response");
         const p = document.createElement("p");
         p.classList.add("error");
@@ -466,6 +473,7 @@
       }
 
       function printRequestTimeout() {
+        resetResponse();
         const p = document.createElement("p");
         p.classList.add("error");
         {{#with user}}
@@ -558,11 +566,15 @@
         resetResponse();
         closeHandler();
         form2url();
-        document.querySelector(`#request input[type="submit"]`).disabled = true;
+        let submitInput = document.querySelector(`#request input[type="submit"]`);
+        submitInput.disabled = true;
+        function enableSubmit() {
+          document.querySelector(`#request input[type="submit"]`).disabled = false;
+        };
         let loaded = false;
         setTimeout(() => {
           if (!loaded) {
-            document.getElementById("loading").style.display = 'block';
+            showLoading();
           }
         }, 1000);
         const response = await fetch(apiURL("/query"), {
@@ -571,8 +583,6 @@
           body: JSON.stringify(form2JSON()),
         });
         loaded = true;
-        document.querySelector(`#request input[type="submit"]`).disabled = false;
-        document.getElementById("loading").style.display = 'none';
         if (response.status == 429) {
           printRateLimit();
         } else if (response.status == 408) {
@@ -584,6 +594,7 @@
           const data = await response.json();
           let height = data["block_height"];
           let result = data["result"][0];
+          console.log(`downloaded ${result.length} records`);
           if (result.length > 0) {
             showTable();
             addHeaderRow(result.shift());
@@ -594,6 +605,7 @@
             printInfo("no rows");
           }
         }
+        enableSubmit();
       }
 
       function cmdEnter(event) {
