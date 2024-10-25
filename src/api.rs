@@ -269,3 +269,18 @@ impl FromRequestParts<Config> for Arc<gafe::AccountLimit> {
         }
     }
 }
+
+pub async fn latency_header(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Result<axum::response::Response, Error> {
+    let start = tokio::time::Instant::now();
+    let mut response = next.run(request).await;
+    let duration = start.elapsed().as_millis();
+    let latency = format!("{:.2?}ms", duration);
+    response.headers_mut().insert(
+        "Latency",
+        axum::http::HeaderValue::from_str(&latency).unwrap(),
+    );
+    Ok(response)
+}

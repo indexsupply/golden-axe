@@ -337,6 +337,7 @@ async fn server(args: ServerArgs) {
         );
 
     let service = ServiceBuilder::new()
+        .layer(axum::middleware::from_fn(api::latency_header))
         .layer(tracing)
         .layer(HandleErrorLayer::new(api::handle_service_error))
         .load_shed()
