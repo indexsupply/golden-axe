@@ -311,26 +311,25 @@
                     <img src="https://indexsupply.net/book.gif">
                 </div>
                 <div id="timeout">
-                    <p><img src="https://indexsupply.net/hourglass-last.gif"/><strong>This particular query is taking too much time.</strong></p>
-                    <p>There are several reasons why a query may be taking too much time.</p>
+                    <p><img src="https://indexsupply.net/hourglass-last.gif"/><strong>This query is taking too much time.</strong></p>
+                    <p>Reasons Why</p>
                     <ol>
                         <li>The Event is common and has millions of rows. For instance: <code>Transfer</code> or <code>Swap</code></li>
                         <li>The Event and Contract have millions of rows. For instance: <code>USDC</code></li>
                         <li>
-                            The Event is common and there is a predicate on a non-indexed field. <br /><br />
-                            When an event contains an indexed field <em>(eg <code>Foo(address indexed bar, uint256 baz)</code>)</em>
-                            and there is a query <code>select baz from foo where bar = 0x... and baz > 42</code> the query planner
-                            will use a database index to find all <code>Foo</code> events <code>where bar = 0x...</code> but if that
+                            The Event and Contract are common and the query has a predicate on a non-indexed field. <br /><br />
+                            When an Event contains an indexed field <em>(eg <code>Foo(address indexed bar, uint256 baz)</code>)</em>
+                            and there is a query <code>`select baz from foo where bar = 0x... and baz > 42`</code> the query planner
+                            will use a database index to find all <code>Foo</code> Events <code>`where bar = 0x...`</code> but if that
                             set contains millions of rows then the database will have to scan each of them checking for
-                            <code>baz > 42</code> -- which takes time with large data sets.
+                            <code>`baz > 42`</code> –which is expensive.
                         </li>
                         <li>
-                            There may be a bug!
-                            Please send this page URL (which contains the query) to
-                            <a href="mailto:support@indexsupply.com">support@indexsupply.com</a>.
+                            There may be a bug! Please email:
+                            <a href="mailto:support@indexsupply.com">support@indexsupply.com</a>
                         </li>
                     </ol>
-                    <p>Here are tips for fast queries</p>
+                    <p>Tips for Fast Queries</p>
                     <ol>
                         <li>Use<code>`where address = 0x000...000`</code> when possible. If a particular event is popular (eg Transfer(...)) and if you are only interested in Transfers for a particular contract, then adding the address predicate will speed up the query.</li>
                         <li>
@@ -348,7 +347,7 @@
                         <li>
                             Finally, if you need low latency access to non-indexed data, the <strong>Dedicated</strong> plan
                             will allow you to create custom database indexes over non-indexed data resulting in sub-millisecond
-                            queries. Please create an account or reach out to
+                            queries. Please create an account and reach out to
                             <a href="mailto:support@indexsupply.com">support@indexsupply.com</a> for assistance.
                         </li>
                     </ol>
@@ -576,7 +575,7 @@
           if (!loaded) {
             showLoading();
           }
-        }, 1000);
+        }, 700);
         const response = await fetch(apiURL("/query"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
