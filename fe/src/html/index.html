@@ -18,7 +18,7 @@
             }
             .navigation {
                 width: 100%;
-                padding: 10px;
+                padding-top: 10px;
                 font-size: large;
                 display: flex;
                 flex-direction: row;
@@ -37,10 +37,12 @@
             }
             .header h1 {
                 width: 100%;
-                font-size: 5.2em;
-                font-weight: bold;
-                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+                white-space: nowrap;
+                /* size fills horizontal space*/
+                font-size: 83.5px;
+                font-weight: 900;
                 letter-spacing: -3px;
+                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
                 margin: 5px 0 0 0;
             }
             .header img {
@@ -57,13 +59,23 @@
                 width: 100%;
             }
             #events {
-                width: 99%;
+                /*
+                setting width to 100% causes the textarea
+                to spill outside the #request div. Not sure why.
+                I arrived at 99.25 by adjusting till it lined up
+                */
+                width: 99.25%;
                 height: 100px;
                 font-size: large;
                 font-family: monospace;
             }
             #query {
-                width: 99%;
+                /*
+                setting width to 100% causes the textarea
+                to spill outside the #request div. Not sure why.
+                I arrived at 99.25 by adjusting till it lined up
+                */
+                width: 99.25%;
                 height: 300px;
                 font-size: large;
                 font-family: monospace;
@@ -92,24 +104,22 @@
             }
             #response {
                 width: 100%;
-                overflow-x: auto;
                 font-family: monospace;
                 font-size: medium;
                 margin-top: 5px;
             }
             #examples {
                 display: none;
-                width: 102%;
+                width: 100%;
             }
             #history {
                 display: none;
-                width: 102%;
+                width: 100%;
                 overflow-y: scroll;
                 scrollbar-width: thin;
                 max-height: 400px;
             }
             .query {
-                width: 98%;
                 padding: 10px 0 10px 0;
                 margin: 0 0 5px 0;
                 display: flex;
@@ -146,7 +156,7 @@
                 width: 100%;
             }
             .query .event {
-                width: calc(100% - 10px);
+                width: calc(100% - 15px);
                 margin-left: 10px;
                 font-family: monospace;
                 overflow: hidden;
@@ -154,7 +164,7 @@
                 white-space: nowrap;
             }
             .query .sql {
-                width: calc(100% - 10px);
+                width: calc(100% - 15px);
                 margin-left: 10px;
                 font-family: monospace;
                 overflow: hidden;
