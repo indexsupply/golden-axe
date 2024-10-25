@@ -167,11 +167,14 @@
                 padding-top: 5px;
                 padding-bottom: 10px;
             }
+            #stats span {
+                margin-right: 20px;
+            }
             #block-height {
-                font-size: medium;
-                margin-left: auto;
-                font-family: monospace;
-                padding-right: 10px;
+                #font-size: medium;
+                #margin-left: auto;
+                #font-family: monospace;
+                #padding-right: 10px;
             }
             #response table {
                 width: 100%;
@@ -301,10 +304,12 @@
                     {{/each}}
                 </div>
                 <div id="stats">
-                    <span>Last Block:</span>
+                    <label>Last Block:</label>
                     <span id="block-height"></span>
-                    <span>Num Rows:</span>
+                    <label>Num Rows:</label>
                     <span id="num-rows"></span>
+                    <label>Latency:</label>
+                    <span id="latency"></span>
                 </div>
                 <table><thead></thead><tbody></tbody></table>
                 <div id="loading">
@@ -503,11 +508,12 @@
         return `{{ api_url }}${path}?${params}`;
       }
 
-      function updateStats(height, nrows) {
+      function updateStats(height, nrows, latency) {
         document.getElementById("stats").style.display = "block";
         blockHeight = height;
         document.querySelector("#block-height").textContent = height;
         document.querySelector("#num-rows").textContent = nrows;
+        document.querySelector("#latency").textContent = latency;
       }
 
       function changeLiveQuery(event) {
@@ -553,7 +559,7 @@
                 we want to prepend them in reverse order.
           */
           addRow(result.reverse(), false);
-          updateStats(newHeight, result.length);
+          updateStats(newHeight, result.length, "");
         };
         sseHandler.onerror = function (e) {
           console.log(`sse error: `, e);
@@ -598,7 +604,7 @@
             showTable();
             addHeaderRow(result.shift());
             addRow(result.slice(0, 100), true);
-            updateStats(height, result.length);
+            updateStats(height, result.length, response.headers.get("Latency"));
             startHandler();
           } else {
             printInfo("no rows");
