@@ -15,7 +15,7 @@
                 margin: 0 auto;
             }
             form {
-                margin: 100px auto 0 auto;
+                margin: 0 auto 0 auto;
                 height: 300px;
                 width: 100%;
             }
@@ -23,6 +23,10 @@
                 font-size: x-large;
                 width: 100%;
                 box-sizing: border-box;
+            }
+            label {
+                display:inline-block; /* needed for margin to work */
+                margin-bottom: 10px;
             }
             button {
                 margin: 10px 0 0 0;
@@ -32,7 +36,9 @@
         </style>
     </head>
     <body>
+        <h1>Welcome</h1>
         <form method="post" action="/email-login-link">
+            <label for="email">An account will be created for the email if one doesn't already exist.</label>
             <input type="email" id="email" name="email" placeholder="" autofocus></input>
             <button type="submit">Email Log In Link</button>
         </form>
