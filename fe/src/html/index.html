@@ -290,7 +290,7 @@
                 </div>
             </form>
             <div id="response">
-                <div id="examples">
+                <div id="examples" class="queries">
                     <h2>Examples</h2>
                     {{#each examples }}
                     <div class="query" data-chain="{{chain}}" data-sql="{{sql}}" data-events="{{(join events "\n")}}">
@@ -300,7 +300,7 @@
                     </div>
                     {{/each}}
                 </div>
-                <div id="history">
+                <div id="history" class="queries">
                     <h2>History</h2>
                     {{#each history}}
                     <div class="query" data-chain="{{chain}}" data-sql="{{sql}}" data-events="{{(join events "\n")}}">
@@ -413,6 +413,7 @@
         //then we call this function and then remove the param from the url.
         resetResponse();
         document.getElementById("history").style.display = 'block';
+        document.querySelector("#history > div.query").click();
       }
 
       function showTable() {
@@ -639,14 +640,14 @@
           return;
         }
         if (event.key == "ArrowDown" || event.key == "j") {
-          const examples = document.querySelectorAll("#examples > div.query");
-          const selected = document.querySelector("#examples > div.query.highlight");
+          const examples = document.querySelectorAll(".queries > div.query");
+          const selected = document.querySelector(".queries > div.query.highlight");
           if (selected.nextElementSibling) {
             selected.nextElementSibling.click();
           }
         } else if (event.key == "ArrowUp" || event.key == "k") {
-          const examples = document.querySelectorAll("#examples > div.query");
-          const selected = document.querySelector("#examples > div.query.highlight");
+          const examples = document.querySelectorAll(".queries > div.query");
+          const selected = document.querySelector(".queries > div.query.highlight");
           if (selected.previousElementSibling) {
             selected.previousElementSibling.click();
           }
