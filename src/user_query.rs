@@ -323,6 +323,12 @@ impl UserQuery {
     }
 
     fn abi_decode_expr(&mut self, expr: &ast::Expr) -> Option<ast::ExprWithAlias> {
+        if let ast::Expr::Value(_) = &expr {
+            return Some(ast::ExprWithAlias {
+                alias: None,
+                expr: expr.clone(),
+            });
+        }
         if let ast::Expr::Function(f) = &expr {
             if let Some(expr) = extract_function_arg(f) {
                 let wrapped = self.abi_decode_expr(&expr)?;
@@ -332,6 +338,29 @@ impl UserQuery {
                     wrapped.expr,
                 ));
             }
+        }
+        if let ast::Expr::Case {
+            operand,
+            conditions,
+            results,
+            else_result,
+        } = &expr
+        {
+            return Some(ast::ExprWithAlias {
+                alias: None,
+                expr: ast::Expr::Case {
+                    operand: operand.clone(),
+                    conditions: conditions.clone(),
+                    results: results
+                        .iter()
+                        .map(|e| self.abi_decode_expr(e).unwrap().expr)
+                        .collect_vec(),
+                    else_result: else_result
+                        .as_ref()
+                        .and_then(|expr| self.abi_decode_expr(expr))
+                        .map(|rewritten| Box::new(rewritten.expr)),
+                },
+            });
         }
         let param = match self.event_param(expr) {
             None => return None,
@@ -606,6 +635,21 @@ impl UserQuery {
             ast::Expr::Substring { expr, .. } => self.validate_expression(expr),
             ast::Expr::Function(f) => self.validate_function(f),
             ast::Expr::Nested(expr) => self.validate_expression(expr),
+            ast::Expr::Case {
+                operand,
+                conditions,
+                results,
+                else_result,
+            } => {
+                if let Some(e) = else_result {
+                    self.validate_expression(e)?;
+                }
+                if let Some(e) = operand {
+                    self.validate_expression(e)?;
+                }
+                self.validate_expressions(conditions)?;
+                self.validate_expressions(results)
+            }
             _ => no!(expr),
         }
     }

@@ -529,6 +529,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_case() {
+        check_sql(
+                vec!["Foo(uint bar, uint baz)"],
+                r#"
+                    select
+                        sum(case when bar = 0 then baz else 0 end) a,
+                        sum(case when bar = 1 then baz else 0 end) b
+                    from foo
+                "#,
+                r#"
+                    with foo as not materialized (
+                        select
+                            abi_fixed_bytes(data, 0, 32) as bar,
+                            abi_fixed_bytes(data, 32, 32) as baz
+                        from logs
+                        where topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
+                    )
+                    select
+                        sum(
+                            case
+                            when bar = '\x0000000000000000000000000000000000000000000000000000000000000000'
+                            then abi_uint(baz)
+                            else 0
+                            end
+                        ) as a,
+                        sum(
+                            case
+                            when bar = '\x0000000000000000000000000000000000000000000000000000000000000001'
+                            then abi_uint(baz)
+                            else 0
+                            end
+                        ) as b
+                from foo
+                "#,
+            ).await;
+    }
+
+    #[tokio::test]
     async fn test_joins() {
         check_sql(
             vec!["Foo(uint a, uint b)", "Bar(uint a, uint b)"],
