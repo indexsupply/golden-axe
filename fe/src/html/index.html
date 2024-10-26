@@ -320,7 +320,7 @@
                     <span id="block-height"></span>
                     <label>Rows:</label>
                     <span id="num-rows"></span>
-                    <label>Latency:</label>
+                    <label id="latency-label">Latency:</label>
                     <span id="latency"></span>
                 </div>
                 <table><thead></thead><tbody></tbody></table>
@@ -526,7 +526,13 @@
         blockHeight = height;
         document.querySelector("#block-height").textContent = height;
         document.querySelector("#num-rows").textContent = nrows;
-        document.querySelector("#latency").textContent = latency;
+        if (latency) {
+          document.querySelector("#latency-label").style.display = 'inline';
+          document.querySelector("#latency").textContent = latency;
+        } else {
+          document.querySelector("#latency-label").style.display = 'none';
+          document.querySelector("#latency").style.display = 'none';
+        }
       }
 
       function changeLiveQuery(event) {
@@ -572,7 +578,7 @@
                 we want to prepend them in reverse order.
           */
           addRow(result.reverse(), false);
-          updateStats(newHeight, result.length, "");
+          updateStats(newHeight, result.length);
         };
         sseHandler.onerror = function (e) {
           console.log(`sse error: `, e);
