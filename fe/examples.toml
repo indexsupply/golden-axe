@@ -1,4 +1,43 @@
 [[queries]]
+chain = 480
+desc = "World App User Migration (case expressions)"
+events = ["Transfer(address indexed from, address indexed to, uint256 value)"]
+sql = """
+SELECT
+  block_num,
+  COUNT (DISTINCT "to") AS migrated_users,
+  SUM (CASE
+    WHEN address = 0x2cfc85d8e48f8eab294be644d9e25c3030863003
+    THEN value
+    ELSE 0
+    END
+  ) AS wld,
+  SUM (CASE
+    WHEN address = 0x03c7054bcb39f7b2e5b2c7acb37583e32d70cfa3
+    THEN value
+    ELSE 0
+    END
+  ) AS btc,
+  SUM(CASE
+    WHEN address = 0x4200000000000000000000000000000000000006
+    THEN value
+    ELSE 0
+    END
+  ) AS eth,
+  SUM (CASE
+    WHEN address = 0x79a02482a880bce3f13e09da970dc34db4cd24d1
+    THEN value
+    ELSE 0
+    END
+  ) AS usdc
+FROM transfer
+WHERE "from" = 0xC6968c6DF1a2C31Ac66B42945BbaD91635a0095B
+GROUP BY block_num
+ORDER BY block_num DESC
+LIMIT 20
+"""
+
+[[queries]]
 chain = 8453
 desc = "Daimo Name Registrations"
 events = ["Registered(bytes32 indexed name, address indexed addr)"]
