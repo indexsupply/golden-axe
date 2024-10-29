@@ -1,0 +1,7 @@
+ga-zora-0
+ga-odyssey-0
+ga-world-0
+ga-world-sep-0
+ga-main-0
+ga-base-sep-1
+ga-base-1
