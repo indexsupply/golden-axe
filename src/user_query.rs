@@ -323,6 +323,28 @@ impl UserQuery {
     }
 
     fn abi_decode_expr(&mut self, expr: &ast::Expr) -> Option<ast::ExprWithAlias> {
+        if let ast::Expr::UnaryOp { op, expr } = &expr {
+            return match self.abi_decode_expr(expr) {
+                Some(expr) => Some(ast::ExprWithAlias {
+                    alias: None,
+                    expr: ast::Expr::UnaryOp {
+                        op: *op,
+                        expr: Box::new(expr.expr),
+                    },
+                }),
+                None => None,
+            };
+        }
+        if let ast::Expr::BinaryOp { left, op, right } = &expr {
+            return Some(ast::ExprWithAlias {
+                alias: None,
+                expr: ast::Expr::BinaryOp {
+                    left: self.abi_decode_expr(left).map(|e| Box::new(e.expr))?,
+                    right: self.abi_decode_expr(right).map(|e| Box::new(e.expr))?,
+                    op: op.clone(),
+                },
+            });
+        }
         if let ast::Expr::Value(_) = &expr {
             return Some(ast::ExprWithAlias {
                 alias: None,
@@ -353,8 +375,8 @@ impl UserQuery {
                     conditions: conditions.clone(),
                     results: results
                         .iter()
-                        .map(|e| self.abi_decode_expr(e).unwrap().expr)
-                        .collect_vec(),
+                        .map(|e| self.abi_decode_expr(e).map(|e| e.expr))
+                        .collect::<Option<_>>()?,
                     else_result: else_result
                         .as_ref()
                         .and_then(|expr| self.abi_decode_expr(expr))
@@ -621,6 +643,7 @@ impl UserQuery {
             ast::Expr::Exists { subquery, .. } => self.validate_query(subquery),
             ast::Expr::Subquery(subquery) => self.validate_query(subquery),
             ast::Expr::Tuple(exprs) => self.validate_expressions(exprs),
+            ast::Expr::UnaryOp { expr, .. } => self.validate_expression(expr),
             ast::Expr::BinaryOp { left, right, .. } => {
                 self.rewrite_binary_expr(left, right)?;
                 self.validate_expression(left)?;

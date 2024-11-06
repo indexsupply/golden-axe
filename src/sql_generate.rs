@@ -534,7 +534,7 @@ mod tests {
                 vec!["Foo(uint bar, uint baz)"],
                 r#"
                     select
-                        sum(case when bar = 0 then baz else 0 end) a,
+                        sum(case when bar = 0 then baz * -1 else 0 end) a,
                         sum(case when bar = 1 then baz else 0 end) b
                     from foo
                 "#,
@@ -550,7 +550,7 @@ mod tests {
                         sum(
                             case
                             when bar = '\x0000000000000000000000000000000000000000000000000000000000000000'
-                            then abi_uint(baz)
+                            then abi_uint(baz) * -1
                             else 0
                             end
                         ) as a,
