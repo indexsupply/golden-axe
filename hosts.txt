@@ -1,5 +1,5 @@
 ga-zora-0
-ga-odyssey-0
+ga-odyssey-1
 ga-world-0
 ga-world-sep-0
 ga-main-0
