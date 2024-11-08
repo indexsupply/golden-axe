@@ -1,4 +1,29 @@
 [[queries]]
+chain = 8453
+desc = "ERC20 Token Balances for All Tokens in Wallet"
+events = ["Transfer(address indexed from, address indexed to, uint256 value)"]
+sql = """
+select
+  max(block_num) block,
+  address token,
+  sum(
+    case
+    when "from" = 0xB9621a707869d45A600acc2851418a1fe60500e7
+    then -value
+    when "to" = 0xB9621a707869d45A600acc2851418a1fe60500e7
+    then value
+    else 0
+    end
+  ) balance
+from transfer
+where (
+  "to" = 0xB9621a707869d45A600acc2851418a1fe60500e7
+  or "from" = 0xB9621a707869d45A600acc2851418a1fe60500e7
+)
+group by token
+"""
+
+[[queries]]
 chain = 480
 desc = "World App User Migration (case expressions)"
 events = ["Transfer(address indexed from, address indexed to, uint256 value)"]
