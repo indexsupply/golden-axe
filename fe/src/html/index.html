@@ -2,10 +2,14 @@
 <html>
     <head>
         <meta charset="utf-8" />
-        <title>Index Supply / SQL API</title>
+        <title>Index Supply</title>
         <style>
             body {
-                font-family: Times New Roman;
+                font-family: system, sans-serif;
+                font-size: 0.95em;
+                letter-spacing: -0.005em;
+                line-height: 1.58;
+
                 max-width: 800px;
                 margin: 0 auto;
             }
@@ -37,13 +41,9 @@
             }
             .header h1 {
                 width: 100%;
-                white-space: nowrap;
-                /* size fills horizontal space*/
-                font-size: 83.5px;
-                font-weight: 900;
-                letter-spacing: -3px;
-                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
-                margin: 0;
+                font-size: 4.5em;
+                font-weight: bolder;
+                margin: 0 0 -15px -2px;
             }
             .header img {
                 position: fixed;
@@ -104,8 +104,6 @@
             }
             #response {
                 width: 100%;
-                font-family: monospace;
-                font-size: medium;
                 margin-top: 5px;
             }
             #examples {
@@ -172,6 +170,7 @@
                 white-space: nowrap;
             }
             #stats {
+                font-family: monospace;
                 display: none;
                 width: 100%;
                 color: gray;
@@ -179,15 +178,10 @@
                 padding-bottom: 10px;
             }
             #stats span {
-                margin: 0 10px 0 -6px;
-            }
-            #block-height {
-                #font-size: medium;
-                #margin-left: auto;
-                #font-family: monospace;
-                #padding-right: 10px;
+                margin: 0;
             }
             #response table {
+                font-family: monospace;
                 table-layout: fixed;
                 width: 100%;
             }
@@ -249,7 +243,7 @@
         </div>
         <div class="header">
             <img src="https://indexsupply.net/beta.png" />
-            <h1><a href="/">Index Supply / SQL API</a></h1>
+            <h1><a href="/">Index Supply</a></h1>
         </div>
         <main>
             <form action="/query" id="request" method="POST">
