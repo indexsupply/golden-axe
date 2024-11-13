@@ -44,6 +44,9 @@ struct Args {
     #[arg(long, env = "SENDGRID_KEY")]
     sendgrid_key: String,
 
+    #[arg(long, env = "SENDGRID_VALIDATION_KEY")]
+    sendgrid_validation_key: String,
+
     #[arg(long, env = "STRIPE_KEY")]
     stripe_key: String,
 
@@ -159,6 +162,7 @@ async fn main() -> Result<()> {
         sendgrid: email::Client {
             site_url: args.site_url,
             key: args.sendgrid_key,
+            validation_key: args.sendgrid_validation_key,
         },
         stripe: stripe::Client::new(&args.stripe_key),
         stripe_pub_key: args.stripe_pub_key,
