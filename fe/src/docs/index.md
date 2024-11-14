@@ -1,4 +1,4 @@
-The SQL API is a hosted HTTP API for running SQL queries on Ethereum Event Logs.
+Index Supply is a hosted HTTP API for running SQL queries on Ethereum Event Logs.
 
 You can use this API from your backend or from your user's browser.
 
@@ -52,11 +52,11 @@ Email [support@indexsupply.com](mailto:support@indexsupply.com) to request new c
 
 ## Queries {#queries}
 
-The SQL API offers 3 basic types of queries: Single, Batch, and Live.
+The API offers 3 basic types of queries: Single, Batch, and Live.
 
 ### Single {#queries-single}
 
-A single query is executed against the latest state of the SQL API indexer.
+A single query is executed against the latest state of Index Supply's indexer.
 
 ### Batch {#queries-batch}
 
@@ -175,7 +175,7 @@ and bar = 1
 
 ### SQL Details {#sql-details}
 
-The SQL API supports a subset of the Postgres SQL language. Here is a brief overview of the supported syntax:
+Index Supply supports a subset of the Postgres SQL language. Here is a brief overview of the supported syntax:
 
 ```
 SELECT select_list
