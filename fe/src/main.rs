@@ -177,6 +177,10 @@ async fn main() -> Result<()> {
         .route("/query", get(account::handlers::index))
         .route("/metrics", get(move || ready(prom_handler.render())))
         .route("/login", get(session::try_login))
+        .route(
+            "/login-form.js",
+            get(|| async { include_str!("html/login-form.js") }),
+        )
         .route("/email-login-link", get(session::login))
         .route("/email-login-link", post(session::email_login_link))
         .route("/logout", get(session::logout))
