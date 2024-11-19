@@ -44,7 +44,12 @@ pub async fn email_login_link(
     State(state): State<web::State>,
     Form(req): Form<EmailLoginRequest>,
 ) -> Result<impl IntoResponse, web::Error> {
-    if req.honeypot.is_some() {
+    if req
+        .honeypot
+        .as_ref()
+        .map(|h| !h.is_empty())
+        .unwrap_or(false)
+    {
         tracing::info!(
             "gotch ya! email: {} username: {}",
             req.email,
