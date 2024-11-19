@@ -33,6 +33,9 @@ pub async fn try_login(State(state): State<web::State>) -> Result<impl IntoRespo
 #[derive(Deserialize)]
 pub struct EmailLoginRequest {
     email: String,
+
+    #[serde(rename = "username")]
+    honeypot: Option<String>,
 }
 
 pub async fn email_login_link(
@@ -41,6 +44,14 @@ pub async fn email_login_link(
     State(state): State<web::State>,
     Form(req): Form<EmailLoginRequest>,
 ) -> Result<impl IntoResponse, web::Error> {
+    if req.honeypot.is_some() {
+        tracing::info!(
+            "gotch ya! email: {} username: {}",
+            req.email,
+            req.honeypot.unwrap()
+        );
+        return Ok("Thank you".into_response());
+    }
     let mut secret = vec![0u8; 32];
     getrandom::getrandom(&mut secret).wrap_err("unable to generate secret")?;
     let mut pg = state.pool.get().await?;
@@ -58,7 +69,7 @@ pub async fn email_login_link(
     pgtx.commit().await?;
     state.sendgrid.send_email_login(&req.email, secret).await?;
     let flash = flash.success("Please check your email to log in.");
-    Ok((flash, Redirect::to("/")))
+    Ok((flash, Redirect::to("/")).into_response())
 }
 
 #[derive(Deserialize)]

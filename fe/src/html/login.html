@@ -30,6 +30,10 @@
                 width: 100%;
                 box-sizing: border-box;
             }
+            input[name="username"] {
+                position: absolute;
+                left: -999999999px;
+            }
             label {
                 display:inline-block; /* needed for margin to work */
                 margin-bottom: 10px;
@@ -46,6 +50,7 @@
         <form method="post" action="/email-login-link">
             <label for="email">An account will be created for the email if one doesn't already exist.</label>
             <input type="email" id="email" name="email" placeholder="" autofocus></input>
+            <input type="text" name="username" placeholder="Your username" tabindex="-1" autocomplete="new-password">
             <button type="submit">Email Log In Link</button>
         </form>
     </body>
