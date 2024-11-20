@@ -72,7 +72,7 @@ pub async fn email_login_link(
     )
     .await?;
     pgtx.commit().await?;
-    state.sendgrid.send_email_login(&req.email, secret).await?;
+    state.postmark.send_email_login(&req.email, secret).await?;
     let flash = flash.success("Please check your email to log in.");
     Ok((flash, Redirect::to("/")).into_response())
 }

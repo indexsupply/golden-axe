@@ -3,6 +3,7 @@ mod api_docs;
 mod api_key;
 mod email;
 mod god_mode;
+mod postmark;
 mod query;
 mod session;
 mod stripe;
@@ -40,6 +41,9 @@ struct Args {
 
     #[arg(long, env = "API_URL", default_value = "https://api.indexsupply.net")]
     api_url: String,
+
+    #[arg(long, env = "POSTMARK_KEY")]
+    postmark_key: String,
 
     #[arg(long, env = "SENDGRID_KEY")]
     sendgrid_key: String,
@@ -159,6 +163,7 @@ async fn main() -> Result<()> {
         templates: reg,
         pool: pg_pool(&args.pg_url),
         flash: axum_flash::Config::new(Key::generate()).use_secure_cookies(false),
+        postmark: postmark::Client::new(args.postmark_key, args.site_url.clone()),
         sendgrid: email::Client {
             site_url: args.site_url,
             key: args.sendgrid_key,
