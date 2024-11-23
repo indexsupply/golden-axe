@@ -164,6 +164,49 @@ Chain: 84532
 ]
 ```
 
+Here is a curl example of a batch request
+
+```
+curl -X POST https://api.indexsupply.net/query \
+    -H "Content-Type: application/json" \
+    -H "Chain: 8543" \
+    -d '[
+        {
+            "event_signatures": ["Transfer(address indexed from, address indexed to, uint256 value)"],
+            "query": "select tx_hash from transfer limit 1"
+        },
+        {
+            "event_signatures": ["Transfer(address indexed from, address indexed to, uint256 indexed value)"],
+            "query": "select tx_hash from transfer limit 1"
+        }
+    ]'
+```
+
+And the response
+```
+{
+  "block_height": 22803982,
+  "result": [
+    [
+      [
+        "tx_hash"
+      ],
+      [
+        "0x8bd891398f3745cc8a6b90f0df78a41cdfcaf2745534da6a6034d198841026f4"
+      ]
+    ],
+    [
+      [
+        "tx_hash"
+      ],
+      [
+        "0x8bd891398f3745cc8a6b90f0df78a41cdfcaf2745534da6a6034d198841026f4"
+      ]
+    ]
+  ]
+}
+```
+
 ## SQL {#sql .reference}
 
 When you provide an event signature `Foo(uint indexed bar, uint baz)` you effectively have a table named `foo` with a numeric columns named `bar` and `baz` that you can query:
