@@ -110,13 +110,13 @@ All inner (3rd dimension) arrays will have the same length.
 ### Request {#get-query-request}
 
 ```
-GET /query?chain={}&sql={}&event_signatures={}
+GET /query?chain={}&query={}&event_signatures={}
 ```
 
 Query Parameters
 
 - `chain`. See [chains](#chains) for possible values.
-- `sql`. A SQL query referencing tables and columns from the `event_signatures`. See [SQL](#sql) for more details on the query language.
+- `query`. A SQL query referencing tables and columns from the `event_signatures`. See [SQL](#sql) for more details on the query language.
 - `event_signatures`. A single [human readable event signature][3]
 
 ## `GET /query-live` {#get-query-live .reference }
@@ -128,7 +128,7 @@ The response is a standard [response](#query-response) object but delivered via 
 ### Request
 
 ```
-GET /query-live?chain={}&sql={}&event_signatures={}
+GET /query-live?chain={}&query={}&event_signatures={}
 ```
 
 ## `POST /query` {#post-query .reference }
@@ -140,8 +140,26 @@ Chain: 84532
 
 [
   {
-    "sql": "",
-    "event_signatures": [""]
+    "query": "select a from foo",
+    "event_signatures": ["Foo(uint a)"]
+  }
+]
+```
+
+Multiple requests can be [batched](#queries-batched) by adding objects to the request array
+
+```
+POST /query
+Chain: 84532
+
+[
+  {
+    "query": "select a from foo",
+    "event_signatures": ["Foo(uint a)"]
+  },
+  {
+    "query": "select a from bar",
+    "event_signatures": ["Bar(uint a)"]
   }
 ]
 ```
