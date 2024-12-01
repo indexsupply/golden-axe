@@ -560,6 +560,7 @@ impl UserQuery {
         match select {
             ast::Select { top: Some(_), .. } => no!("top"),
             ast::Select { into: Some(_), .. } => no!("into"),
+            ast::Select { sort_by, .. } if !sort_by.is_empty() => no!("sort by"),
             ast::Select {
                 having: Some(_), ..
             } => no!("having"),
@@ -587,7 +588,6 @@ impl UserQuery {
                 from,
                 selection,
                 group_by,
-                sort_by,
                 ..
             } => {
                 for table_with_join in from {
@@ -614,7 +614,6 @@ impl UserQuery {
                         }
                     }?;
                 }
-                self.validate_expressions(sort_by.as_mut())?;
                 Ok(())
             }
         }
