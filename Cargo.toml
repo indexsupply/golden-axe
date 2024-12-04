@@ -4,6 +4,7 @@ edition = "2021"
 license = "MIT"
 name = "golden-axe"
 version = "0.1.0"
+default-run = "ga"
 
 [[bin]]
 name = "ga"
