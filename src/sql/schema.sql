@@ -53,6 +53,7 @@ create table if not exists logs_480     partition of logs for values in (480);
 create table if not exists logs_4801    partition of logs for values in (4801);
 create table if not exists logs_84532   partition of logs for values in (84532);
 create table if not exists logs_80002   partition of logs for values in (80002);
+create table if not exists logs_911867  partition of logs for values in (911867);
 create table if not exists logs_984122  partition of logs for values in (984122);
 create table if not exists logs_7777777 partition of logs for values in (7777777);
 
@@ -65,8 +66,9 @@ insert into
         (false, 4801, 'https://maximum-damp-replica.worldchain-sepolia.quiknode.pro/558c716ed53af313e8c9db1e176334ea3f5b588e'),
         (false, 84532, 'https://special-divine-pond.base-sepolia.quiknode.pro/14a6b6521b135c48a9e71884c14b8beb984d6f93'),
         (false, 80002, 'https://tiniest-sparkling-dawn.matic-amoy.quiknode.pro/db261d98a880460e6c5a1a5de39fddc189817bec'),
-        (true, 7777777, 'https://rpc.zora.energy/'),
+        (false, 984122, 'https://odyssey.ithaca.xyz')
         (false, 984122, 'https://rpc.forma.art')
+        (true, 7777777, 'https://rpc.zora.energy/'),
     on conflict(chain)
     do nothing;
 
