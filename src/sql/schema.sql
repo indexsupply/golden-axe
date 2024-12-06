@@ -48,15 +48,16 @@ create table if not exists logs (
     data bytea
 ) partition by list(chain);
 
-create table if not exists logs_100     partition of logs for values in (100);
-create table if not exists logs_480     partition of logs for values in (480);
-create table if not exists logs_4801    partition of logs for values in (4801);
-create table if not exists logs_42026   partition of logs for values in (42026);
-create table if not exists logs_84532   partition of logs for values in (84532);
-create table if not exists logs_80002   partition of logs for values in (80002);
-create table if not exists logs_911867  partition of logs for values in (911867);
-create table if not exists logs_984122  partition of logs for values in (984122);
-create table if not exists logs_7777777 partition of logs for values in (7777777);
+create table if not exists logs_100         partition of logs for values in (100);
+create table if not exists logs_480         partition of logs for values in (480);
+create table if not exists logs_4801        partition of logs for values in (4801);
+create table if not exists logs_42026       partition of logs for values in (42026);
+create table if not exists logs_84532       partition of logs for values in (84532);
+create table if not exists logs_80002       partition of logs for values in (80002);
+create table if not exists logs_911867      partition of logs for values in (911867);
+create table if not exists logs_984122      partition of logs for values in (984122);
+create table if not exists logs_7777777     partition of logs for values in (7777777);
+create table if not exists logs_10058112    partition of logs for values in (10058112);
 
 
 insert into
@@ -70,7 +71,8 @@ insert into
         (false, 80002, 'https://tiniest-sparkling-dawn.matic-amoy.quiknode.pro/db261d98a880460e6c5a1a5de39fddc189817bec'),
         (false, 911867, 'https://odyssey.ithaca.xyz'),
         (false, 984122, 'https://rpc.forma.art'),
-        (true, 7777777, 'https://rpc.zora.energy')
+        (true,  7777777, 'https://rpc.zora.energy'),
+        (false, 10058112, 'https://spotlight-sepolia.g.alchemy.com/v2/RBovy_2RtzmHz-3xpxIbzSArz0v_-oc9')
     on conflict(chain)
     do nothing;
 
