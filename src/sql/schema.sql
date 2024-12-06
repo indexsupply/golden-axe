@@ -58,6 +58,7 @@ create table if not exists logs_911867      partition of logs for values in (911
 create table if not exists logs_984122      partition of logs for values in (984122);
 create table if not exists logs_7777777     partition of logs for values in (7777777);
 create table if not exists logs_10058112    partition of logs for values in (10058112);
+create table if not exists logs_52085143    partition of logs for values in (52085143);
 
 
 insert into
@@ -72,7 +73,8 @@ insert into
         (false, 911867, 'https://odyssey.ithaca.xyz'),
         (false, 984122, 'https://rpc.forma.art'),
         (true,  7777777, 'https://rpc.zora.energy'),
-        (false, 10058112, 'https://spotlight-sepolia.g.alchemy.com/v2/RBovy_2RtzmHz-3xpxIbzSArz0v_-oc9')
+        (false, 10058112, 'https://spotlight-sepolia.g.alchemy.com/v2/RBovy_2RtzmHz-3xpxIbzSArz0v_-oc9'),
+        (false, 52085143, 'https://rpc-ethena-testnet-0.t.conduit.xyz')
     on conflict(chain)
     do nothing;
 
