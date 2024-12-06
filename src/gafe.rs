@@ -16,7 +16,7 @@ use postgres_openssl::MakeTlsConnector;
 use tokio::sync::Mutex;
 use tokio_postgres::Client;
 
-use crate::sql_generate;
+use crate::{api, sql_generate};
 
 #[derive(Debug)]
 pub struct AccountLimit {
@@ -141,7 +141,13 @@ impl Connection {
     }
 
     #[tracing::instrument(level = "debug" skip_all)]
-    pub async fn log_query(&self, api_key: String, query: sql_generate::Query, latency: u64) {
+    pub async fn log_query(
+        &self,
+        api_key: String,
+        chain: api::Chain,
+        query: sql_generate::Query,
+        latency: u64,
+    ) {
         let pg = self.pg.clone();
         tokio::spawn(async move {
             let timeout_res = tokio::time::timeout(Duration::from_secs(1), async {
@@ -155,6 +161,7 @@ impl Connection {
                     .query(
                         "insert into user_queries (
                             api_key,
+                            chain,
                             events,
                             user_query,
                             rewritten_query,
@@ -163,6 +170,7 @@ impl Connection {
                         ) values ($1, $2, $3, $4, $5, $6, $7)",
                         &[
                             &api_key,
+                            &chain,
                             &query.event_sigs,
                             &query.user_query,
                             &query.rewritten_query,
