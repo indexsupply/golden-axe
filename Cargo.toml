@@ -71,5 +71,6 @@ aws-smithy-types = "1.2.2"
 serde_urlencoded = "0.7.1"
 governor = "0.6.3"
 nonzero = "0.2.0"
+bytes = "1.9.0"
 [dev-dependencies]
 postgresql_embedded = "0.12"

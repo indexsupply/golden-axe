@@ -9,6 +9,7 @@ use axum::{
     extract::{rejection::JsonRejection, ConnectInfo, FromRequest, FromRequestParts},
     http::StatusCode,
 };
+use bytes::BufMut;
 use eyre::eyre;
 use serde::{Deserialize, Serialize};
 
@@ -18,6 +19,12 @@ use tokio::sync::broadcast;
 use url::Url;
 
 use crate::gafe;
+
+macro_rules! user_error {
+    ($e:expr) => {
+        Err(Error::User(String::from($e)))
+    };
+}
 
 pub async fn handle_service_error(error: tower::BoxError) -> Error {
     if error.is::<tower::load_shed::error::Overloaded>() {
@@ -29,7 +36,6 @@ pub async fn handle_service_error(error: tower::BoxError) -> Error {
 
 #[derive(Clone)]
 pub struct Config {
-    pub chain_id: u64,
     pub pool: Pool,
     pub broadcaster: Arc<Broadcaster>,
     pub open_limit: Arc<gafe::AccountLimit>,
@@ -151,19 +157,36 @@ where
 }
 
 pub struct Broadcaster {
-    clients: broadcast::Sender<u64>,
+    clients: Mutex<HashMap<Chain, broadcast::Sender<u64>>>,
+}
+
+impl Default for Broadcaster {
+    fn default() -> Self {
+        Broadcaster {
+            clients: Mutex::new(HashMap::new()),
+        }
+    }
 }
 
 impl Broadcaster {
-    pub fn new() -> Arc<Broadcaster> {
-        let (tx, _) = broadcast::channel(16);
-        Arc::new(Broadcaster { clients: tx })
+    pub fn wait(&self, chain: Chain) -> broadcast::Receiver<u64> {
+        self.clients
+            .lock()
+            .expect("unlocking mutex for wait")
+            .entry(chain)
+            .or_insert(broadcast::channel(16).0)
+            .subscribe()
     }
-    pub fn add(&self) -> broadcast::Receiver<u64> {
-        self.clients.subscribe()
-    }
-    pub fn broadcast(&self, block: u64) {
-        let _ = self.clients.send(block);
+    pub fn broadcast(&self, chain: Chain, block: u64) {
+        let _ = self
+            .clients
+            .lock()
+            .expect("unlocking mutex for broadcast")
+            .entry(chain)
+            .and_modify(|ch| {
+                let _ = ch.send(block);
+            })
+            .or_insert(broadcast::channel(16).0);
     }
 }
 
@@ -196,6 +219,74 @@ pub async fn limit(
     match tokio::time::timeout(account_limit.timeout, next.run(request)).await {
         Ok(response) => Ok(response),
         Err(_) => Err(Error::Timeout(None)),
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct Chain(u64);
+
+impl Chain {
+    pub fn into_inner(self) -> u64 {
+        self.0
+    }
+}
+
+impl fmt::Display for Chain {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<u64> for Chain {
+    fn from(value: u64) -> Self {
+        Chain(value)
+    }
+}
+
+impl tokio_postgres::types::ToSql for Chain {
+    fn accepts(ty: &tokio_postgres::types::Type) -> bool {
+        matches!(*ty, tokio_postgres::types::Type::INT8)
+    }
+    fn to_sql(
+        &self,
+        ty: &tokio_postgres::types::Type,
+        out: &mut bytes::BytesMut,
+    ) -> Result<tokio_postgres::types::IsNull, Box<dyn std::error::Error + Sync + Send + 'static>>
+    {
+        if matches!(*ty, tokio_postgres::types::Type::INT8) {
+            out.put_i64(self.into_inner() as i64);
+            Ok(tokio_postgres::types::IsNull::No)
+        } else {
+            Err(Box::new(tokio_postgres::types::WrongType::new::<Self>(
+                ty.clone(),
+            )))
+        }
+    }
+    tokio_postgres::types::to_sql_checked!();
+}
+
+#[axum::async_trait]
+impl FromRequestParts<Config> for Chain {
+    type Rejection = Error;
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _: &Config,
+    ) -> Result<Self, Self::Rejection> {
+        let params = parts.uri.query().unwrap_or_default();
+        let decoded =
+            serde_urlencoded::from_str::<HashMap<String, String>>(params).unwrap_or_default();
+        if let Some(chain) = decoded.get("chain").cloned().and_then(|c| c.parse().ok()) {
+            Ok(Chain(chain))
+        } else if let Some(chain) = parts
+            .headers
+            .get("chain")
+            .and_then(|c| c.to_str().ok())
+            .and_then(|c| c.parse().ok())
+        {
+            Ok(Chain(chain))
+        } else {
+            user_error!("must supply Chain header or chain query parameter")
+        }
     }
 }
 

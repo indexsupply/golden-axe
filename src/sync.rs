@@ -1,22 +1,21 @@
 use deadpool_postgres::Pool;
+use itertools::Itertools;
 use std::{cmp, ops::Range, sync::Arc, time::Duration};
 use tokio::task;
+use url::Url;
 
 use alloy::{
     hex,
-    primitives::{BlockHash, FixedBytes, U64},
-    providers::{Provider, ReqwestProvider},
+    primitives::{BlockHash, U16, U64},
+    providers::{Provider, ProviderBuilder, ReqwestProvider},
     rpc::{
         client::{BatchRequest, Waiter},
-        types::{
-            eth::{Block, BlockNumberOrTag, Filter, Log},
-            ValueOrArray,
-        },
+        types::eth::{Block, BlockNumberOrTag, Filter, Log},
     },
 };
 use eyre::{eyre, Context, OptionExt, Result};
 use futures::pin_mut;
-use tokio_postgres::{binary_copy::BinaryCopyInWriter, Transaction};
+use tokio_postgres::{binary_copy::BinaryCopyInWriter, Client, Transaction};
 
 use crate::api;
 
@@ -24,7 +23,6 @@ use crate::api;
 pub enum Error {
     Retry(eyre::Report),
     Fatal(eyre::Report),
-    Done,
 }
 
 impl From<eyre::Report> for Error {
@@ -39,17 +37,65 @@ impl From<tokio_postgres::Error> for Error {
     }
 }
 
+#[derive(Debug)]
+pub struct Config {
+    pub enabled: bool,
+    pub chain: u64,
+    pub url: Url,
+    pub batch_size: u16,
+    pub concurrency: u16,
+}
+
+impl Config {
+    pub async fn load(pg: &Client) -> Result<Vec<Config>> {
+        Ok(pg
+            .query(
+                "select enabled, chain, url, batch_size, concurrency from config",
+                &[],
+            )
+            .await?
+            .iter()
+            .map(|row| Config {
+                enabled: row.get("enabled"),
+                chain: row.get::<&str, U64>("chain").to(),
+                url: row
+                    .get::<&str, String>("url")
+                    .parse()
+                    .expect("unable to parse url"),
+                batch_size: row.get::<&str, U16>("batch_size").to(),
+                concurrency: row.get::<&str, U16>("concurrency").to(),
+            })
+            .collect_vec())
+    }
+}
+
 pub struct Downloader {
+    pub chain: api::Chain,
     pub pg_pool: Pool,
     pub eth_client: ReqwestProvider,
-    pub batch_size: u64,
-    pub concurrency: u64,
+    pub batch_size: u16,
+    pub concurrency: u16,
     pub filter: Filter,
     pub start: BlockNumberOrTag,
-    pub stop: Option<u64>,
 }
 
 impl Downloader {
+    pub fn new(pg_pool: Pool, config: Config, start: Option<u64>) -> Downloader {
+        let eth_client = ProviderBuilder::new().on_http(config.url);
+        let start = match start {
+            Some(n) => BlockNumberOrTag::Number(n),
+            None => BlockNumberOrTag::Latest,
+        };
+        Downloader {
+            start,
+            pg_pool,
+            chain: config.chain.into(),
+            eth_client,
+            batch_size: config.batch_size,
+            concurrency: config.concurrency,
+            filter: Filter::new(),
+        }
+    }
     #[tracing::instrument(skip_all fields(event))]
     pub async fn run(&self, broadcaster: Arc<api::Broadcaster>) {
         {
@@ -60,8 +106,8 @@ impl Downloader {
                 .expect("unable to get pg from pool");
             if pg
                 .query(
-                    "select true from blocks where topic = $1 limit 1",
-                    &[&self.topic()],
+                    "select true from blocks where chain = $1 limit 1",
+                    &[&self.chain],
                 )
                 .await
                 .expect("unable to query for latest block")
@@ -82,12 +128,8 @@ impl Downloader {
                     tracing::error!("downloading error: {}", err);
                     tokio::time::sleep(Duration::from_secs(1)).await;
                 }
-                Err(Error::Done) => {
-                    println!("all done");
-                    return;
-                }
                 Ok(last) => {
-                    broadcaster.broadcast(last);
+                    broadcaster.broadcast(self.chain, last);
                     batch_size = self.batch_size
                 }
             }
@@ -107,13 +149,13 @@ impl Downloader {
             .wrap_err("pg conn")?
             .execute(
                 "
-                insert into blocks(num, hash, topic)
-                values ($1, $2, $3) on conflict(num, topic) do nothing
+                insert into blocks(chain, num, hash)
+                values ($1, $2, $3) on conflict(chain, num) do nothing
                 ",
                 &[
+                    &self.chain,
                     &U64::from(block.header.number.expect("missing header number")),
                     &block.header.hash.unwrap_or_default(),
-                    &self.topic(),
                 ],
             )
             .await
@@ -122,7 +164,7 @@ impl Downloader {
     }
 
     #[tracing::instrument(level="info" skip_all fields(start, end, logs))]
-    async fn download(&self, batch_size: u64) -> Result<u64, Error> {
+    async fn download(&self, batch_size: u16) -> Result<u64, Error> {
         let mut pg = self.pg_pool.get().await.wrap_err("pg pool")?;
         let pgtx = pg.transaction().await?;
         let next = self.next(&pgtx, batch_size).await?;
@@ -138,16 +180,16 @@ impl Downloader {
             .record("start", start)
             .record("end", end);
 
-        let logs = if end - start + 1 >= batch_size {
+        let logs = if end - start + 1 >= batch_size as u64 {
             self.batch(batch_size, filter).await?
         } else {
             self.single(filter).await?
         };
 
-        let num_copied = copy(&pgtx, logs).await?;
+        let num_copied = copy(&pgtx, self.chain, logs).await?;
         pgtx.execute(
-            "insert into blocks(num, hash, topic) values ($1, $2, $3)",
-            &[&U64::from(end), &end_hash, &self.topic()],
+            "insert into blocks(chain, num, hash) values ($1, $2, $3)",
+            &[&self.chain, &U64::from(end), &end_hash],
         )
         .await?;
         pgtx.commit().await.wrap_err("unable to commit tx")?;
@@ -156,7 +198,7 @@ impl Downloader {
     }
 
     #[tracing::instrument(level = "debug" skip_all fields(local, remote))]
-    async fn next(&self, pgtx: &Transaction<'_>, batch_size: u64) -> Result<Range<Block>, Error> {
+    async fn next(&self, pgtx: &Transaction<'_>, batch_size: u16) -> Result<Range<Block>, Error> {
         let mut removed = 0;
         for _ in 0..100 {
             let latest_remote = self
@@ -165,7 +207,7 @@ impl Downloader {
                 .await
                 .wrap_err("requesting latest block")?
                 .ok_or(eyre!("missing latest block"))?;
-            let mut remote_num = latest_remote.header.number.unwrap();
+            let remote_num = latest_remote.header.number.unwrap();
             let (local_num, local_hash) = self.get_local_latest(pgtx).await?;
             let local_num: u64 = local_num.to();
 
@@ -177,17 +219,8 @@ impl Downloader {
                 return Err(Error::Retry(eyre!("nothing new")));
             }
 
-            if let Some(n) = self.stop {
-                if local_num >= n {
-                    return Err(Error::Done);
-                }
-                if remote_num > n {
-                    remote_num = n;
-                }
-            }
-
-            let mut delta = cmp::min(remote_num - local_num, batch_size);
-            if delta < batch_size {
+            let mut delta = cmp::min(remote_num - local_num, batch_size as u64);
+            if delta < batch_size as u64 {
                 delta = 1;
             }
             let (from, to) = (local_num + 1, local_num + delta);
@@ -213,13 +246,13 @@ impl Downloader {
                     removed,
                 );
                 pgtx.execute(
-                    "delete from blocks where num >= $1 and topic = $2",
-                    &[&U64::from(local_num), &self.topic()],
+                    "delete from blocks where chain = $1 and num >= $2",
+                    &[&self.chain, &U64::from(local_num)],
                 )
                 .await?;
                 pgtx.execute(
-                    "delete from logs where block_num >= $1 and topics[1] = $2",
-                    &[&U64::from(local_num), &self.topic()],
+                    "delete from logs where chain = $1 and block_num >= $2",
+                    &[&self.chain, &U64::from(local_num)],
                 )
                 .await?;
                 removed += 1;
@@ -248,7 +281,7 @@ impl Downloader {
     }
 
     #[tracing::instrument(level="debug" skip_all fields(start, end))]
-    async fn batch(&self, batch_size: u64, filter: Filter) -> Result<Vec<Log>, Error> {
+    async fn batch(&self, batch_size: u16, filter: Filter) -> Result<Vec<Log>, Error> {
         let part_size = (batch_size / self.concurrency).max(1);
         let mut tasks = Vec::new();
         let (start, end) = (
@@ -256,7 +289,7 @@ impl Downloader {
             filter.get_to_block().unwrap(),
         );
         for i in (start..=end).step_by(part_size as usize) {
-            let j = (i + part_size - 1).min(end);
+            let j = (i + part_size as u64 - 1).min(end);
             let r = self.eth_client.clone();
             let f = filter.clone();
             tasks.push(task::spawn(async move {
@@ -276,19 +309,10 @@ impl Downloader {
         Ok(logs)
     }
 
-    fn topic(&self) -> FixedBytes<32> {
-        if let Some(topics) = self.filter.topics.first() {
-            if let Some(ValueOrArray::Value(topic)) = topics.to_value_or_array() {
-                return topic;
-            }
-        }
-        FixedBytes::<32>::ZERO
-    }
-
     async fn get_local_latest(&self, tx: &Transaction<'_>) -> Result<(U64, BlockHash), Error> {
-        let q = "SELECT num, hash from blocks where topic = $1 order by num desc limit 1";
+        let q = "SELECT num, hash from blocks where chain = $1 order by num desc limit 1";
         let row = tx
-            .query_one(q, &[&self.topic()])
+            .query_one(q, &[&self.chain])
             .await
             .wrap_err("getting local latest")?;
         Ok((row.try_get("num")?, row.try_get("hash")?))
@@ -296,10 +320,11 @@ impl Downloader {
 }
 
 #[tracing::instrument(level="debug" fields(logs) skip_all)]
-async fn copy(pgtx: &Transaction<'_>, logs: Vec<Log>) -> Result<u64> {
+async fn copy(pgtx: &Transaction<'_>, chain_id: api::Chain, logs: Vec<Log>) -> Result<u64> {
     tracing::Span::current().record("logs", logs.len());
     const Q: &str = "
         copy logs (
+            chain,
             block_num,
             tx_hash,
             log_idx,
@@ -313,7 +338,8 @@ async fn copy(pgtx: &Transaction<'_>, logs: Vec<Log>) -> Result<u64> {
     let writer = BinaryCopyInWriter::new(
         sink,
         &[
-            tokio_postgres::types::Type::NUMERIC,
+            tokio_postgres::types::Type::INT8,
+            tokio_postgres::types::Type::INT8,
             tokio_postgres::types::Type::BYTEA,
             tokio_postgres::types::Type::INT4,
             tokio_postgres::types::Type::BYTEA,
@@ -326,6 +352,7 @@ async fn copy(pgtx: &Transaction<'_>, logs: Vec<Log>) -> Result<u64> {
         writer
             .as_mut()
             .write(&[
+                &chain_id,
                 &U64::from(log.block_number.expect("missing block_number")),
                 &log.transaction_hash,
                 &U64::from(log.log_index.expect("missing log_index")),

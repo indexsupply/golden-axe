@@ -24,12 +24,14 @@ use crate::{api, s256, sql_generate};
 
 pub async fn handle_get(
     api_key: api::Key,
+    chain: api::Chain,
     State(config): State<api::Config>,
     Form(req): Form<Request>,
 ) -> Result<Json<Response>, api::Error> {
     query(
         true,
         api_key.clone(),
+        chain,
         State(config.clone()),
         api::Json(vec![req.clone()]),
     )
@@ -38,25 +40,35 @@ pub async fn handle_get(
 
 pub async fn handle_post(
     api_key: api::Key,
+    chain: api::Chain,
     State(config): State<api::Config>,
     api::Json(req): api::Json<Vec<Request>>,
 ) -> Result<Json<Response>, api::Error> {
-    query(true, api_key.clone(), State(config.clone()), api::Json(req)).await
+    query(
+        true,
+        api_key.clone(),
+        chain,
+        State(config.clone()),
+        api::Json(req),
+    )
+    .await
 }
 
 pub async fn handle_sse(
     api_key: api::Key,
+    chain: api::Chain,
     State(conf): State<api::Config>,
     Form(req): Form<Request>,
 ) -> axum::response::Sse<impl Stream<Item = Result<SSEvent, Infallible>>> {
     let mut req = req.clone();
-    let mut rx = conf.broadcaster.add();
+    let mut rx = conf.broadcaster.wait(chain);
     let mut log_enabled = true;
     let stream = async_stream::stream! {
         loop {
             let resp = query(
                 log_enabled,
                 api_key.clone(),
+                chain,
                 State(conf.clone()),
                 api::Json(vec![req.clone()]),
             ).await.expect("unable to make request");
@@ -110,6 +122,7 @@ pub struct Response {
 async fn query(
     log_enabled: bool,
     api_key: api::Key,
+    chain: api::Chain,
     State(config): State<api::Config>,
     api::Json(req): api::Json<Vec<Request>>,
 ) -> Result<Json<Response>, api::Error> {
@@ -123,9 +136,10 @@ async fn query(
     let mut res: Vec<Rows> = Vec::new();
     for r in req {
         let query = sql_generate::query(
+            chain,
+            r.block_height,
             &r.query,
             r.event_signatures.iter().map(|s| s.as_str()).collect(),
-            r.block_height,
         )?;
         log_query!(log_enabled, config, api_key, query, {
             res.push(handle_rows(pgtx.query(&query.generated_query, &[]).await?)?);
@@ -133,7 +147,10 @@ async fn query(
     }
     Ok(Json(Response {
         block_height: pgtx
-            .query_one("select max(num)::text from blocks", &[])
+            .query_one(
+                "select max(num)::text from blocks where chain = $1",
+                &[&chain],
+            )
             .await?
             .get::<usize, U64>(0)
             .to::<u64>(),

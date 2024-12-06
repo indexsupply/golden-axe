@@ -1,4 +1,26 @@
-create table if not exists config (chain_id bigint primary key);
+create table if not exists config (
+    enabled bool default true,
+    chain int8 primary key,
+    url text not null,
+    batch_size int2 not null default 2000,
+    concurrency int2 not null default 10
+);
+
+insert into
+    config(chain, url)
+    values (84532, 'https://omniscient-chaotic-dew.base-sepolia.quiknode.pro/1886d601a36e7d473ce8d769e7c51d74e2370f5b/')
+    on conflict(chain)
+    do nothing;
+insert into
+    config(chain, url)
+    values (8453, 'https://neat-old-energy.base-mainnet.quiknode.pro/2b04085a403b1914121b445848ffa89b6a06dd11/')
+    on conflict(chain)
+    do nothing;
+insert into
+    config(chain, url)
+    values (80002, 'https://tiniest-sparkling-dawn.matic-amoy.quiknode.pro/db261d98a880460e6c5a1a5de39fddc189817bec')
+    on conflict(chain)
+    do nothing;
 
 -- for testing rate limiting
 -- in production GAFE_PG_URL should be set
@@ -26,20 +48,25 @@ create view account_limits as
 );
 
 create table if not exists blocks(
-	num numeric,
-	topic bytea,
-	hash bytea,
-	primary key (num, topic)
+    chain int8 not null,
+    num int8,
+    hash bytea,
+    primary key (chain, num)
 );
 
-create unlogged table if not exists logs (
-	block_num numeric,
-	tx_hash bytea,
-	log_idx int4,
-	address bytea,
-	topics bytea[],
-	data bytea
-);
+create table if not exists logs (
+    chain int8,
+    block_num int8,
+    log_idx int4,
+    tx_hash bytea,
+    address bytea,
+    topics bytea[],
+    data bytea
+) partition by list(chain);
+
+create table if not exists logs_84532   partition of logs for values in (84532);
+create table if not exists logs_8453    partition of logs for values in (8453);
+create table if not exists logs_80002   partition of logs for values in (80002);
 
 create or replace function b2i(data bytea) returns int4 as $$
 declare

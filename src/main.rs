@@ -16,11 +16,6 @@ use std::{
     time::Duration,
 };
 
-use alloy::{
-    primitives::U64,
-    providers::{Provider, ProviderBuilder},
-    rpc::types::eth::{BlockNumberOrTag, Filter},
-};
 use axum::{
     body::Body,
     error_handling::HandleErrorLayer,
@@ -29,15 +24,16 @@ use axum::{
 };
 use clap::{Parser, Subcommand};
 use deadpool_postgres::{Manager, ManagerConfig, Pool};
-use eyre::{eyre, Context, Result};
+use eyre::{eyre, Result};
 use futures::TryFutureExt;
+use itertools::Itertools;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use metrics_tracing_context::{MetricsLayer, TracingContextLayer};
 use metrics_util::layers::Layer as MetricsUtilLayer;
 use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
 use postgres_openssl::MakeTlsConnector;
 use std::str::FromStr;
-use sync::Downloader;
+use sync::{Config, Downloader};
 use tower::ServiceBuilder;
 use tower_http::{
     classify::ServerErrorsFailureClass, compression::CompressionLayer, cors::CorsLayer,
@@ -81,15 +77,6 @@ struct ServerArgs {
     #[arg(long, env = "START_BLOCK")]
     start_block: Option<u64>,
 
-    #[arg(long, env = "STOP_BLOCK")]
-    stop_block: Option<u64>,
-
-    #[arg(short, long, default_value = "1000", env = "BATCH_SIZE")]
-    batch_size: u64,
-
-    #[arg(short, long, default_value = "1", env = "CONCURRENCY")]
-    concurrency: u64,
-
     #[arg(long = "pg", env = "PG_URL", default_value = "postgres://localhost/ga")]
     pg_url: String,
 
@@ -105,13 +92,6 @@ struct ServerArgs {
         default_value = ""
     )]
     ro_password: String,
-
-    #[arg(
-        long = "eth",
-        env = "ETH_URL",
-        default_value = "https://base-rpc.publicnode.com"
-    )]
-    eth_url: Url,
 
     #[clap(long, action = clap::ArgAction::SetTrue)]
     no_sync: bool,
@@ -200,41 +180,23 @@ async fn sync(args: ServerArgs, broadcaster: Arc<api::Broadcaster>) -> Result<()
         .max_size(16)
         .build()
         .expect("unable to build new ro pool");
-    pg_pool
-        .get()
-        .await
-        .wrap_err("getting pg conn from pool")?
-        .batch_execute(SCHEMA)
-        .await
-        .unwrap();
-
-    let eth_client = ProviderBuilder::new().on_http(args.eth_url.clone());
-    let start = match args.start_block {
-        Some(n) => BlockNumberOrTag::Number(n),
-        None => BlockNumberOrTag::Latest,
-    };
-    let chain_id = eth_client.get_chain_id().await?;
-    pg_pool
-        .get()
-        .await
-        .wrap_err("getting pg conn from pool")?
-        .execute(
-            "insert into config(chain_id) values($1) on conflict (chain_id) do nothing",
-            &[&U64::from(chain_id)],
-        )
-        .await
-        .wrap_err("inserting chain id into config")?;
-    Downloader {
-        filter: Filter::new(),
-        start,
-        pg_pool: pg_pool.clone(),
-        eth_client: eth_client.clone(),
-        batch_size: args.batch_size,
-        concurrency: args.concurrency,
-        stop: args.stop_block,
+    let pg = pg_pool.get().await?;
+    pg.batch_execute(SCHEMA).await.unwrap();
+    let tasks = Config::load(&pg)
+        .await?
+        .into_iter()
+        .filter(|c| c.enabled)
+        .map(|config| {
+            let ch = broadcaster.clone();
+            let pg = pg_pool.clone();
+            tokio::spawn(async move { Downloader::new(pg, config, args.start_block).run(ch).await })
+        })
+        .collect_vec();
+    for t in tasks {
+        if let Err(e) = t.await {
+            return Err(e.into());
+        }
     }
-    .run(broadcaster)
-    .await;
     Ok(())
 }
 
@@ -285,19 +247,13 @@ async fn account_limits(config: api::Config) -> Result<()> {
 }
 
 async fn server(args: ServerArgs) {
-    let chain_id = ProviderBuilder::new()
-        .on_http(args.eth_url.clone())
-        .get_chain_id()
-        .await
-        .expect("unable to request chain_id");
     let config = api::Config {
-        chain_id,
         pool: api_ro_pg(&args.pg_url, &args.ro_password),
-        broadcaster: api::Broadcaster::new(),
+        broadcaster: Arc::new(api::Broadcaster::default()),
         account_limits: Arc::new(Mutex::new(HashMap::new())),
         free_limit: Arc::new(gafe::AccountLimit::free()),
         open_limit: Arc::new(gafe::AccountLimit::open()),
-        gafe: gafe::Connection::new(args.gafe_pg_url.clone(), chain_id).await,
+        gafe: gafe::Connection::new(args.gafe_pg_url.clone()).await,
     };
 
     let prom_record = PrometheusBuilder::new()

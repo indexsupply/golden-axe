@@ -8,7 +8,6 @@ use std::{
     time::Duration,
 };
 
-use alloy::primitives::U64;
 use eyre::{Context, Result};
 use governor::{Quota, RateLimiter};
 use nonzero::nonzero;
@@ -53,7 +52,6 @@ impl AccountLimit {
 
 #[derive(Clone)]
 pub struct Connection {
-    chain_id: u64,
     pg: Arc<Mutex<Option<Client>>>,
     live: Arc<AtomicBool>,
 }
@@ -77,23 +75,20 @@ async fn pg(url: &str) -> Result<Client> {
 }
 
 impl Connection {
-    pub async fn new(pg_url: Option<String>, chain_id: u64) -> Connection {
+    pub async fn new(pg_url: Option<String>) -> Connection {
         match pg_url {
             None => Connection {
-                chain_id,
                 pg: Arc::new(Mutex::new(None)),
                 live: Arc::new(AtomicBool::new(false)),
             },
             Some(url) => match pg(&url).await {
                 Ok(pg) => Connection {
-                    chain_id,
                     pg: Arc::new(Mutex::new(Some(pg))),
                     live: Arc::new(AtomicBool::new(true)),
                 },
                 Err(e) => {
                     tracing::error!("unable to connect to gafe: {:?}", e);
                     Connection {
-                        chain_id,
                         pg: Arc::new(Mutex::new(None)),
                         live: Arc::new(AtomicBool::new(false)),
                     }
@@ -116,11 +111,8 @@ impl Connection {
         let pg = pg_opt.as_ref().unwrap();
         let res = pg
             .query(
-                "
-                select secret, timeout, rate, origins
-                from account_limits where $1 = any(chains)
-                ",
-                &[&U64::from(self.chain_id)],
+                "select secret, timeout, rate, origins from account_limits",
+                &[],
             )
             .await;
         if let Err(e) = res {
@@ -151,7 +143,6 @@ impl Connection {
     #[tracing::instrument(level = "debug" skip_all)]
     pub async fn log_query(&self, api_key: String, query: sql_generate::Query, latency: u64) {
         let pg = self.pg.clone();
-        let chain_id = self.chain_id;
         tokio::spawn(async move {
             let timeout_res = tokio::time::timeout(Duration::from_secs(1), async {
                 let pg_opt = pg.lock().await;
@@ -163,16 +154,14 @@ impl Connection {
                 let res = pg
                     .query(
                         "insert into user_queries (
-                        chain,
-                        api_key,
-                        events,
-                        user_query,
-                        rewritten_query,
-                        generated_query,
-                        latency
-                    ) values ($1, $2, $3, $4, $5, $6, $7)",
+                            api_key,
+                            events,
+                            user_query,
+                            rewritten_query,
+                            generated_query,
+                            latency
+                        ) values ($1, $2, $3, $4, $5, $6, $7)",
                         &[
-                            &U64::from(chain_id),
                             &api_key,
                             &query.event_sigs,
                             &query.user_query,

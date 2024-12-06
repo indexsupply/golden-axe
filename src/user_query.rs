@@ -169,7 +169,7 @@ fn left_pad(vec: Vec<u8>) -> Vec<u8> {
     padded
 }
 
-pub const METADATA: [&str; 4] = ["address", "block_num", "log_idx", "tx_hash"];
+pub const METADATA: [&str; 5] = ["address", "block_num", "chain", "log_idx", "tx_hash"];
 
 trait ExprExt {
     fn last(&self) -> Option<ast::Ident>;

@@ -15,17 +15,17 @@ pub struct Query {
 }
 
 pub fn query(
+    chain: api::Chain,
+    from: Option<u64>,
     user_query: &str,
     event_sigs: Vec<&str>,
-    from: Option<u64>,
 ) -> Result<Query, api::Error> {
     let res = user_query::process(user_query, &event_sigs)?;
     let query = [
         "with".to_string(),
-        limit_block_range(from),
         res.selections
             .iter()
-            .map(selection_cte_sql)
+            .map(|sel| selection_cte_sql(chain, from, sel))
             .collect::<Result<Vec<_>, _>>()?
             .join(","),
         res.new_query.to_string(),
@@ -39,14 +39,11 @@ pub fn query(
     })
 }
 
-fn limit_block_range(from: Option<u64>) -> String {
-    match from {
-        Some(n) => format!("logs as (select * from logs where block_num >= {}),", n),
-        None => String::new(),
-    }
-}
-
-fn selection_cte_sql(selection: &user_query::Selection) -> Result<String, api::Error> {
+fn selection_cte_sql(
+    chain: api::Chain,
+    from: Option<u64>,
+    selection: &user_query::Selection,
+) -> Result<String, api::Error> {
     let mut res: Vec<String> = Vec::new();
     res.push(format!("{} as not materialized (", selection.table_name));
     res.push("select".to_string());
@@ -84,9 +81,13 @@ fn selection_cte_sql(selection: &user_query::Selection) -> Result<String, api::E
     }
     res.push(select_list.join(","));
     res.push(format!(
-        r#"from logs where topics[1] = '\x{}'"#,
+        r#"from logs where chain = {} and topics[1] = '\x{}'"#,
+        chain,
         hex::encode(selection.event.selector())
     ));
+    if let Some(n) = from {
+        res.push(format!("and block_num >= {}", n))
+    }
     res.push(")".to_string());
     Ok(res.join(" "))
 }
@@ -200,7 +201,7 @@ mod tests {
     }
 
     async fn check_sql(event_sigs: Vec<&str>, user_query: &str, want: &str) {
-        let got = query(user_query, event_sigs, None)
+        let got = query(1.into(), None, user_query, event_sigs)
             .unwrap_or_else(|e| panic!("unable to create sql for:\n{} error: {:?}", user_query, e))
             .generated_query;
         let (got, want) = (
@@ -225,11 +226,12 @@ mod tests {
             "#,
             r#"
                 with foo as not materialized (
-                select
-                    abi_fixed_bytes(data, 0, 32) as a,
-                    abi_fixed_bytes(data, 32, 32) as b
-                from logs
-                where topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
+                    select
+                        abi_fixed_bytes(data, 0, 32) as a,
+                        abi_fixed_bytes(data, 32, 32) as b
+                    from logs
+                    where chain = 1
+                    and topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
                 )
                 select abi_uint(a) as a
                 from foo
@@ -262,7 +264,8 @@ mod tests {
                         abi_dynamic(data, 128) AS e,
                         abi_fixed_bytes(data, 192, 32) AS g
                     from logs
-                    where topics [1] = '\xfd2ebf78a81dba87ac294ee45944682ec394bb42128c245fca0eeab2d699c315'
+                    where chain = 1
+                    and topics [1] = '\xfd2ebf78a81dba87ac294ee45944682ec394bb42128c245fca0eeab2d699c315'
                 )
                 select
                     abi_string(a) as a,
@@ -292,7 +295,8 @@ mod tests {
                         topics [2] as "aAA",
                         topics [3] as "b"
                     from logs
-                    where topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
+                    where chain = 1
+                    and topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
                 )
                 select
                     abi_uint("aAA") as "aAA",
@@ -320,7 +324,8 @@ mod tests {
                         topics [2] as a,
                         topics [3] as b
                     from logs
-                    where topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
+                    where chain = 1
+                    and topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
                 )
                 select
                     abi_uint(a) as alpha,
@@ -348,7 +353,8 @@ mod tests {
                         topics[2] as "from",
                         topics[4] as tokens
                     from logs
-                    where topics [1] = '\xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
+                    where chain = 1
+                    and topics [1] = '\xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
                 )
                 select abi_uint(tokens) as tokens
                 from transfer
@@ -374,7 +380,8 @@ mod tests {
                         topics[2] as "from",
                         abi_fixed_bytes(data, 0, 32) AS tokens
                     from logs
-                    where topics [1] = '\xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
+                    where chain = 1
+                    and topics [1] = '\xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
                 )
                 select abi_uint(tokens) as tokens
                 from transfer
@@ -393,7 +400,8 @@ mod tests {
                 with foo as not materialized (
                     select abi_bytes(abi_dynamic(data, 0)) as bar
                     from logs
-                    where topics [1] = '\x9f0b7f1630bdb7d474466e2dfef0fb9dff65f7a50eec83935b68f77d0808f08a'
+                    where chain = 1
+                    and topics [1] = '\x9f0b7f1630bdb7d474466e2dfef0fb9dff65f7a50eec83935b68f77d0808f08a'
                 )
                 select abi_string(bar) as bar
                 from foo
@@ -419,7 +427,8 @@ mod tests {
                         tx_hash,
                         abi_fixed_bytes(data, 0, 32) AS tokens
                     from logs
-                    where topics [1] = '\xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
+                    where chain = 1
+                    and topics [1] = '\xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
                 )
                 select abi_uint(tokens) as tokens
                 from transfer
@@ -444,7 +453,8 @@ mod tests {
                         topics[2] as a,
                         abi_fixed_bytes(data, 0, 32) AS b
                     from logs
-                    where topics [1] = '\xf31ba491e89b510fc888156ac880594d589edc875cfc250c79628ea36dd022ed'
+                    where chain = 1
+                    and topics [1] = '\xf31ba491e89b510fc888156ac880594d589edc875cfc250c79628ea36dd022ed'
                 )
                 select sum(abi_uint(b))
                 from foo
@@ -468,7 +478,8 @@ mod tests {
                         topics[2] as a,
                         abi_fixed_bytes(data, 0, 32) AS b
                     from logs
-                    where topics [1] = '\x79c52e97493a8f32348c3cf1ebfe4a8dfaeb083ca12cddd87b5d9f7c00d3ccaa'
+                    where chain = 1
+                    and topics [1] = '\x79c52e97493a8f32348c3cf1ebfe4a8dfaeb083ca12cddd87b5d9f7c00d3ccaa'
                 )
                 select
                     abi_bool(b) AS b
@@ -494,7 +505,8 @@ mod tests {
                         abi_dynamic(data, 0) AS b,
                         abi_dynamic(data, 32) AS c
                     from logs
-                    where topics [1] = '\xc64a40e125a06afb756e3721cfa09bbcbccf1703151b93b4b303bb1a4198b2ea'
+                    where chain = 1
+                    and topics [1] = '\xc64a40e125a06afb756e3721cfa09bbcbccf1703151b93b4b303bb1a4198b2ea'
                 )
                 select
                     abi_uint_array(b) AS b,
@@ -517,7 +529,8 @@ mod tests {
                         topics[3] as "to",
                         abi_fixed_bytes(data, 0, 32) AS tokens
                     from logs
-                    where topics [1] = '\xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
+                    where chain = 1
+                    and topics [1] = '\xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
                 )
                 select
                     abi_address("from") as "from",
@@ -544,7 +557,8 @@ mod tests {
                             abi_fixed_bytes(data, 0, 32) as bar,
                             abi_fixed_bytes(data, 32, 32) as baz
                         from logs
-                        where topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
+                        where chain = 1
+                        and topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
                     )
                     select
                         sum(
@@ -578,14 +592,16 @@ mod tests {
                         abi_fixed_bytes(data, 0, 32) as a,
                         abi_fixed_bytes(data, 32, 32) as b
                     from logs
-                    where topics [1] = '\xde24c8e88b6d926d4bd258eddfb15ef86337654619dec5f604bbdd9d9bc188ca'
+                    where chain = 1
+                    and topics [1] = '\xde24c8e88b6d926d4bd258eddfb15ef86337654619dec5f604bbdd9d9bc188ca'
                 ),
                 foo as not materialized (
                     select
                         abi_fixed_bytes(data, 0, 32) as a,
                         abi_fixed_bytes(data, 32, 32) as b
                     from logs
-                    where topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
+                    where chain = 1
+                    and topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
                 )
                 select abi_uint(t1.b) as b, abi_uint(t2.b) as b
                 from foo as t1
@@ -614,7 +630,8 @@ mod tests {
                         topics [2] AS a,
                         topics [3] AS b
                     from logs
-                    where topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
+                    where chain = 1
+                    and topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
                 )
                 select
                     abi_uint(t1.b) AS b,
@@ -637,7 +654,8 @@ mod tests {
                 with foo as not materialized (
                     select abi_fixed_bytes(data, 32, 32) as b
                     from logs
-                    where topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
+                    where chain = 1
+                    and topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
                 )
                 select abi_uint(foo.b) as b from foo
             "#,
@@ -672,7 +690,8 @@ mod tests {
                         abi_bytes(abi_dynamic(data, 32)) as "text",
                         abi_dynamic(data, 64) as "embedding"
                     from logs
-                    where topics[1] = '\xce9c0df4181cf7f57cf163a3bc9d3102b1af09f4dcfed92644a72f5ca70fdfdf'
+                    where chain = 1
+                    and topics[1] = '\xce9c0df4181cf7f57cf163a3bc9d3102b1af09f4dcfed92644a72f5ca70fdfdf'
                 )
                 SELECT
                     address,
@@ -703,7 +722,8 @@ mod tests {
                         abi_fixed_bytes(data, 64, 32) as encodedlengths,
                         abi_bytes(abi_dynamic(data, 96)) as dynamicdata
                     from logs
-                    where topics [1] = '\x8dbb3a9672eebfd3773e72dd9c102393436816d832c7ba9e1e1ac8fcadcac7a9'
+                    where chain = 1
+                    and topics [1] = '\x8dbb3a9672eebfd3773e72dd9c102393436816d832c7ba9e1e1ac8fcadcac7a9'
                 )
                 select
                     tableid,
@@ -744,7 +764,7 @@ mod tests {
                         )
                     from
                         unnest(
-                        abi_fixed_bytes_array(abi_dynamic(data, 64), 128)
+                            abi_fixed_bytes_array(abi_dynamic(data, 64), 128)
                         ) as data
                     ) as offer,
                     (
@@ -769,7 +789,8 @@ mod tests {
                         ) as data
                     ) as consideration
                 from logs
-                where topics [1] = '\x9d9af8e38d66c62e2c12f0225249fd9d721c54b83f48d9352c97c6cacdcb6f31'
+                where chain = 1
+                and topics [1] = '\x9d9af8e38d66c62e2c12f0225249fd9d721c54b83f48d9352c97c6cacdcb6f31'
                 )
                 select
                 orderhash,
