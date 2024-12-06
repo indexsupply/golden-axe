@@ -48,6 +48,7 @@ create table if not exists logs (
     data bytea
 ) partition by list(chain);
 
+create table if not exists logs_100     partition of logs for values in (100);
 create table if not exists logs_480     partition of logs for values in (480);
 create table if not exists logs_4801    partition of logs for values in (4801);
 create table if not exists logs_84532   partition of logs for values in (84532);
@@ -57,33 +58,15 @@ create table if not exists logs_7777777 partition of logs for values in (7777777
 
 
 insert into
-    config(chain, url)
-    values (480, 'https://smart-winter-sun.worldchain-mainnet.quiknode.pro/f9891920fd207eb0143303f53bd71ebf5a4ea66a')
-    on conflict(chain)
-    do nothing;
-insert into
-    config(chain, url)
-    values (4801, 'https://maximum-damp-replica.worldchain-sepolia.quiknode.pro/558c716ed53af313e8c9db1e176334ea3f5b588e')
-    on conflict(chain)
-    do nothing;
-insert into
-    config(chain, url)
-    values (84532, 'https://special-divine-pond.base-sepolia.quiknode.pro/14a6b6521b135c48a9e71884c14b8beb984d6f93')
-    on conflict(chain)
-    do nothing;
-insert into
-    config(chain, url)
-    values (80002, 'https://tiniest-sparkling-dawn.matic-amoy.quiknode.pro/db261d98a880460e6c5a1a5de39fddc189817bec')
-    on conflict(chain)
-    do nothing;
-insert into
-    config(chain, url)
-    values (7777777, 'https://rpc.zora.energy/')
-    on conflict(chain)
-    do nothing;
-insert into
-    config(chain, url)
-    values (984122, 'https://rpc.forma.art')
+    config(enabled, chain, url)
+    values
+        (false, 100, 'https://sly-fluent-shadow.xdai.quiknode.pro/efa31e398dd8294c4ffb394e62b95750299cd918'),
+        (false, 480, 'https://smart-winter-sun.worldchain-mainnet.quiknode.pro/f9891920fd207eb0143303f53bd71ebf5a4ea66a'),
+        (false, 4801, 'https://maximum-damp-replica.worldchain-sepolia.quiknode.pro/558c716ed53af313e8c9db1e176334ea3f5b588e'),
+        (false, 84532, 'https://special-divine-pond.base-sepolia.quiknode.pro/14a6b6521b135c48a9e71884c14b8beb984d6f93'),
+        (false, 80002, 'https://tiniest-sparkling-dawn.matic-amoy.quiknode.pro/db261d98a880460e6c5a1a5de39fddc189817bec'),
+        (true, 7777777, 'https://rpc.zora.energy/'),
+        (false, 984122, 'https://rpc.forma.art')
     on conflict(chain)
     do nothing;
 
