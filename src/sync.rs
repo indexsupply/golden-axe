@@ -97,7 +97,7 @@ impl Downloader {
             filter: Filter::new(),
         }
     }
-    #[tracing::instrument(skip_all fields(event))]
+    #[tracing::instrument(skip_all fields(event, chain = self.chain.into_inner()))]
     pub async fn run(&self, broadcaster: Arc<api::Broadcaster>) {
         {
             let pg = self
