@@ -51,6 +51,7 @@ create table if not exists logs (
 create table if not exists logs_4801    partition of logs for values in (4801);
 create table if not exists logs_84532   partition of logs for values in (84532);
 create table if not exists logs_80002   partition of logs for values in (80002);
+create table if not exists logs_7777777 partition of logs for values in (7777777);
 
 insert into
     config(chain, url)
@@ -65,6 +66,11 @@ insert into
 insert into
     config(chain, url)
     values (80002, 'https://tiniest-sparkling-dawn.matic-amoy.quiknode.pro/db261d98a880460e6c5a1a5de39fddc189817bec')
+    on conflict(chain)
+    do nothing;
+insert into
+    config(chain, url)
+    values (7777777, 'https://rpc.zora.energy/')
     on conflict(chain)
     do nothing;
 
