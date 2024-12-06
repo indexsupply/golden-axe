@@ -21,6 +21,7 @@ use crate::api;
 
 #[derive(Debug)]
 pub enum Error {
+    Wait,
     Retry(eyre::Report),
     Fatal(eyre::Report),
 }
@@ -119,8 +120,11 @@ impl Downloader {
         let mut batch_size = self.batch_size;
         loop {
             match self.download(batch_size).await {
+                Err(Error::Wait) => {
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
                 Err(Error::Retry(err)) => {
-                    tracing::debug!("downloading error: {}", err);
+                    tracing::error!("downloading error: {}", err);
                     tokio::time::sleep(Duration::from_secs(1)).await;
                 }
                 Err(Error::Fatal(err)) => {
@@ -216,7 +220,7 @@ impl Downloader {
                 .record("remote", remote_num);
 
             if local_num >= remote_num {
-                return Err(Error::Retry(eyre!("nothing new")));
+                return Err(Error::Wait);
             }
 
             let mut delta = cmp::min(remote_num - local_num, batch_size as u64);
