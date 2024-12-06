@@ -66,9 +66,9 @@ insert into
         (false, 4801, 'https://maximum-damp-replica.worldchain-sepolia.quiknode.pro/558c716ed53af313e8c9db1e176334ea3f5b588e'),
         (false, 84532, 'https://special-divine-pond.base-sepolia.quiknode.pro/14a6b6521b135c48a9e71884c14b8beb984d6f93'),
         (false, 80002, 'https://tiniest-sparkling-dawn.matic-amoy.quiknode.pro/db261d98a880460e6c5a1a5de39fddc189817bec'),
-        (false, 984122, 'https://odyssey.ithaca.xyz')
+        (false, 984122, 'https://odyssey.ithaca.xyz'),
         (false, 984122, 'https://rpc.forma.art'),
-        (true, 7777777, 'https://rpc.zora.energy/')
+        (true, 7777777, 'https://rpc.zora.energy')
     on conflict(chain)
     do nothing;
 
