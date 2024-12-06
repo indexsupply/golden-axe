@@ -51,6 +51,7 @@ create table if not exists logs (
 create table if not exists logs_100     partition of logs for values in (100);
 create table if not exists logs_480     partition of logs for values in (480);
 create table if not exists logs_4801    partition of logs for values in (4801);
+create table if not exists logs_42026   partition of logs for values in (42026);
 create table if not exists logs_84532   partition of logs for values in (84532);
 create table if not exists logs_80002   partition of logs for values in (80002);
 create table if not exists logs_911867  partition of logs for values in (911867);
@@ -64,6 +65,7 @@ insert into
         (false, 100, 'https://sly-fluent-shadow.xdai.quiknode.pro/efa31e398dd8294c4ffb394e62b95750299cd918'),
         (false, 480, 'https://smart-winter-sun.worldchain-mainnet.quiknode.pro/f9891920fd207eb0143303f53bd71ebf5a4ea66a'),
         (false, 4801, 'https://maximum-damp-replica.worldchain-sepolia.quiknode.pro/558c716ed53af313e8c9db1e176334ea3f5b588e'),
+        (false, 42026, 'https://rpc.donatuz.com'),
         (false, 84532, 'https://special-divine-pond.base-sepolia.quiknode.pro/14a6b6521b135c48a9e71884c14b8beb984d6f93'),
         (false, 80002, 'https://tiniest-sparkling-dawn.matic-amoy.quiknode.pro/db261d98a880460e6c5a1a5de39fddc189817bec'),
         (false, 911867, 'https://odyssey.ithaca.xyz'),
