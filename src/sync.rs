@@ -167,7 +167,7 @@ impl Downloader {
             .wrap_err("unable to init blocks table")
     }
 
-    #[tracing::instrument(level="info" skip_all fields(start, end, logs, chain = self.chain.into_inner()))]
+    #[tracing::instrument(level="info" skip_all fields(start, end, logs))]
     async fn download(&self, batch_size: u16) -> Result<u64, Error> {
         let mut pg = self.pg_pool.get().await.wrap_err("pg pool")?;
         let pgtx = pg.transaction().await?;
@@ -325,7 +325,6 @@ impl Downloader {
 
 #[tracing::instrument(level="debug" fields(logs) skip_all)]
 async fn copy(pgtx: &Transaction<'_>, chain_id: api::Chain, logs: Vec<Log>) -> Result<u64> {
-    tracing::Span::current().record("logs", logs.len());
     const Q: &str = "
         copy logs (
             chain,
