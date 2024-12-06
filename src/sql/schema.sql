@@ -6,22 +6,6 @@ create table if not exists config (
     concurrency int2 not null default 10
 );
 
-insert into
-    config(chain, url)
-    values (84532, 'https://omniscient-chaotic-dew.base-sepolia.quiknode.pro/1886d601a36e7d473ce8d769e7c51d74e2370f5b/')
-    on conflict(chain)
-    do nothing;
-insert into
-    config(chain, url)
-    values (8453, 'https://neat-old-energy.base-mainnet.quiknode.pro/2b04085a403b1914121b445848ffa89b6a06dd11/')
-    on conflict(chain)
-    do nothing;
-insert into
-    config(chain, url)
-    values (80002, 'https://tiniest-sparkling-dawn.matic-amoy.quiknode.pro/db261d98a880460e6c5a1a5de39fddc189817bec')
-    on conflict(chain)
-    do nothing;
-
 -- for testing rate limiting
 -- in production GAFE_PG_URL should be set
 -- and this view will be provided by GAFE PG.
@@ -64,9 +48,25 @@ create table if not exists logs (
     data bytea
 ) partition by list(chain);
 
+create table if not exists logs_4801    partition of logs for values in (4801);
 create table if not exists logs_84532   partition of logs for values in (84532);
-create table if not exists logs_8453    partition of logs for values in (8453);
 create table if not exists logs_80002   partition of logs for values in (80002);
+
+insert into
+    config(chain, url)
+    values (4801, 'https://maximum-damp-replica.worldchain-sepolia.quiknode.pro/558c716ed53af313e8c9db1e176334ea3f5b588e')
+    on conflict(chain)
+    do nothing;
+insert into
+    config(chain, url)
+    values (84532, 'https://special-divine-pond.base-sepolia.quiknode.pro/14a6b6521b135c48a9e71884c14b8beb984d6f93')
+    on conflict(chain)
+    do nothing;
+insert into
+    config(chain, url)
+    values (80002, 'https://tiniest-sparkling-dawn.matic-amoy.quiknode.pro/db261d98a880460e6c5a1a5de39fddc189817bec')
+    on conflict(chain)
+    do nothing;
 
 create or replace function b2i(data bytea) returns int4 as $$
 declare
