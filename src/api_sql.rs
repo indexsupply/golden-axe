@@ -148,7 +148,7 @@ async fn query(
     Ok(Json(Response {
         block_height: pgtx
             .query_one(
-                "select max(num)::text from blocks where chain = $1",
+                "select coalesce(max(num), 0)::text from blocks where chain = $1",
                 &[&chain],
             )
             .await?
