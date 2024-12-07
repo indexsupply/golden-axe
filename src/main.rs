@@ -258,6 +258,7 @@ async fn server(args: ServerArgs) {
              tracing::info_span!(
                  "http", path,
                  status = tracing::field::Empty,
+                 chain = tracing::field::Empty,
                  "api-key" = tracing::field::Empty,
              )
         })

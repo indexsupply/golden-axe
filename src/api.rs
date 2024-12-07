@@ -251,6 +251,7 @@ impl FromRequestParts<Config> for Chain {
         let decoded =
             serde_urlencoded::from_str::<HashMap<String, String>>(params).unwrap_or_default();
         if let Some(chain) = decoded.get("chain").cloned().and_then(|c| c.parse().ok()) {
+            tracing::Span::current().record("chain", chain);
             Ok(Chain(chain))
         } else if let Some(chain) = parts
             .headers
@@ -258,6 +259,7 @@ impl FromRequestParts<Config> for Chain {
             .and_then(|c| c.to_str().ok())
             .and_then(|c| c.parse().ok())
         {
+            tracing::Span::current().record("chain", chain);
             Ok(Chain(chain))
         } else {
             user_error!("must supply Chain header or chain query parameter")
