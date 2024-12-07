@@ -147,7 +147,11 @@ async fn main() -> Result<(), api::Error> {
     Ok(())
 }
 
-async fn sync(args: ServerArgs, broadcaster: Arc<api::Broadcaster>) -> Result<()> {
+async fn sync(
+    args: ServerArgs,
+    remote_broadcaster: Arc<api::Broadcaster2>,
+    broadcaster: Arc<api::Broadcaster>,
+) -> Result<()> {
     if args.no_sync {
         tracing::info!("no sync");
         return Ok(());
@@ -174,8 +178,13 @@ async fn sync(args: ServerArgs, broadcaster: Arc<api::Broadcaster>) -> Result<()
         .filter(|c| c.enabled)
         .map(|config| {
             let ch = broadcaster.clone();
+            let rb = remote_broadcaster.clone();
             let pg = pg_pool.clone();
-            tokio::spawn(async move { Downloader::new(pg, config, args.start_block).run(ch).await })
+            tokio::spawn(async move {
+                Downloader::new(pg, rb, config, args.start_block)
+                    .run(ch)
+                    .await
+            })
         })
         .collect_vec();
     for t in tasks {
@@ -236,6 +245,7 @@ async fn server(args: ServerArgs) {
     let config = api::Config {
         pool: api_ro_pg(&args.pg_url, &args.ro_password),
         broadcaster: Arc::new(api::Broadcaster::default()),
+        remote_broadcaster: Arc::new(api::Broadcaster2::default()),
         account_limits: Arc::new(Mutex::new(HashMap::new())),
         free_limit: Arc::new(gafe::AccountLimit::free()),
         open_limit: Arc::new(gafe::AccountLimit::open()),
@@ -295,6 +305,7 @@ async fn server(args: ServerArgs) {
     let app = Router::new()
         .route("/", get(|| async { "hello\n" }))
         .route("/metrics", get(move || ready(prom_handler.render())))
+        .route("/status", get(api::handle_status))
         .route("/query", get(api_sql::handle_get))
         .route("/query", post(api_sql::handle_post))
         .route("/query-live", get(api_sql::handle_sse))
@@ -307,7 +318,11 @@ async fn server(args: ServerArgs) {
 
     let res = tokio::try_join!(
         flatten(tokio::spawn(account_limits(config.clone()))),
-        flatten(tokio::spawn(sync(args.clone(), config.broadcaster.clone()))),
+        flatten(tokio::spawn(sync(
+            args.clone(),
+            config.remote_broadcaster.clone(),
+            config.broadcaster.clone(),
+        ))),
         flatten(tokio::spawn(backup(args.clone()))),
         flatten(tokio::spawn(
             axum::serve(listener, app)

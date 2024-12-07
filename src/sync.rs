@@ -78,16 +78,23 @@ pub struct Downloader {
     pub concurrency: u16,
     pub filter: Filter,
     pub start: BlockNumberOrTag,
+    remote_broadcaster: Arc<api::Broadcaster2>,
 }
 
 impl Downloader {
-    pub fn new(pg_pool: Pool, config: Config, start: Option<u64>) -> Downloader {
+    pub fn new(
+        pg_pool: Pool,
+        remote_broadcaster: Arc<api::Broadcaster2>,
+        config: Config,
+        start: Option<u64>,
+    ) -> Downloader {
         let eth_client = ProviderBuilder::new().on_http(config.url);
         let start = match start {
             Some(n) => BlockNumberOrTag::Number(n),
             None => BlockNumberOrTag::Latest,
         };
         Downloader {
+            remote_broadcaster,
             start,
             pg_pool,
             chain: config.chain.into(),
@@ -97,6 +104,34 @@ impl Downloader {
             filter: Filter::new(),
         }
     }
+
+    async fn init_blocks(&self) -> Result<()> {
+        tracing::info!("initializing blocks table at: {}", self.start);
+        let block = self
+            .eth_client
+            .get_block_by_number(self.start, false)
+            .await?
+            .ok_or_eyre(eyre!("missing block {}", self.start))?;
+        self.pg_pool
+            .get()
+            .await
+            .wrap_err("pg conn")?
+            .execute(
+                "
+                insert into blocks(chain, num, hash)
+                values ($1, $2, $3) on conflict(chain, num) do nothing
+                ",
+                &[
+                    &self.chain,
+                    &U64::from(block.header.number.expect("missing header number")),
+                    &block.header.hash.unwrap_or_default(),
+                ],
+            )
+            .await
+            .map(|_| ())
+            .wrap_err("unable to init blocks table")
+    }
+
     #[tracing::instrument(skip_all fields(event, chain = self.chain.into_inner()))]
     pub async fn run(&self, broadcaster: Arc<api::Broadcaster>) {
         {
@@ -134,37 +169,12 @@ impl Downloader {
                 }
                 Ok(last) => {
                     broadcaster.broadcast(self.chain, last);
+                    self.remote_broadcaster
+                        .update(api::ChainUpdateSource::Local, self.chain, last);
                     batch_size = self.batch_size
                 }
             }
         }
-    }
-
-    async fn init_blocks(&self) -> Result<()> {
-        tracing::info!("initializing blocks table at: {}", self.start);
-        let block = self
-            .eth_client
-            .get_block_by_number(self.start, false)
-            .await?
-            .ok_or_eyre(eyre!("missing block {}", self.start))?;
-        self.pg_pool
-            .get()
-            .await
-            .wrap_err("pg conn")?
-            .execute(
-                "
-                insert into blocks(chain, num, hash)
-                values ($1, $2, $3) on conflict(chain, num) do nothing
-                ",
-                &[
-                    &self.chain,
-                    &U64::from(block.header.number.expect("missing header number")),
-                    &block.header.hash.unwrap_or_default(),
-                ],
-            )
-            .await
-            .map(|_| ())
-            .wrap_err("unable to init blocks table")
     }
 
     #[tracing::instrument(level="info" skip_all fields(start, end, logs))]
@@ -215,6 +225,8 @@ impl Downloader {
             let (local_num, local_hash) = self.get_local_latest(pgtx).await?;
             let local_num: u64 = local_num.to();
 
+            self.remote_broadcaster
+                .update(api::ChainUpdateSource::Remote, self.chain, remote_num);
             tracing::Span::current()
                 .record("local", local_num)
                 .record("remote", remote_num);

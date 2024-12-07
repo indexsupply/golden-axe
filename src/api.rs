@@ -1,16 +1,22 @@
 use std::{
     collections::HashMap,
+    convert::Infallible,
     fmt::{self, Debug},
     net::SocketAddr,
     sync::{Arc, Mutex},
 };
 
 use axum::{
-    extract::{rejection::JsonRejection, ConnectInfo, FromRequest, FromRequestParts},
-    http::StatusCode,
+    extract::{rejection::JsonRejection, ConnectInfo, FromRequest, FromRequestParts, State},
+    http::{HeaderMap, StatusCode},
+    response::{
+        sse::{Event as SSEvent, KeepAlive},
+        Html, IntoResponse, Sse,
+    },
 };
 use bytes::BufMut;
 use eyre::eyre;
+use futures::Stream;
 use serde::{Deserialize, Serialize};
 
 use deadpool_postgres::Pool;
@@ -34,10 +40,39 @@ pub async fn handle_service_error(error: tower::BoxError) -> Error {
     }
 }
 
+pub async fn handle_status(
+    State(conf): State<Config>,
+    headers: HeaderMap,
+) -> axum::response::Response {
+    if headers
+        .get("accept")
+        .and_then(|a| a.to_str().ok())
+        .map_or(false, |v| v.contains("html"))
+    {
+        Html(include_str!("html/status.html")).into_response()
+    } else {
+        handle_sse(State(conf)).await.into_response()
+    }
+}
+
+async fn handle_sse(
+    State(conf): State<Config>,
+) -> axum::response::Sse<impl Stream<Item = Result<SSEvent, Infallible>>> {
+    let mut rx = conf.remote_broadcaster.wait();
+    let stream = async_stream::stream! {
+        loop {
+            let update = rx.recv().await.expect("unable to receive new block update");
+            yield Ok(SSEvent::default().json_data(update).expect("unable to seralize json"));
+        }
+    };
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
 #[derive(Clone)]
 pub struct Config {
     pub pool: Pool,
     pub broadcaster: Arc<Broadcaster>,
+    pub remote_broadcaster: Arc<Broadcaster2>,
     pub open_limit: Arc<gafe::AccountLimit>,
     pub free_limit: Arc<gafe::AccountLimit>,
     pub account_limits: Arc<Mutex<HashMap<String, Arc<gafe::AccountLimit>>>>,
@@ -131,6 +166,40 @@ where
     }
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub enum ChainUpdateSource {
+    Local,
+    Remote,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ChainUpdate {
+    pub source: ChainUpdateSource,
+    pub chain: Chain,
+    pub num: u64,
+}
+
+pub struct Broadcaster2 {
+    clients: broadcast::Sender<ChainUpdate>,
+}
+
+impl Default for Broadcaster2 {
+    fn default() -> Self {
+        Self {
+            clients: broadcast::channel(16).0,
+        }
+    }
+}
+
+impl Broadcaster2 {
+    pub fn wait(&self) -> broadcast::Receiver<ChainUpdate> {
+        self.clients.subscribe()
+    }
+    pub fn update(&self, source: ChainUpdateSource, chain: Chain, num: u64) {
+        let _ = self.clients.send(ChainUpdate { source, chain, num });
+    }
+}
+
 pub struct Broadcaster {
     clients: Mutex<HashMap<Chain, broadcast::Sender<u64>>>,
 }
@@ -197,7 +266,7 @@ pub async fn limit(
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
 pub struct Chain(u64);
 
 impl Chain {
