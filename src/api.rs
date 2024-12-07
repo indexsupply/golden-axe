@@ -131,31 +131,6 @@ where
     }
 }
 
-pub async fn client_post<T, U>(
-    client: &reqwest::Client,
-    url: url::Url,
-    request_body: &U,
-) -> eyre::Result<T>
-where
-    T: for<'de> serde::Deserialize<'de>,
-    U: serde::Serialize,
-{
-    let response = client.post(url).json(request_body).send().await?;
-    let status = response.status();
-    let body = response.text().await?;
-
-    if let Ok(r) = serde_json::from_str::<T>(&body) {
-        return Ok(r);
-    }
-    if let Ok(err) = serde_json::from_str::<ErrorMessage>(&body) {
-        return Err(eyre!(err.message));
-    }
-    if body.is_empty() {
-        return Err(eyre!("status: {}", status));
-    }
-    Err(eyre!("status: {} body:\n{}", status, body))
-}
-
 pub struct Broadcaster {
     clients: Mutex<HashMap<Chain, broadcast::Sender<u64>>>,
 }

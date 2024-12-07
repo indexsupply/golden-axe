@@ -41,7 +41,6 @@ use tower_http::{
 };
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
-use url::Url;
 
 #[derive(Debug, Subcommand)]
 enum Commands {
@@ -49,12 +48,8 @@ enum Commands {
     Backup(ServerArgs),
     #[command(name = "restore", about = "Download from s3 and then pg_restore")]
     Restore(ServerArgs),
-
     #[command(name = "server", about = "Serve API requests and sync decoded logs")]
     Server(ServerArgs),
-
-    #[command(name = "query", about = "Query decoded logs", long_about = Some(api_sql::cli::HELP))]
-    Query(api_sql::cli::Request),
 }
 
 #[derive(Parser)]
@@ -62,14 +57,6 @@ enum Commands {
 struct GlobalArgs {
     #[command(subcommand)]
     command: Commands,
-    #[clap(
-        long = "url",
-        global = true,
-        env = "GA_URL",
-        help = "url to golden axe http api",
-        default_value = "http://golden-axe-1:8000"
-    )]
-    url: Url,
 }
 
 #[derive(Clone, Parser, Debug)]
@@ -155,7 +142,6 @@ async fn main() -> Result<(), api::Error> {
             )
             .await?
         }
-        Commands::Query(args) => api_sql::cli::request(&reqwest::Client::new(), args).await?,
         Commands::Server(args) => server(args).await,
     }
     Ok(())
