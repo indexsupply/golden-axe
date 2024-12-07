@@ -349,40 +349,40 @@
     <script defer>
 
     var disableSubmit = false;
-      var addCard = function () {
-        if (disableSubmit) {
-          return;
-        }
-        var stripe = Stripe("{{ stripe_pub_key }}");
-        var elements = stripe.elements();
-          var card = elements.create("card");
-          card.mount("#card-element");
-          var button = document.getElementById("submit");
-          button.addEventListener("click", function (event) {
-              event.preventDefault();
-              disableSubmit = true;
-              document.getElementById("card").classList.add("loading");
+    var addCard = function () {
+      if (disableSubmit) {
+        return;
+      }
+      var stripe = Stripe("{{ stripe_pub_key }}");
+      var elements = stripe.elements();
+      var card = elements.create("card");
+      card.mount("#card-element");
+      var button = document.getElementById("submit");
+      button.addEventListener("click", function (event) {
+        event.preventDefault();
+        disableSubmit = true;
+        document.getElementById("card").classList.add("loading");
+        stripe
+          .confirmCardSetup("{{ client_secret }}", {
+            payment_method: { card: card },
+          })
+          .then(function (result) {
+            if (result.error) {
+              disableSubmit = false;
+              document.getElementById("card").classList.remove("loading");
+              document.getElementById("error").textContent = result.error.message;
+            } else {
               stripe
-                  .confirmCardSetup("{{ client_secret }}", {
-                      payment_method: { card: card },
-                  })
-                  .then(function (result) {
-                      if (result.error) {
-                        disableSubmit = false;
-                        document.getElementById("card").classList.remove("loading");
-                        document.getElementById("error").textContent = result.error.message;
-                      } else {
-                          stripe
-                            .retrieveSetupIntent("{{ client_secret }}")
-                            .then(function (result) {
-                              disableSubmit = false
-                              document.getElementById("card").classList.remove("loading");
-                            });
-                          location.reload();
-                      }
-                  });
+                .retrieveSetupIntent("{{ client_secret }}")
+                .then(function (result) {
+                  disableSubmit = false
+                  document.getElementById("card").classList.remove("loading");
+                });
+              location.reload();
+            }
           });
-      };
+      });
+    };
 
       function showNewCard(event) {
         event.preventDefault();
