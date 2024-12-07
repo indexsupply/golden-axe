@@ -46,7 +46,7 @@ Here are the currently supported chains.
 | World Chain Sepolia          | 481    |
 | Zora                         | 7777777|
 
-For `POST` requests, use the `Chain: 8453` header. For `GET` requests use the `?chain=8543` query param.
+For `POST` requests, use the `Chain: 8453` header. For `GET` requests use the `?chain=8453` query param.
 
 Email [support@indexsupply.com](mailto:support@indexsupply.com) to request new chains.
 
@@ -169,7 +169,7 @@ Here is a curl example of a batch request
 ```
 curl -X POST https://api.indexsupply.net/query \
     -H "Content-Type: application/json" \
-    -H "Chain: 8543" \
+    -H "Chain: 8453" \
     -d '[
         {
             "event_signatures": ["Transfer(address indexed from, address indexed to, uint256 value)"],
