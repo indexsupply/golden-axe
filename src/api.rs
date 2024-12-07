@@ -287,8 +287,6 @@ impl FromRequestParts<Config> for Key {
         let decoded =
             serde_urlencoded::from_str::<HashMap<String, String>>(params).unwrap_or_default();
         let key = decoded.get("api-key").cloned().unwrap_or_default();
-        let short_key = &key[..key.len().min(4)];
-        tracing::Span::current().record("api-key", short_key);
         Ok(Key(key))
     }
 }
