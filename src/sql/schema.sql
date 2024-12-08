@@ -48,6 +48,7 @@ create table if not exists logs (
     data bytea
 ) partition by list(chain);
 
+create table if not exists logs_1           partition of logs for values in (1);
 create table if not exists logs_100         partition of logs for values in (100);
 create table if not exists logs_480         partition of logs for values in (480);
 create table if not exists logs_4801        partition of logs for values in (4801);
@@ -64,6 +65,7 @@ create table if not exists logs_52085143    partition of logs for values in (520
 insert into
     config(enabled, chain, url)
     values
+        (false, 1, 'https://multi-omniscient-mound.quiknode.pro/fdedc14dec34659ffbb65528ec174998087d0df7'),
         (false, 100, 'https://sly-fluent-shadow.xdai.quiknode.pro/efa31e398dd8294c4ffb394e62b95750299cd918'),
         (false, 480, 'https://smart-winter-sun.worldchain-mainnet.quiknode.pro/f9891920fd207eb0143303f53bd71ebf5a4ea66a'),
         (false, 4801, 'https://maximum-damp-replica.worldchain-sepolia.quiknode.pro/558c716ed53af313e8c9db1e176334ea3f5b588e'),
