@@ -23,9 +23,9 @@ pub fn query(
     let res = user_query::process(user_query, &event_sigs)?;
     let query = [
         "with".to_string(),
-        res.selections
+        res.relations
             .iter()
-            .map(|sel| selection_cte_sql(chain, from, sel))
+            .map(|sel| relation_cte_sql(chain, from, sel))
             .collect::<Result<Vec<_>, _>>()?
             .join(","),
         res.new_query.to_string(),
@@ -39,52 +39,47 @@ pub fn query(
     })
 }
 
-fn selection_cte_sql(
+fn relation_cte_sql(
     chain: api::Chain,
     from: Option<u64>,
-    selection: &user_query::Selection,
+    rel: &user_query::Relation,
 ) -> Result<String, api::Error> {
     let mut res: Vec<String> = Vec::new();
-    res.push(format!("{} as not materialized (", selection.table_name));
+    res.push(format!("{} as not materialized (", rel.table_name));
     res.push("select".to_string());
     let mut select_list = Vec::new();
-    selection.fields.iter().sorted().for_each(|f| {
+    rel.fields.iter().sorted().for_each(|f| {
         if user_query::METADATA.contains(&f.as_str()) {
             select_list.push(f.to_string());
         }
     });
-    let indexed_inputs = selection
+    let indexed_inputs = rel
         .event
-        .inputs
         .iter()
-        .filter(|inp| inp.indexed)
-        .enumerate();
+        .flat_map(|event| event.inputs.iter().filter(|inp| inp.indexed).enumerate());
     for (i, inp) in indexed_inputs {
-        if selection.selected_field(&inp.name) {
+        if rel.selected_field(&inp.name) {
             let t = inp.resolve().wrap_err("unable to resolve input")?;
-            let name = selection.quoted_field_name(&inp.name)?;
+            let name = rel.quoted_field_name(&inp.name)?;
             select_list.push(topic_sql(i, &name, &t)?)
         }
     }
-    let abi_inputs = selection
+    let abi_inputs = rel
         .event
-        .inputs
         .iter()
-        .filter(|inp| !inp.indexed)
-        .enumerate();
+        .flat_map(|event| event.inputs.iter().filter(|inp| !inp.indexed).enumerate());
     for (i, inp) in abi_inputs {
-        if selection.selected_field(&inp.name) {
+        if rel.selected_field(&inp.name) {
             let t = inp.resolve().wrap_err("unable to resolve input")?;
-            let name = selection.quoted_field_name(&inp.name)?;
+            let name = rel.quoted_field_name(&inp.name)?;
             select_list.push(abi_sql(i, &name, &t)?)
         }
     }
     res.push(select_list.join(","));
-    res.push(format!(
-        r#"from logs where chain = {} and topics[1] = '\x{}'"#,
-        chain,
-        hex::encode(selection.event.selector())
-    ));
+    res.push(format!("from logs where chain = {}", chain,));
+    if let Some(topic) = rel.event.as_ref().map(|e| e.selector()) {
+        res.push(format!(r#"and topics[1] = '\x{}'"#, hex::encode(topic)))
+    }
     if let Some(n) = from {
         res.push(format!("and block_num >= {}", n))
     }
@@ -214,6 +209,25 @@ mod tests {
         let (_pg_server, pg) = test_pg().await;
         pg.query(&got, &[]).await.expect("issue with query");
     }
+
+    #[tokio::test]
+    async fn test_logs_table() {
+        check_sql(
+            vec![],
+            r#"select block_num from logs"#,
+            r#"
+                with logs as not materialized (
+                    select block_num
+                    from logs
+                    where chain = 1
+                )
+                select block_num
+                from logs
+            "#,
+        )
+        .await;
+    }
+
     #[tokio::test]
     async fn test_nested_expressions() {
         check_sql(

@@ -35,18 +35,18 @@ pub fn process(user_query: &str, event_sigs: &[&str]) -> Result<RewrittenQuery, 
     let new_query = query.process(user_query)?;
     Ok(RewrittenQuery {
         new_query,
-        selections: query.selections(),
+        relations: query.relations(),
     })
 }
 
 pub struct RewrittenQuery {
     pub new_query: String,
-    pub selections: Vec<Selection>,
+    pub relations: Vec<Relation>,
 }
 
 #[derive(Debug)]
-pub struct Selection {
-    pub event: Event,
+pub struct Relation {
+    pub event: Option<Event>,
     // A single event can be referenced
     // multiple times eg multiple joins
     // on single table.
@@ -56,7 +56,7 @@ pub struct Selection {
     field_aliases: HashMap<String, String>,
 }
 
-impl Selection {
+impl Relation {
     pub fn selected_field(&self, field_name: &str) -> bool {
         self.fields
             .iter()
@@ -72,13 +72,14 @@ impl Selection {
             .to_string())
     }
 
-    fn get_field(&self, field_name: &str) -> Option<EventParam> {
+    fn event_param(&self, field_name: &str) -> Option<EventParam> {
         let field_name = if let Some(name) = self.field_aliases.get(&clean_ident(field_name)) {
             name
         } else {
             field_name
         };
         self.event
+            .as_ref()?
             .inputs
             .iter()
             .find(|inp| clean_ident(&inp.name) == clean_ident(field_name))
@@ -88,7 +89,7 @@ impl Selection {
 
 #[derive(Debug)]
 struct UserQuery {
-    events: HashMap<String, Selection>,
+    relations: HashMap<String, Relation>,
 }
 
 fn clean_ident(ident: &str) -> String {
@@ -187,7 +188,7 @@ impl ExprExt for ast::Expr {
 
 impl UserQuery {
     fn new(event_sigs: &[&str]) -> Result<UserQuery, api::Error> {
-        let mut events = HashMap::new();
+        let mut relations = HashMap::new();
         let cleaned_event_sigs: Vec<&str> = event_sigs
             .iter()
             .map(|s| s.trim())
@@ -197,10 +198,10 @@ impl UserQuery {
             let event: Event = sig
                 .parse()
                 .map_err(|_| api::Error::User(format!("unable to parse event: {}", sig)))?;
-            events.insert(
+            relations.insert(
                 clean_ident(&event.name.to_string()),
-                Selection {
-                    event,
+                Relation {
+                    event: Some(event),
                     table_alias: HashSet::new(),
                     table_name: String::new(),
                     fields: HashSet::new(),
@@ -208,7 +209,7 @@ impl UserQuery {
                 },
             );
         }
-        Ok(UserQuery { events })
+        Ok(UserQuery { relations })
     }
 
     fn process(&mut self, user_query: &str) -> Result<String, api::Error> {
@@ -227,22 +228,34 @@ impl UserQuery {
         Ok(stmt.to_string())
     }
 
-    fn selections(self) -> Vec<Selection> {
-        self.events
+    fn relations(self) -> Vec<Relation> {
+        self.relations
             .into_values()
             .filter(|s| !s.fields.is_empty())
             .sorted_by_key(|s| s.table_name.to_string())
             .collect()
     }
 
-    fn selection(&mut self, table_name: &str) -> Result<&mut Selection, api::Error> {
-        let all_events = self.events.keys().join(",");
-        for (event_name, selection) in self.events.iter_mut() {
-            if event_name == table_name {
-                return Ok(selection);
+    fn relation(&mut self, table_name: &str) -> Result<&mut Relation, api::Error> {
+        if table_name == "logs" {
+            return Ok(self
+                .relations
+                .entry(String::from("logs"))
+                .or_insert(Relation {
+                    event: None,
+                    table_alias: HashSet::new(),
+                    table_name: String::from("logs"),
+                    fields: HashSet::new(),
+                    field_aliases: HashMap::new(),
+                }));
+        }
+        let relations_debug_str = self.relations.keys().join(",");
+        for (rel_name, rel) in self.relations.iter_mut() {
+            if rel_name == table_name {
+                return Ok(rel);
             }
-            if selection.table_alias.contains(table_name) {
-                return Ok(selection);
+            if rel.table_alias.contains(table_name) {
+                return Ok(rel);
             }
         }
         Err(api::Error::User(format!(
@@ -250,7 +263,7 @@ impl UserQuery {
             You are attempting to query '{}' but it isn't defined.
             Possible events to query are: '{}'
             "#,
-            table_name, all_events,
+            table_name, relations_debug_str,
         )))
     }
 
@@ -259,13 +272,11 @@ impl UserQuery {
         event_name: &str,
         field_name: &str,
     ) -> Result<Option<EventParam>, api::Error> {
-        let selection = self.selection(event_name)?;
-        match selection.get_field(field_name) {
+        let relation = self.relation(event_name)?;
+        match relation.event_param(field_name) {
             None => {
                 if METADATA.contains(&field_name) {
-                    self.events.values_mut().for_each(|s| {
-                        s.fields.insert(field_name.to_string());
-                    });
+                    relation.fields.insert(field_name.to_string());
                     Ok(None)
                 } else {
                     Err(api::Error::User(format!(
@@ -275,7 +286,7 @@ impl UserQuery {
                 }
             }
             Some(param) => {
-                selection.fields.insert(field_name.to_string());
+                relation.fields.insert(field_name.to_string());
                 Ok(Some(param))
             }
         }
@@ -286,16 +297,22 @@ impl UserQuery {
     // field set. This will later be used to build the logs CTE.
     fn select_field(&mut self, field_name: &str) {
         if METADATA.contains(&field_name) {
-            self.events.values_mut().for_each(|s| {
-                s.fields.insert(field_name.to_string());
-            });
+            // When select_field is called (instead of select_event_field)
+            // with a metadata column we can be sure we can rely on
+            // the database to catch the abiguous column reference if
+            // there are more than one relations. Thus we use nex() to grab
+            // a relation to insert into.
+            self.relations
+                .values_mut()
+                .next()
+                .map(|rel| rel.fields.insert(field_name.to_string()));
             return;
         }
-        let selection = self
-            .events
+        let relation = self
+            .relations
             .values_mut()
-            .find(|s| s.get_field(field_name).is_some());
-        match selection {
+            .find(|s| s.event_param(field_name).is_some());
+        match relation {
             None => return,
             Some(s) => s.fields.insert(field_name.to_string()),
         };
@@ -304,16 +321,16 @@ impl UserQuery {
     fn event_param(&mut self, expr: &ast::Expr) -> Option<EventParam> {
         match expr {
             ast::Expr::Identifier(ident) => {
-                for sel in self.events.values() {
-                    if let Some(param) = sel.get_field(&ident.to_string()) {
+                for rel in self.relations.values() {
+                    if let Some(param) = rel.event_param(&ident.to_string()) {
                         return Some(param);
                     }
                 }
                 None
             }
             ast::Expr::CompoundIdentifier(idents) if idents.len() == 2 => {
-                if let Ok(sel) = self.selection(&idents[0].to_string()) {
-                    sel.get_field(&idents[1].to_string())
+                if let Ok(rel) = self.relation(&idents[0].to_string()) {
+                    rel.event_param(&idents[1].to_string())
                 } else {
                     None
                 }
@@ -791,9 +808,9 @@ impl UserQuery {
                         relation
                     )));
                 }
-                let selection = self.selection(&name_parts[0].value)?;
-                selection.table_alias.insert(alias.name.value.to_string());
-                selection.table_name = name_parts[0].value.to_string();
+                let rel = self.relation(&name_parts[0].value)?;
+                rel.table_alias.insert(alias.name.value.to_string());
+                rel.table_name = name_parts[0].value.to_string();
                 Ok(())
             }
             ast::TableFactor::Table {
@@ -806,8 +823,8 @@ impl UserQuery {
                         relation
                     )));
                 }
-                let selection = self.selection(&name_parts[0].value)?;
-                selection.table_name = name_parts[0].value.to_string();
+                let rel = self.relation(&name_parts[0].value)?;
+                rel.table_name = name_parts[0].value.to_string();
                 Ok(())
             }
             _ => no!(relation),

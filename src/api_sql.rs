@@ -74,7 +74,7 @@ pub async fn handle_sse(
             ).await.expect("unable to make request");
             log_enabled = false; //only log first sse query
             let last_block = resp.0.block_height;
-            yield Ok(SSEvent::default().json_data(resp.0).expect("unable to seralize json"));
+            yield Ok(SSEvent::default().json_data(resp.0).expect("unable to serialize json"));
             rx.recv().await.expect("unable to receive new block update");
             req.block_height = Some(last_block + 1);
         }
