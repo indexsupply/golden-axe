@@ -62,7 +62,7 @@ async fn handle_sse(
     let stream = async_stream::stream! {
         loop {
             let update = rx.recv().await.expect("unable to receive new block update");
-            yield Ok(SSEvent::default().json_data(update).expect("unable to seralize json"));
+            yield Ok(SSEvent::default().json_data(update).expect("unable to serialize json"));
         }
     };
     Sse::new(stream).keep_alive(KeepAlive::default())
