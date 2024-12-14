@@ -170,7 +170,15 @@ fn left_pad(vec: Vec<u8>) -> Vec<u8> {
     padded
 }
 
-pub const METADATA: [&str; 5] = ["address", "block_num", "chain", "log_idx", "tx_hash"];
+pub const METADATA: [&str; 7] = [
+    "address",
+    "block_num",
+    "chain",
+    "log_idx",
+    "tx_hash",
+    "topics",
+    "data",
+];
 
 trait ExprExt {
     fn last(&self) -> Option<ast::Ident>;
@@ -181,6 +189,7 @@ impl ExprExt for ast::Expr {
         match self {
             ast::Expr::Identifier(ident) => Some(ident.clone()),
             ast::Expr::CompoundIdentifier(idents) => idents.last().cloned(),
+            ast::Expr::Subscript { expr, .. } => expr.last(),
             _ => None,
         }
     }
@@ -549,6 +558,9 @@ impl UserQuery {
         if left.last().map_or(false, |v| v.to_string() == "tx_hash") {
             self.rewrite_literal(right, DynSolType::FixedBytes(32), false)?;
         }
+        if left.last().map_or(false, |v| v.to_string() == "topics") {
+            self.rewrite_literal(right, DynSolType::FixedBytes(32), false)?;
+        }
         Ok(())
     }
 
@@ -671,6 +683,7 @@ impl UserQuery {
                 }
                 self.validate_expression(expr)
             }
+            ast::Expr::Subscript { expr, .. } => self.validate_expression(expr),
             ast::Expr::Substring { expr, .. } => self.validate_expression(expr),
             ast::Expr::Function(f) => self.validate_function(f),
             ast::Expr::Nested(expr) => self.validate_expression(expr),

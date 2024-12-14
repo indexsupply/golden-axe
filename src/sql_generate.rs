@@ -214,15 +214,16 @@ mod tests {
     async fn test_logs_table() {
         check_sql(
             vec![],
-            r#"select block_num from logs"#,
+            r#"select block_num, data, topics from logs where topics[1] = 0xface"#,
             r#"
                 with logs as not materialized (
-                    select block_num
+                    select block_num, data, topics
                     from logs
                     where chain = 1
                 )
-                select block_num
+                select block_num, data, topics
                 from logs
+                where topics[1] = '\xface'
             "#,
         )
         .await;
