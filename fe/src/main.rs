@@ -42,7 +42,7 @@ struct Args {
     api_url: String,
 
     #[arg(long, env = "POSTMARK_KEY")]
-    postmark_key: String,
+    postmark_key: Option<String>,
 
     #[arg(long, env = "STRIPE_KEY")]
     stripe_key: String,

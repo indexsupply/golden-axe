@@ -4,7 +4,7 @@ use serde::Deserialize;
 #[derive(Clone)]
 pub struct Client {
     site_url: String,
-    key: String,
+    key: Option<String>,
     client: reqwest::Client,
 }
 
@@ -17,7 +17,7 @@ struct Response {
 }
 
 impl Client {
-    pub fn new(key: String, site_url: String) -> Client {
+    pub fn new(key: Option<String>, site_url: String) -> Client {
         Client {
             key,
             site_url,
@@ -30,6 +30,10 @@ impl Client {
             self.site_url,
             hex::encode(secret),
         );
+        if self.key.is_none() {
+            tracing::info!("postmark key missing. here is the email: {}", body);
+            return Ok(());
+        }
         let request = serde_json::json!({
             "From": "login@indexsupply.net",
             "To": to,
@@ -40,7 +44,10 @@ impl Client {
         let response: Response = self
             .client
             .post("https://api.postmarkapp.com/email")
-            .header("X-Postmark-Server-Token", self.key.to_string())
+            .header(
+                "X-Postmark-Server-Token",
+                self.key.as_ref().unwrap().to_string(),
+            )
             .json(&request)
             .send()
             .await?
