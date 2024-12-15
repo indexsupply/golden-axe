@@ -1,7 +1,6 @@
 mod account;
 mod api_docs;
 mod api_key;
-mod email;
 mod god_mode;
 mod postmark;
 mod query;
@@ -44,12 +43,6 @@ struct Args {
 
     #[arg(long, env = "POSTMARK_KEY")]
     postmark_key: String,
-
-    #[arg(long, env = "SENDGRID_KEY")]
-    sendgrid_key: String,
-
-    #[arg(long, env = "SENDGRID_VALIDATION_KEY")]
-    sendgrid_validation_key: String,
 
     #[arg(long, env = "STRIPE_KEY")]
     stripe_key: String,
@@ -164,11 +157,6 @@ async fn main() -> Result<()> {
         pool: pg_pool(&args.pg_url),
         flash: axum_flash::Config::new(Key::generate()).use_secure_cookies(false),
         postmark: postmark::Client::new(args.postmark_key, args.site_url.clone()),
-        sendgrid: email::Client {
-            site_url: args.site_url,
-            key: args.sendgrid_key,
-            validation_key: args.sendgrid_validation_key,
-        },
         stripe: stripe::Client::new(&args.stripe_key),
         stripe_pub_key: args.stripe_pub_key,
     };

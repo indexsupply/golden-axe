@@ -6,7 +6,7 @@ use reqwest::StatusCode;
 use rust_embed::Embed;
 use serde::Serialize;
 
-use crate::{email, postmark, query, stripe};
+use crate::{postmark, query, stripe};
 
 #[derive(Embed)]
 #[folder = "src/docs"]
@@ -25,7 +25,6 @@ pub struct State {
     pub templates: handlebars::Handlebars<'static>,
     pub pool: Pool,
     pub key: Key,
-    pub sendgrid: email::Client,
     pub postmark: postmark::Client,
     pub stripe_pub_key: String,
     pub stripe: stripe::Client,
