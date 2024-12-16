@@ -54,6 +54,7 @@ create table if not exists logs_480         partition of logs for values in (480
 create table if not exists logs_4801        partition of logs for values in (4801);
 create table if not exists logs_8453        partition of logs for values in (8453);
 create table if not exists logs_42026       partition of logs for values in (42026);
+create table if not exists logs_42161       partition of logs for values in (42161);
 create table if not exists logs_84532       partition of logs for values in (84532);
 create table if not exists logs_80002       partition of logs for values in (80002);
 create table if not exists logs_911867      partition of logs for values in (911867);
@@ -61,6 +62,7 @@ create table if not exists logs_984122      partition of logs for values in (984
 create table if not exists logs_7777777     partition of logs for values in (7777777);
 create table if not exists logs_10058112    partition of logs for values in (10058112);
 create table if not exists logs_52085143    partition of logs for values in (52085143);
+
 
 
 insert into
@@ -72,6 +74,7 @@ insert into
         (false, 4801, 'https://maximum-damp-replica.worldchain-sepolia.quiknode.pro/558c716ed53af313e8c9db1e176334ea3f5b588e'),
         (false, 8453, 'https://base-mainnet.g.alchemy.com/v2/vURcmBOw_PHumnoIUEqNh2XY0jvH3_Fe'),
         (false, 42026, 'https://rpc.donatuz.com'),
+        (false, 42161, 'https://arb-mainnet.g.alchemy.com/v2/Oq2TNKri4h_vXFtJQkujWI_MmPQoHYeo'),
         (false, 84532, 'https://special-divine-pond.base-sepolia.quiknode.pro/14a6b6521b135c48a9e71884c14b8beb984d6f93'),
         (false, 80002, 'https://tiniest-sparkling-dawn.matic-amoy.quiknode.pro/db261d98a880460e6c5a1a5de39fddc189817bec'),
         (false, 911867, 'https://odyssey.ithaca.xyz'),
