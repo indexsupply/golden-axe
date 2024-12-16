@@ -26,7 +26,7 @@ pub struct State {
     pub pool: Pool,
     pub key: Key,
     pub postmark: postmark::Client,
-    pub stripe_pub_key: String,
+    pub stripe_pub_key: Option<String>,
     pub stripe: stripe::Client,
     pub examples: Vec<query::Query>,
 }

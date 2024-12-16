@@ -45,10 +45,10 @@ struct Args {
     postmark_key: Option<String>,
 
     #[arg(long, env = "STRIPE_KEY")]
-    stripe_key: String,
+    stripe_key: Option<String>,
 
     #[arg(long, env = "STRIPE_PUB_KEY")]
-    stripe_pub_key: String,
+    stripe_pub_key: Option<String>,
 
     #[arg(
         long,
@@ -157,7 +157,7 @@ async fn main() -> Result<()> {
         pool: pg_pool(&args.pg_url),
         flash: axum_flash::Config::new(Key::generate()).use_secure_cookies(false),
         postmark: postmark::Client::new(args.postmark_key, args.site_url.clone()),
-        stripe: stripe::Client::new(&args.stripe_key),
+        stripe: stripe::Client::new(args.stripe_key),
         stripe_pub_key: args.stripe_pub_key,
     };
     state.pool.get().await?.batch_execute(SCHEMA).await?;

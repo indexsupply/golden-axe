@@ -32,19 +32,29 @@ struct List<T> {
 
 #[derive(Clone)]
 pub struct Client {
-    key: String,
+    key: Option<String>,
     reqwest: reqwest::Client,
 }
 
 impl Client {
-    pub fn new(key: &str) -> Client {
+    pub fn new(key: Option<String>) -> Client {
         Client {
+            key,
             reqwest: reqwest::Client::new(),
-            key: key.to_string(),
         }
     }
 
     pub async fn payment_methods(&self, customer_id: &str) -> Result<Option<PaymentMethod>> {
+        if self.key.is_none() {
+            return Ok(Some(PaymentMethod {
+                card: Card {
+                    brand: String::from("LOCAL DEV"),
+                    exp_month: 1,
+                    exp_year: 2999,
+                    last4: String::from("4242"),
+                },
+            }));
+        }
         // Although the stripe docs do not specify, experimentation
         // has shown that the order id created_at desc
         let (path, data) = (
@@ -56,6 +66,11 @@ impl Client {
     }
 
     pub async fn setup_intent(&self, customer_id: &str) -> Result<SetupIntent> {
+        if self.key.is_none() {
+            return Ok(SetupIntent {
+                client_secret: String::from("LOCAL DEV"),
+            });
+        }
         let (path, data) = ("v1/setup_intents", [("customer", customer_id)]);
         self.post(path, &data).await
     }
@@ -68,6 +83,12 @@ impl Client {
     // endpoint meaning that you can't rely on searching for a customer
     // before creating one.
     pub async fn create_customer(&self, email: &str) -> Result<Customer> {
+        if self.key.is_none() {
+            return Ok(Customer {
+                id: String::from("LOCAL DEV"),
+                email: String::from("local@dev"),
+            });
+        }
         let (path, data) = ("v1/customers", [("email", email)]);
         self.post(path, &data).await
     }
@@ -80,7 +101,7 @@ impl Client {
         let response = self
             .reqwest
             .get(format!("https://api.stripe.com/{}", path))
-            .basic_auth(&self.key, Some(""))
+            .basic_auth(self.key.as_ref().unwrap().to_string(), Some(""))
             .form(data)
             .send()
             .await?;
@@ -100,7 +121,7 @@ impl Client {
         let response = self
             .reqwest
             .post(format!("https://api.stripe.com/{}", path))
-            .basic_auth(&self.key, Some(""))
+            .basic_auth(self.key.as_ref().unwrap().to_string(), Some(""))
             .form(data)
             .send()
             .await?;

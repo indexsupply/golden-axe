@@ -90,7 +90,7 @@ pub mod handlers {
             &json!({
                 "user": user,
                 "flash": FlashMessage::from(flash.clone()),
-                "stripe_pub_key": state.stripe_pub_key.to_string(),
+                "stripe_pub_key": state.stripe_pub_key.unwrap_or(String::from("LOCAL DEV")),
                 "client_secret": intent.client_secret.to_string(),
                 "plan": plan,
                 "payment_method": payment_method,
@@ -180,7 +180,7 @@ pub async fn current_plan(
     if res.is_empty() {
         Ok(None)
     } else {
-        let row = res.first().expect("should be at leaset 1 plan_change");
+        let row = res.first().expect("should be at least 1 plan_change");
         Ok(Some(Plan {
             owner_email: None,
             name: row.get("name"),
