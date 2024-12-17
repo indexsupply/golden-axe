@@ -26,7 +26,16 @@ impl Client {
     }
     pub async fn send_email_login(&self, to: &str, secret: Vec<u8>) -> Result<()> {
         let body = format!(
-            "Click to log in: {}/email-login-link?secret={}",
+            r#"
+            Hello,
+
+            Here is your one-time log in link: {}/email-login-link?secret={}
+
+            If you have any issues logging in, reply to this email to get help.
+
+            Regards,
+            Index Supply
+            "#,
             self.site_url,
             hex::encode(secret),
         );
@@ -37,7 +46,8 @@ impl Client {
         let request = serde_json::json!({
             "From": "login@indexsupply.net",
             "To": to,
-            "Subject": "Index Supply Log In Link",
+            "ReplyTo": "support@indexsupply.net",
+            "Subject": "One-Time Log In Link",
             "TextBody": body,
             "MessageStream": "outbound"
         });
