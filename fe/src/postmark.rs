@@ -26,16 +26,7 @@ impl Client {
     }
     pub async fn send_email_login(&self, to: &str, secret: Vec<u8>) -> Result<()> {
         let body = format!(
-            r#"
-            Hello,
-
-            Here is your one-time log in link: {}/email-login-link?secret={}
-
-            If you have any issues logging in, reply to this email to get help.
-
-            Regards,
-            Index Supply
-            "#,
+            "Hello,\n\nHere is your one-time log in link: {}/email-login-link?secret={}\n\nIf you have any issues logging in, reply to this email to get help.\n\nRegards,\n\nIndex Supply",
             self.site_url,
             hex::encode(secret),
         );
