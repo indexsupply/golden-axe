@@ -9,9 +9,10 @@ use alloy::{
     primitives::{BlockHash, U16, U64},
     providers::{Provider, ProviderBuilder, ReqwestProvider},
     rpc::{
-        client::{BatchRequest, Waiter},
+        client::{BatchRequest, RpcClient, Waiter},
         types::eth::{Block, BlockNumberOrTag, Filter, Log},
     },
+    transports::http::Http,
 };
 use eyre::{eyre, Context, OptionExt, Result};
 use futures::pin_mut;
@@ -88,7 +89,13 @@ impl Downloader {
         config: Config,
         start: Option<u64>,
     ) -> Downloader {
-        let eth_client = ProviderBuilder::new().on_http(config.url);
+        let http_client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .unwrap();
+        let http_wrapper = Http::with_client(http_client, config.url);
+        let rpc_client = RpcClient::new(http_wrapper, false);
+        let eth_client = ProviderBuilder::new().on_client(rpc_client);
         let start = match start {
             Some(n) => BlockNumberOrTag::Number(n),
             None => BlockNumberOrTag::Latest,
