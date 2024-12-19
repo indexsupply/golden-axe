@@ -265,11 +265,12 @@ async fn server(args: ServerArgs) {
                  .extensions()
                  .get::<MatchedPath>()
                  .map(MatchedPath::as_str);
-             tracing::info_span!(
-                 "http", path,
+             tracing::info_span!("http",
+                 path,
+                 "api-key" = tracing::field::Empty,
+                 "ip" = tracing::field::Empty,
                  status = tracing::field::Empty,
                  chain = tracing::field::Empty,
-                 "api-key" = tracing::field::Empty,
              )
         })
         .on_response(

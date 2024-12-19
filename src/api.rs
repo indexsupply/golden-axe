@@ -235,7 +235,7 @@ impl Broadcaster {
 }
 
 pub async fn limit(
-    ConnectInfo(conn_info): ConnectInfo<SocketAddr>,
+    origin_ip: OriginIp,
     origin_domain: Option<OriginDomain>,
     account_limit: Arc<gafe::AccountLimit>,
     request: axum::extract::Request,
@@ -253,7 +253,7 @@ pub async fn limit(
     }
     if account_limit
         .rate
-        .check_key(&conn_info.ip().to_string())
+        .check_key(&origin_ip.into_inner())
         .is_err()
     {
         return Err(Error::TooManyRequests(Some(String::from(
@@ -379,6 +379,39 @@ impl FromRequestParts<Config> for Option<OriginDomain> {
             }
         }
         return Ok(None);
+    }
+}
+
+#[derive(Clone)]
+pub struct OriginIp(String);
+
+impl OriginIp {
+    pub fn into_inner(self) -> String {
+        self.0.to_string()
+    }
+}
+
+#[axum::async_trait]
+impl FromRequestParts<Config> for OriginIp {
+    type Rejection = Error;
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _: &Config,
+    ) -> Result<Self, Self::Rejection> {
+        let ip = parts
+            .headers
+            .get("x-forward-for")
+            .and_then(|origin_ip| origin_ip.to_str().ok())
+            .map(String::from)
+            .or_else(|| {
+                parts
+                    .extensions
+                    .get::<ConnectInfo<SocketAddr>>()
+                    .map(|ConnectInfo(addr)| addr.ip().to_string())
+            })
+            .ok_or_else(|| Error::User("unable to get ip address".to_string()))?;
+        tracing::Span::current().record("ip", ip.to_string());
+        Ok(OriginIp(ip))
     }
 }
 
