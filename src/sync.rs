@@ -221,7 +221,7 @@ impl Downloader {
     #[tracing::instrument(level = "debug" skip_all fields(local, remote))]
     async fn next(&self, pgtx: &Transaction<'_>, batch_size: u16) -> Result<Range<Block>, Error> {
         let mut removed = 0;
-        for _ in 0..1000 {
+        for _ in 0..5000 {
             let latest_remote = self
                 .eth_client
                 .get_block_by_number(BlockNumberOrTag::Latest, false)
