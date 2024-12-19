@@ -268,6 +268,7 @@ async fn server(args: ServerArgs) {
              tracing::info_span!("http",
                  "api-key" = tracing::field::Empty,
                  "ip" = tracing::field::Empty,
+                 "size" = tracing::field::Empty,
                  status = tracing::field::Empty,
                  path,
                  chain = tracing::field::Empty,
@@ -293,6 +294,7 @@ async fn server(args: ServerArgs) {
     let service = ServiceBuilder::new()
         .layer(axum::middleware::from_fn(api::latency_header))
         .layer(tracing)
+        .layer(axum::middleware::from_fn(api::content_length_header))
         .layer(HandleErrorLayer::new(api::handle_service_error))
         .load_shed()
         .concurrency_limit(1024)

@@ -452,3 +452,18 @@ pub async fn latency_header(
     );
     Ok(response)
 }
+
+pub async fn content_length_header(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Result<axum::response::Response, Error> {
+    let response = next.run(request).await;
+    let span = tracing::Span::current();
+    response
+        .headers()
+        .get("content-length")
+        .and_then(|cl| cl.to_str().ok())
+        .map(|cl| cl.parse::<u64>().ok())
+        .map(|size| span.record("size", size));
+    Ok(response)
+}
