@@ -266,10 +266,10 @@ async fn server(args: ServerArgs) {
                  .get::<MatchedPath>()
                  .map(MatchedPath::as_str);
              tracing::info_span!("http",
-                 path,
                  "api-key" = tracing::field::Empty,
                  "ip" = tracing::field::Empty,
                  status = tracing::field::Empty,
+                 path,
                  chain = tracing::field::Empty,
              )
         })

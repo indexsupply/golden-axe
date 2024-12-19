@@ -400,7 +400,7 @@ impl FromRequestParts<Config> for OriginIp {
     ) -> Result<Self, Self::Rejection> {
         let ip = parts
             .headers
-            .get("x-forward-for")
+            .get("X-Forwarded-For")
             .and_then(|origin_ip| origin_ip.to_str().ok())
             .map(String::from)
             .or_else(|| {
