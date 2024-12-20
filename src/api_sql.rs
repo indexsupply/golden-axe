@@ -62,6 +62,7 @@ pub async fn handle_sse(
 ) -> axum::response::Sse<impl Stream<Item = Result<SSEvent, Infallible>>> {
     let mut req = req.clone();
     let mut rx = conf.broadcaster.wait(chain);
+
     let mut log_enabled = true;
     let stream = async_stream::stream! {
         loop {
@@ -75,7 +76,16 @@ pub async fn handle_sse(
             log_enabled = false; //only log first sse query
             let last_block = resp.0.block_height;
             yield Ok(SSEvent::default().json_data(resp.0).expect("unable to serialize json"));
-            rx.recv().await.expect("unable to receive new block update");
+            match rx.recv().await {
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    tracing::error!("stream closed. closing sse connection");
+                    return
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                    tracing::error!(skipped, "stream lagged")
+                }
+                Ok(_) => {},
+            }
             req.block_height = Some(last_block + 1);
         }
     };
