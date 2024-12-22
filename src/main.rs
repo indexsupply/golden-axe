@@ -1,6 +1,5 @@
 mod api;
 mod api_sql;
-mod backup;
 mod gafe;
 mod s256;
 mod sql_generate;
@@ -22,7 +21,7 @@ use axum::{
     extract::MatchedPath,
     routing::{get, post, Router},
 };
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use deadpool_postgres::{Manager, ManagerConfig, Pool};
 use eyre::{eyre, Result};
 use futures::TryFutureExt;
@@ -42,25 +41,8 @@ use tower_http::{
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-#[derive(Debug, Subcommand)]
-enum Commands {
-    #[command(name = "backup", about = "Pg_dump then upload to s3")]
-    Backup(ServerArgs),
-    #[command(name = "restore", about = "Download from s3 and then pg_restore")]
-    Restore(ServerArgs),
-    #[command(name = "server", about = "Serve API requests and sync decoded logs")]
-    Server(ServerArgs),
-}
-
-#[derive(Parser)]
-#[command(name = "ga", about = "The final indexer", version = "0.1")]
-struct GlobalArgs {
-    #[command(subcommand)]
-    command: Commands,
-}
-
-#[derive(Clone, Parser, Debug)]
-struct ServerArgs {
+#[derive(Clone, Debug, Parser)]
+struct Args {
     #[arg(long, env = "START_BLOCK")]
     start_block: Option<u64>,
 
@@ -82,29 +64,8 @@ struct ServerArgs {
 
     #[clap(long, action = clap::ArgAction::SetTrue)]
     no_sync: bool,
-
-    #[clap(long, env = "NO_BACKUP", action = clap::ArgAction::SetTrue)]
-    no_backup: bool,
-
-    #[clap(
-        long = "backup-bucket",
-        env = "GA_BACKUP_BUCKET",
-        default_value = "ga-pg-backup"
-    )]
-    backup_bucket: String,
-
-    #[clap(long = "backup-dir", env = "GA_BACKUP_DIR", default_value = ".")]
-    backup_dir: String,
-
-    #[clap(long = "backup-window", default_value = "1 day")]
-    backup_window: humantime::Duration,
-
-    #[clap(long = "restore-key", help = "the s3 key to use as restore")]
-    restore_key: Option<String>,
-
-    #[clap(long = "restore-chain-id", help = "restoring a particular chain")]
-    restore_chain_id: Option<u64>,
 }
+
 static SCHEMA: &str = include_str!("./sql/schema.sql");
 
 #[tokio::main]
@@ -121,127 +82,7 @@ async fn main() -> Result<(), api::Error> {
         .with(filter_layer)
         .init();
 
-    let args = GlobalArgs::parse();
-    match args.command {
-        Commands::Backup(args) => {
-            backup::backup(
-                &args.pg_url,
-                &args.backup_dir,
-                &args.backup_bucket,
-                args.backup_window,
-            )
-            .await?
-        }
-        Commands::Restore(args) => {
-            backup::restore(
-                &args.pg_url,
-                args.restore_chain_id.expect("missing chain id"),
-                &args.backup_dir,
-                &args.backup_bucket,
-                args.restore_key,
-            )
-            .await?
-        }
-        Commands::Server(args) => server(args).await,
-    }
-    Ok(())
-}
-
-async fn sync(
-    args: ServerArgs,
-    remote_broadcaster: Arc<api::Broadcaster2>,
-    broadcaster: Arc<api::Broadcaster>,
-) -> Result<()> {
-    if args.no_sync {
-        tracing::info!("no sync");
-        return Ok(());
-    }
-    let mut builder = SslConnector::builder(SslMethod::tls()).expect("tls builder");
-    builder.set_verify(SslVerifyMode::NONE);
-    let connector = MakeTlsConnector::new(builder.build());
-    let pg_mgr = Manager::from_config(
-        args.pg_url.parse().expect("parsing pg arg"),
-        connector,
-        ManagerConfig {
-            recycling_method: deadpool_postgres::RecyclingMethod::Fast,
-        },
-    );
-    let pg_pool = Pool::builder(pg_mgr)
-        .max_size(16)
-        .build()
-        .expect("unable to build new ro pool");
-    let pg = pg_pool.get().await?;
-    pg.batch_execute(SCHEMA).await.unwrap();
-    let tasks = Config::load(&pg)
-        .await?
-        .into_iter()
-        .filter(|c| c.enabled)
-        .map(|config| {
-            let ch = broadcaster.clone();
-            let rb = remote_broadcaster.clone();
-            let pg = pg_pool.clone();
-            tokio::spawn(async move {
-                Downloader::new(pg, rb, config, args.start_block)
-                    .run(ch)
-                    .await
-            })
-        })
-        .collect_vec();
-    for t in tasks {
-        if let Err(e) = t.await {
-            return Err(e.into());
-        }
-    }
-    Ok(())
-}
-
-fn api_ro_pg(cstr: &str, ro_password: &str) -> Pool {
-    let mut pg_config = tokio_postgres::Config::from_str(cstr).expect("unable to connect to ro pg");
-    pg_config.user("uapi");
-    pg_config.password(ro_password);
-    let mut builder = SslConnector::builder(SslMethod::tls()).expect("tls builder");
-    builder.set_verify(SslVerifyMode::NONE);
-    let connector = MakeTlsConnector::new(builder.build());
-    let pg_mgr = Manager::from_config(
-        pg_config,
-        connector,
-        ManagerConfig {
-            recycling_method: deadpool_postgres::RecyclingMethod::Fast,
-        },
-    );
-    Pool::builder(pg_mgr)
-        .max_size(16)
-        .build()
-        .expect("unable to build new ro pool")
-}
-
-async fn backup(args: ServerArgs) -> Result<()> {
-    if args.no_backup {
-        tracing::info!("no backups");
-        return Ok(());
-    }
-    loop {
-        tokio::time::sleep(Duration::from_secs(10)).await;
-        backup::backup(
-            &args.pg_url,
-            &args.backup_dir,
-            &args.backup_bucket,
-            args.backup_window,
-        )
-        .await?;
-    }
-}
-
-async fn account_limits(config: api::Config) -> Result<()> {
-    loop {
-        if let Some(limits) = config.gafe.load_account_limits().await {
-            *config.account_limits.lock().unwrap() = limits;
-        }
-        tokio::time::sleep(Duration::from_secs(10)).await;
-    }
-}
-
-async fn server(args: ServerArgs) {
+    let args = Args::parse();
     let config = api::Config {
         pool: api_ro_pg(&args.pg_url, &args.ro_password),
         broadcaster: Arc::new(api::Broadcaster::default()),
@@ -326,7 +167,6 @@ async fn server(args: ServerArgs) {
             config.remote_broadcaster.clone(),
             config.broadcaster.clone(),
         ))),
-        flatten(tokio::spawn(backup(args.clone()))),
         flatten(tokio::spawn(
             axum::serve(listener, app)
                 .into_future()
@@ -335,7 +175,84 @@ async fn server(args: ServerArgs) {
     );
     match res {
         Err(err) => panic!("{}", err),
-        _ => println!("all done"),
+        _ => Ok(()),
+    }
+}
+
+async fn sync(
+    args: Args,
+    remote_broadcaster: Arc<api::Broadcaster2>,
+    broadcaster: Arc<api::Broadcaster>,
+) -> Result<()> {
+    if args.no_sync {
+        tracing::info!("no sync");
+        return Ok(());
+    }
+    let mut builder = SslConnector::builder(SslMethod::tls()).expect("tls builder");
+    builder.set_verify(SslVerifyMode::NONE);
+    let connector = MakeTlsConnector::new(builder.build());
+    let pg_mgr = Manager::from_config(
+        args.pg_url.parse().expect("parsing pg arg"),
+        connector,
+        ManagerConfig {
+            recycling_method: deadpool_postgres::RecyclingMethod::Fast,
+        },
+    );
+    let pg_pool = Pool::builder(pg_mgr)
+        .max_size(16)
+        .build()
+        .expect("unable to build new ro pool");
+    let pg = pg_pool.get().await?;
+    pg.batch_execute(SCHEMA).await.unwrap();
+    let tasks = Config::load(&pg)
+        .await?
+        .into_iter()
+        .filter(|c| c.enabled)
+        .map(|config| {
+            let ch = broadcaster.clone();
+            let rb = remote_broadcaster.clone();
+            let pg = pg_pool.clone();
+            tokio::spawn(async move {
+                Downloader::new(pg, rb, config, args.start_block)
+                    .run(ch)
+                    .await
+            })
+        })
+        .collect_vec();
+    for t in tasks {
+        if let Err(e) = t.await {
+            return Err(e.into());
+        }
+    }
+    Ok(())
+}
+
+fn api_ro_pg(cstr: &str, ro_password: &str) -> Pool {
+    let mut pg_config = tokio_postgres::Config::from_str(cstr).expect("unable to connect to ro pg");
+    pg_config.user("uapi");
+    pg_config.password(ro_password);
+    let mut builder = SslConnector::builder(SslMethod::tls()).expect("tls builder");
+    builder.set_verify(SslVerifyMode::NONE);
+    let connector = MakeTlsConnector::new(builder.build());
+    let pg_mgr = Manager::from_config(
+        pg_config,
+        connector,
+        ManagerConfig {
+            recycling_method: deadpool_postgres::RecyclingMethod::Fast,
+        },
+    );
+    Pool::builder(pg_mgr)
+        .max_size(16)
+        .build()
+        .expect("unable to build new ro pool")
+}
+
+async fn account_limits(config: api::Config) -> Result<()> {
+    loop {
+        if let Some(limits) = config.gafe.load_account_limits().await {
+            *config.account_limits.lock().unwrap() = limits;
+        }
+        tokio::time::sleep(Duration::from_secs(10)).await;
     }
 }
 
