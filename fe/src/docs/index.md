@@ -38,10 +38,14 @@ Here are the currently supported chains.
 
 | Name                         | Id     |
 |------------------------------|--------|
+| Arbitrum One                 | 42161  |
 | Base                         | 8453   |
 | Base Sepolia                 | 84532  |
+| Forma                        | 984122 |
+| Gnosis                       | 100    |
 | Main                         | 1      |
 | Odyssey                      | 911867 |
+| Polygon Amoy                 | 80002  |
 | World Chain                  | 480    |
 | World Chain Sepolia          | 481    |
 | Zora                         | 7777777|
