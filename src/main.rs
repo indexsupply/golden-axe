@@ -18,7 +18,7 @@ use std::{
 use axum::{
     body::Body,
     error_handling::HandleErrorLayer,
-    extract::MatchedPath,
+    extract::{connect_info::IntoMakeServiceWithConnectInfo, MatchedPath},
     routing::{get, post, Router},
 };
 use clap::Parser;
@@ -86,69 +86,6 @@ async fn main() -> Result<(), api::Error> {
             .and_then(|url| pg::new_pool(url, 4).ok()),
     );
 
-    let prom_record = PrometheusBuilder::new()
-        .add_global_label("name", "ga")
-        .build_recorder();
-    let prom_handler = prom_record.handle();
-    metrics::set_global_recorder(TracingContextLayer::all().layer(prom_record))
-        .expect("unable to set global metrics recorder");
-
-    let tracing = TraceLayer::new_for_http()
-        .make_span_with(|req: &axum::http::Request<Body>| {
-             let path = req
-                 .extensions()
-                 .get::<MatchedPath>()
-                 .map(MatchedPath::as_str);
-             tracing::info_span!("http",
-                 "api-key" = tracing::field::Empty,
-                 "ip" = tracing::field::Empty,
-                 "size" = tracing::field::Empty,
-                 status = tracing::field::Empty,
-                 path,
-                 chain = tracing::field::Empty,
-             )
-        })
-        .on_response(
-            |resp: &axum::http::Response<_>, d: Duration, span: &tracing::Span| {
-                span.record("status", resp.status().as_u16());
-                let _guard = span.enter();
-                metrics::counter!("api.requests").increment(1);
-                metrics::histogram!("api.latency").record(d.as_millis() as f64);
-                if !resp.status().is_success() {
-                    metrics::counter!("api.errors").increment(1);
-                }
-            },
-        )
-        .on_failure(
-            |error: ServerErrorsFailureClass, _latency: Duration, _span: &tracing::Span| {
-                tracing::error!(error = %error)
-            },
-        );
-
-    let service = ServiceBuilder::new()
-        .layer(axum::middleware::from_fn(api::latency_header))
-        .layer(tracing)
-        .layer(axum::middleware::from_fn(api::content_length_header))
-        .layer(HandleErrorLayer::new(api::handle_service_error))
-        .load_shed()
-        .concurrency_limit(1024)
-        .layer(CorsLayer::permissive())
-        .layer(axum::middleware::from_fn_with_state(
-            config.clone(),
-            api::limit,
-        ))
-        .layer(CompressionLayer::new());
-
-    let app = Router::new()
-        .route("/", get(|| async { "hello\n" }))
-        .route("/metrics", get(move || ready(prom_handler.render())))
-        .route("/status", get(api::handle_status))
-        .route("/query", get(api_sql::handle_get))
-        .route("/query", post(api_sql::handle_post))
-        .route("/query-live", get(api_sql::handle_sse))
-        .layer(service)
-        .with_state(config.clone())
-        .into_make_service_with_connect_info::<SocketAddr>();
     let listener = tokio::net::TcpListener::bind(&args.listen)
         .await
         .expect("binding to tcp for http server");
@@ -161,7 +98,7 @@ async fn main() -> Result<(), api::Error> {
             config.broadcaster.clone(),
         ))),
         flatten(tokio::spawn(
-            axum::serve(listener, app)
+            axum::serve(listener, service(config.clone()))
                 .into_future()
                 .map_err(|e| eyre!("serving http: {}", e))
         )),
@@ -221,5 +158,84 @@ async fn flatten<T>(handle: tokio::task::JoinHandle<Result<T>>) -> Result<T> {
         Ok(Ok(result)) => Ok(result),
         Ok(Err(err)) => Err(err),
         Err(err) => Err(eyre!("handle error: {}", err)),
+    }
+}
+
+fn service(config: api::Config) -> IntoMakeServiceWithConnectInfo<Router, SocketAddr> {
+    let prom_record = PrometheusBuilder::new()
+        .add_global_label("name", "ga")
+        .build_recorder();
+    let prom_handler = prom_record.handle();
+    metrics::set_global_recorder(TracingContextLayer::all().layer(prom_record))
+        .expect("unable to set global metrics recorder");
+    let tracing = TraceLayer::new_for_http()
+        .make_span_with(|req: &axum::http::Request<Body>| {
+             let path = req
+                 .extensions()
+                 .get::<MatchedPath>()
+                 .map(MatchedPath::as_str);
+             tracing::info_span!("http",
+                 "api-key" = tracing::field::Empty,
+                 "ip" = tracing::field::Empty,
+                 "size" = tracing::field::Empty,
+                 status = tracing::field::Empty,
+                 path,
+                 chain = tracing::field::Empty,
+             )
+        })
+        .on_response(
+            |resp: &axum::http::Response<_>, d: Duration, span: &tracing::Span| {
+                span.record("status", resp.status().as_u16());
+                let _guard = span.enter();
+                metrics::counter!("api.requests").increment(1);
+                metrics::histogram!("api.latency").record(d.as_millis() as f64);
+                if !resp.status().is_success() {
+                    metrics::counter!("api.errors").increment(1);
+                }
+            },
+        )
+        .on_failure(
+            |error: ServerErrorsFailureClass, _latency: Duration, _span: &tracing::Span| {
+                tracing::error!(error = %error)
+            },
+        );
+    let service = ServiceBuilder::new()
+        .layer(axum::middleware::from_fn(api::latency_header))
+        .layer(tracing)
+        .layer(axum::middleware::from_fn(api::content_length_header))
+        .layer(HandleErrorLayer::new(api::handle_service_error))
+        .load_shed()
+        .concurrency_limit(1024)
+        .layer(CorsLayer::permissive())
+        .layer(axum::middleware::from_fn_with_state(
+            config.clone(),
+            api::limit,
+        ))
+        .layer(CompressionLayer::new());
+    Router::new()
+        .route("/", get(|| async { "hello\n" }))
+        .route("/metrics", get(move || ready(prom_handler.render())))
+        .route("/status", get(api::handle_status))
+        .route("/query", get(api_sql::handle_get))
+        .route("/query", post(api_sql::handle_post))
+        .route("/query-live", get(api_sql::handle_sse))
+        .layer(service)
+        .with_state(config.clone())
+        .into_make_service_with_connect_info::<SocketAddr>()
+}
+
+#[cfg(test)]
+mod tests {
+    use axum_test::TestServer;
+
+    use super::*;
+    use crate::pg;
+
+    #[tokio::test]
+    async fn test_index() {
+        let (_pg_server, pool) = pg::test_utils::test_pg().await;
+        let config = api::Config::new(pool, None);
+        let server = TestServer::new(service(config)).unwrap();
+        server.get("/").await.assert_text_contains("hello");
     }
 }
