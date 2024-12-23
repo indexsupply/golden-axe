@@ -1,0 +1,21 @@
+name: cargo test
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["master"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@master
+      name: Install rust
+      with:
+        toolchain: 1.83.0
+    - name: Run tests
+      run: cargo test
