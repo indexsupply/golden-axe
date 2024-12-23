@@ -1,6 +1,7 @@
 mod api;
 mod api_sql;
 mod gafe;
+mod pg;
 mod s256;
 mod sql_generate;
 mod sql_test;
@@ -8,10 +9,9 @@ mod sync;
 mod user_query;
 
 use std::{
-    collections::HashMap,
     future::{ready, IntoFuture},
     net::SocketAddr,
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::Duration,
 };
 
@@ -22,16 +22,12 @@ use axum::{
     routing::{get, post, Router},
 };
 use clap::Parser;
-use deadpool_postgres::{Manager, ManagerConfig, Pool};
 use eyre::{eyre, Result};
 use futures::TryFutureExt;
 use itertools::Itertools;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use metrics_tracing_context::{MetricsLayer, TracingContextLayer};
 use metrics_util::layers::Layer as MetricsUtilLayer;
-use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
-use postgres_openssl::MakeTlsConnector;
-use std::str::FromStr;
 use sync::{Config, Downloader};
 use tower::ServiceBuilder;
 use tower_http::{
@@ -49,18 +45,18 @@ struct Args {
     #[arg(long = "pg", env = "PG_URL", default_value = "postgres://localhost/ga")]
     pg_url: String,
 
-    #[arg(long = "gafe-pg", env = "GAFE_PG_URL")]
-    gafe_pg_url: Option<String>,
+    #[arg(
+        long = "pg-ro",
+        env = "PG_URL_RO",
+        default_value = "postgres://uapi:XXX@localhost/ga"
+    )]
+    pg_url_ro: String,
+
+    #[arg(long = "pg-gafe", env = "PG_URL_GAFE")]
+    pg_url_gafe: Option<String>,
 
     #[arg(short = 'l', env = "LISTEN", default_value = "0.0.0.0:8000")]
     listen: String,
-
-    #[arg(
-        long = "pg-read-only-password",
-        env = "PG_RO_PASSWORD",
-        default_value = ""
-    )]
-    ro_password: String,
 
     #[clap(long, action = clap::ArgAction::SetTrue)]
     no_sync: bool,
@@ -83,15 +79,12 @@ async fn main() -> Result<(), api::Error> {
         .init();
 
     let args = Args::parse();
-    let config = api::Config {
-        pool: api_ro_pg(&args.pg_url, &args.ro_password),
-        broadcaster: Arc::new(api::Broadcaster::default()),
-        remote_broadcaster: Arc::new(api::Broadcaster2::default()),
-        account_limits: Arc::new(Mutex::new(HashMap::new())),
-        free_limit: Arc::new(gafe::AccountLimit::free()),
-        open_limit: Arc::new(gafe::AccountLimit::open()),
-        gafe: gafe::Connection::new(args.gafe_pg_url.clone()).await,
-    };
+    let config = api::Config::new(
+        pg::new_pool(&args.pg_url, 32)?,
+        args.pg_url_gafe
+            .as_ref()
+            .and_then(|url| pg::new_pool(url, 4).ok()),
+    );
 
     let prom_record = PrometheusBuilder::new()
         .add_global_label("name", "ga")
@@ -188,20 +181,7 @@ async fn sync(
         tracing::info!("no sync");
         return Ok(());
     }
-    let mut builder = SslConnector::builder(SslMethod::tls()).expect("tls builder");
-    builder.set_verify(SslVerifyMode::NONE);
-    let connector = MakeTlsConnector::new(builder.build());
-    let pg_mgr = Manager::from_config(
-        args.pg_url.parse().expect("parsing pg arg"),
-        connector,
-        ManagerConfig {
-            recycling_method: deadpool_postgres::RecyclingMethod::Fast,
-        },
-    );
-    let pg_pool = Pool::builder(pg_mgr)
-        .max_size(16)
-        .build()
-        .expect("unable to build new ro pool");
+    let pg_pool = pg::new_pool(&args.pg_url, 16)?;
     let pg = pg_pool.get().await?;
     pg.batch_execute(SCHEMA).await.unwrap();
     let tasks = Config::load(&pg)
@@ -225,26 +205,6 @@ async fn sync(
         }
     }
     Ok(())
-}
-
-fn api_ro_pg(cstr: &str, ro_password: &str) -> Pool {
-    let mut pg_config = tokio_postgres::Config::from_str(cstr).expect("unable to connect to ro pg");
-    pg_config.user("uapi");
-    pg_config.password(ro_password);
-    let mut builder = SslConnector::builder(SslMethod::tls()).expect("tls builder");
-    builder.set_verify(SslVerifyMode::NONE);
-    let connector = MakeTlsConnector::new(builder.build());
-    let pg_mgr = Manager::from_config(
-        pg_config,
-        connector,
-        ManagerConfig {
-            recycling_method: deadpool_postgres::RecyclingMethod::Fast,
-        },
-    );
-    Pool::builder(pg_mgr)
-        .max_size(16)
-        .build()
-        .expect("unable to build new ro pool")
 }
 
 async fn account_limits(config: api::Config) -> Result<()> {

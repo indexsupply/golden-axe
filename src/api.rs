@@ -79,6 +79,20 @@ pub struct Config {
     pub gafe: gafe::Connection,
 }
 
+impl Config {
+    pub fn new(pool: Pool, gafe_pool: Option<Pool>) -> Config {
+        Config {
+            pool,
+            gafe: gafe::Connection::new(gafe_pool),
+            broadcaster: Arc::new(Broadcaster::default()),
+            remote_broadcaster: Arc::new(Broadcaster2::default()),
+            account_limits: Arc::new(Mutex::new(HashMap::new())),
+            free_limit: Arc::new(gafe::AccountLimit::free()),
+            open_limit: Arc::new(gafe::AccountLimit::open()),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Error {
     User(String),
@@ -422,7 +436,7 @@ impl FromRequestParts<Config> for Arc<gafe::AccountLimit> {
         parts: &mut axum::http::request::Parts,
         config: &Config,
     ) -> Result<Self, Self::Rejection> {
-        if !config.gafe.live().await {
+        if !config.gafe.enabled() {
             return Ok(config.open_limit.clone());
         }
         let params = parts.uri.query().unwrap_or_default();

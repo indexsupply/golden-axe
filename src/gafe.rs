@@ -1,20 +1,13 @@
 use std::{
     collections::{HashMap, HashSet},
     num::NonZeroU32,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::Arc,
     time::Duration,
 };
 
-use eyre::{Context, Result};
+use deadpool_postgres::Pool;
 use governor::{Quota, RateLimiter};
 use nonzero::nonzero;
-use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
-use postgres_openssl::MakeTlsConnector;
-use tokio::sync::Mutex;
-use tokio_postgres::Client;
 
 use crate::{api, sql_generate};
 
@@ -52,63 +45,31 @@ impl AccountLimit {
 
 #[derive(Clone)]
 pub struct Connection {
-    pg: Arc<Mutex<Option<Client>>>,
-    live: Arc<AtomicBool>,
-}
-
-async fn pg(url: &str) -> Result<Client> {
-    let mut builder = SslConnector::builder(SslMethod::tls()).wrap_err("building tls")?;
-    builder.set_verify(SslVerifyMode::NONE);
-    let connector = MakeTlsConnector::new(builder.build());
-    let (pg, conn) = tokio_postgres::connect(url, connector)
-        .await
-        .expect("starting connection");
-    tokio::spawn(async move {
-        if let Err(e) = conn.await {
-            panic!("gafe database writer error: {}", e)
-        }
-    });
-    pg.execute("set statement_timeout = '5s'", &[])
-        .await
-        .expect("unable to set statement timeout");
-    Ok(pg)
+    pg: Option<Pool>,
 }
 
 impl Connection {
-    pub async fn new(pg_url: Option<String>) -> Connection {
-        match pg_url {
-            None => Connection {
-                pg: Arc::new(Mutex::new(None)),
-                live: Arc::new(AtomicBool::new(false)),
-            },
-            Some(url) => match pg(&url).await {
-                Ok(pg) => Connection {
-                    pg: Arc::new(Mutex::new(Some(pg))),
-                    live: Arc::new(AtomicBool::new(true)),
-                },
-                Err(e) => {
-                    tracing::error!("unable to connect to gafe: {:?}", e);
-                    Connection {
-                        pg: Arc::new(Mutex::new(None)),
-                        live: Arc::new(AtomicBool::new(false)),
-                    }
-                }
-            },
-        }
+    pub fn new(pool: Option<Pool>) -> Connection {
+        Connection { pg: pool }
     }
 
-    pub async fn live(&self) -> bool {
-        self.live.load(Ordering::Relaxed)
+    pub fn enabled(&self) -> bool {
+        self.pg.is_none()
     }
 
     #[tracing::instrument(skip_all)]
     pub async fn load_account_limits(&self) -> Option<HashMap<String, Arc<AccountLimit>>> {
-        let pg_opt = self.pg.lock().await;
-        if pg_opt.is_none() {
+        if self.pg.is_none() {
             tracing::info!("gafe pg not configured");
             return None;
         }
-        let pg = pg_opt.as_ref().unwrap();
+        let pg = self
+            .pg
+            .as_ref()
+            .unwrap()
+            .get()
+            .await
+            .expect("unable to get pg from pool");
         let res = pg
             .query(
                 "select secret, timeout, rate, origins from account_limits",
@@ -148,15 +109,19 @@ impl Connection {
         query: sql_generate::Query,
         latency: u64,
     ) {
-        let pg = self.pg.clone();
+        if self.pg.is_none() {
+            tracing::info!("gafe pg not configured");
+            return;
+        }
+        let pg = self
+            .pg
+            .as_ref()
+            .unwrap()
+            .get()
+            .await
+            .expect("unable to get pg from pool");
         tokio::spawn(async move {
             let timeout_res = tokio::time::timeout(Duration::from_secs(1), async {
-                let pg_opt = pg.lock().await;
-                if pg_opt.is_none() {
-                    tracing::info!("gafe pg not configured");
-                    return;
-                }
-                let pg = pg_opt.as_ref().unwrap();
                 let res = pg
                     .query(
                         "insert into user_queries (
