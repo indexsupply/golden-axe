@@ -1,36 +1,13 @@
 #[cfg(test)]
 mod pl_pgsql_test {
     use alloy::{hex, primitives::U256};
-    use postgresql_embedded::{PostgreSQL, Settings, Version};
-    use tokio_postgres::{Client, NoTls};
 
-    static SCHEMA: &str = include_str!("./sql/schema.sql");
-
-    async fn test_pg() -> (PostgreSQL, Client) {
-        let pg_settings = Settings {
-            version: Version::new(16, Some(2), Some(3)),
-            ..Default::default()
-        };
-        let mut db = PostgreSQL::new(pg_settings);
-        db.setup().await.expect("setting up pg");
-        db.start().await.expect("starting pg");
-        db.create_database("dozer-test")
-            .await
-            .expect("creating test db");
-        let (client, connection) = tokio_postgres::connect(&db.settings().url("dozer-test"), NoTls)
-            .await
-            .expect("unable to start test database");
-        tokio::spawn(connection);
-        client
-            .batch_execute(SCHEMA)
-            .await
-            .expect("resetting schema");
-        (db, client)
-    }
+    use crate::pg;
 
     #[tokio::test]
     async fn test_abi_uint_array() {
-        let (_pg_server, pg) = test_pg().await;
+        let (_pg_server, pool) = pg::test_utils::test_pg().await;
+        let pg = pool.get().await.expect("getting pg from test pool");
         let data = hex!(
             r#"
             0000000000000000000000000000000000000000000000000000000000000020

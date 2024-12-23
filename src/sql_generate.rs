@@ -156,10 +156,8 @@ fn abi_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use postgresql_embedded::{PostgreSQL, Settings, Version};
-    use tokio_postgres::{Client, NoTls};
-
     use super::*;
+    use crate::pg;
 
     const PG: &sqlparser::dialect::PostgreSqlDialect = &sqlparser::dialect::PostgreSqlDialect {};
 
@@ -170,29 +168,6 @@ mod tests {
             &sqlformat::QueryParams::None,
             sqlformat::FormatOptions::default(),
         ))
-    }
-    static SCHEMA: &str = include_str!("./sql/schema.sql");
-
-    async fn test_pg() -> (PostgreSQL, Client) {
-        let pg_settings = Settings {
-            version: Version::new(16, Some(2), Some(3)),
-            ..Default::default()
-        };
-        let mut db = PostgreSQL::new(pg_settings);
-        db.setup().await.expect("setting up pg");
-        db.start().await.expect("starting pg");
-        db.create_database("dozer-test")
-            .await
-            .expect("creating test db");
-        let (client, connection) = tokio_postgres::connect(&db.settings().url("dozer-test"), NoTls)
-            .await
-            .expect("unable to start test database");
-        tokio::spawn(connection);
-        client
-            .batch_execute(SCHEMA)
-            .await
-            .expect("resetting schema");
-        (db, client)
     }
 
     async fn check_sql(event_sigs: Vec<&str>, user_query: &str, want: &str) {
@@ -206,7 +181,8 @@ mod tests {
         if got.to_lowercase().ne(&want.to_lowercase()) {
             panic!("got:\n{}\n\nwant:\n{}\n", got, want);
         }
-        let (_pg_server, pg) = test_pg().await;
+        let (_pg_server, pool) = pg::test_utils::test_pg().await;
+        let pg = pool.get().await.expect("getting pg from test pool");
         pg.query(&got, &[]).await.expect("issue with query");
     }
 

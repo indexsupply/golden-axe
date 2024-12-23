@@ -30,7 +30,7 @@ pub mod test_utils {
 
     pub async fn test_pg() -> (PostgreSQL, Pool) {
         let pg_settings = Settings {
-            version: Version::new(16, Some(2), Some(3)),
+            version: Version::new(17, Some(2), Some(0)),
             ..Default::default()
         };
         let mut db = PostgreSQL::new(pg_settings);
