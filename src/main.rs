@@ -8,12 +8,7 @@ mod sql_test;
 mod sync;
 mod user_query;
 
-use std::{
-    future::{ready, IntoFuture},
-    net::SocketAddr,
-    sync::Arc,
-    time::Duration,
-};
+use std::{future::IntoFuture, net::SocketAddr, sync::Arc, time::Duration};
 
 use axum::{
     body::Body,
@@ -25,9 +20,6 @@ use clap::Parser;
 use eyre::{eyre, Result};
 use futures::TryFutureExt;
 use itertools::Itertools;
-use metrics_exporter_prometheus::PrometheusBuilder;
-use metrics_tracing_context::{MetricsLayer, TracingContextLayer};
-use metrics_util::layers::Layer as MetricsUtilLayer;
 use sync::{Config, Downloader};
 use tower::ServiceBuilder;
 use tower_http::{
@@ -73,7 +65,6 @@ async fn main() -> Result<(), api::Error> {
         .with_default_directive(LevelFilter::INFO.into())
         .from_env_lossy();
     tracing_subscriber::registry()
-        .with(MetricsLayer::new())
         .with(fmt_layer)
         .with(filter_layer)
         .init();
@@ -162,12 +153,6 @@ async fn flatten<T>(handle: tokio::task::JoinHandle<Result<T>>) -> Result<T> {
 }
 
 fn service(config: api::Config) -> IntoMakeServiceWithConnectInfo<Router, SocketAddr> {
-    let prom_record = PrometheusBuilder::new()
-        .add_global_label("name", "ga")
-        .build_recorder();
-    let prom_handler = prom_record.handle();
-    metrics::set_global_recorder(TracingContextLayer::all().layer(prom_record))
-        .expect("unable to set global metrics recorder");
     let tracing = TraceLayer::new_for_http()
         .make_span_with(|req: &axum::http::Request<Body>| {
              let path = req
@@ -184,18 +169,12 @@ fn service(config: api::Config) -> IntoMakeServiceWithConnectInfo<Router, Socket
              )
         })
         .on_response(
-            |resp: &axum::http::Response<_>, d: Duration, span: &tracing::Span| {
+            |resp: &axum::http::Response<_>, _: Duration, span: &tracing::Span| {
                 span.record("status", resp.status().as_u16());
-                let _guard = span.enter();
-                metrics::counter!("api.requests").increment(1);
-                metrics::histogram!("api.latency").record(d.as_millis() as f64);
-                if !resp.status().is_success() {
-                    metrics::counter!("api.errors").increment(1);
-                }
             },
         )
         .on_failure(
-            |error: ServerErrorsFailureClass, _latency: Duration, _span: &tracing::Span| {
+            |error: ServerErrorsFailureClass, _: Duration, _span: &tracing::Span| {
                 tracing::error!(error = %error)
             },
         );
@@ -214,7 +193,6 @@ fn service(config: api::Config) -> IntoMakeServiceWithConnectInfo<Router, Socket
         .layer(CompressionLayer::new());
     Router::new()
         .route("/", get(|| async { "hello\n" }))
-        .route("/metrics", get(move || ready(prom_handler.render())))
         .route("/status", get(api::handle_status))
         .route("/query", get(api_sql::handle_get))
         .route("/query", post(api_sql::handle_post))
