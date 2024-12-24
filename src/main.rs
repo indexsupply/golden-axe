@@ -226,7 +226,9 @@ fn service(config: api::Config) -> IntoMakeServiceWithConnectInfo<Router, Socket
 
 #[cfg(test)]
 mod tests {
+    use alloy::primitives::{Bytes, B256, U64};
     use axum_test::TestServer;
+    use serde_json::json;
 
     use super::*;
     use crate::pg;
@@ -237,5 +239,38 @@ mod tests {
         let config = api::Config::new(pool, None);
         let server = TestServer::new(service(config)).unwrap();
         server.get("/").await.assert_text_contains("hello");
+    }
+
+    #[tokio::test]
+    async fn test_query_post_with_params() {
+        let (_pg_server, pool) = pg::test_utils::test_pg().await;
+        let pg = pool.get().await.expect("unable to get pg from pool");
+        pg::test_utils::insert(
+            &pg,
+            vec![pg::test_utils::Log {
+                chain: U64::from(1),
+                block_num: U64::from(1),
+                topics: vec![B256::with_last_byte(0x42)],
+                data: Bytes::from_static(&[0x42]),
+            }],
+        )
+        .await;
+        let config = api::Config::new(pool, None);
+        let server = TestServer::new(service(config)).unwrap();
+        let request = vec![api_sql::Request {
+            block_height: None,
+            event_signatures: vec![],
+            query: String::from("select block_num from logs"),
+        }];
+        server
+            .post("/query")
+            .add_query_param("api-key", "face")
+            .add_query_param("chain", "1")
+            .json(&request)
+            .await
+            .assert_json(&json!({
+                "block_height": 1,
+                "result": [[["block_num"],[1]]]
+            }));
     }
 }
