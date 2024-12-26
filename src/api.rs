@@ -281,7 +281,7 @@ pub async fn limit(
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
-pub struct Chain(u64);
+pub struct Chain(pub u64);
 
 impl Chain {
     pub fn into_inner(self) -> u64 {

@@ -24,34 +24,9 @@ pub fn new_pool(url: &str, size: usize) -> Result<Pool> {
 
 #[cfg(test)]
 pub mod test_utils {
-    use alloy::primitives::{Bytes, B256, U64};
     use deadpool_postgres::Pool;
     use postgresql_embedded::{PostgreSQL, Settings, Version};
-    use tokio_postgres::{Client, NoTls};
-
-    pub struct Log {
-        pub chain: U64,
-        pub block_num: U64,
-        pub topics: Vec<B256>,
-        pub data: Bytes,
-    }
-
-    pub async fn insert(pg: &Client, logs: Vec<Log>) {
-        for log in logs {
-            pg.execute(
-                r#"insert into blocks(chain, num, hash) values ($1, $2, '\xface')"#,
-                &[&log.chain, &log.block_num],
-            )
-            .await
-            .unwrap();
-            pg.execute(
-                "insert into logs(chain, block_num, topics, data) values ($1, $2, $3, $4)",
-                &[&log.chain, &log.block_num, &log.topics, &log.data.to_vec()],
-            )
-            .await
-            .unwrap();
-        }
-    }
+    use tokio_postgres::NoTls;
 
     pub async fn test_pg() -> (PostgreSQL, Pool) {
         let pg_settings = Settings {

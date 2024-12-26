@@ -352,7 +352,7 @@ impl Downloader {
 }
 
 #[tracing::instrument(level="debug" fields(logs) skip_all)]
-async fn copy(pgtx: &Transaction<'_>, chain_id: api::Chain, logs: Vec<Log>) -> Result<u64> {
+pub async fn copy(pgtx: &Transaction<'_>, chain_id: api::Chain, logs: Vec<Log>) -> Result<u64> {
     const Q: &str = "
         copy logs (
             chain,

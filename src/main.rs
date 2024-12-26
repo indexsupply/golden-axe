@@ -204,12 +204,58 @@ fn service(config: api::Config) -> IntoMakeServiceWithConnectInfo<Router, Socket
 
 #[cfg(test)]
 mod tests {
-    use alloy::primitives::{Bytes, B256, U64};
+    use alloy::{
+        primitives::{B256, U256, U64},
+        sol,
+        sol_types::{JsonAbiExt, SolEvent},
+    };
     use axum_test::TestServer;
     use serde_json::json;
 
     use super::*;
     use crate::pg;
+
+    macro_rules! add_log {
+        ($pool:expr, $chain:expr, $block_num:expr, $event:expr) => {{
+            let log = alloy::rpc::types::Log {
+                inner: alloy::primitives::Log {
+                    data: $event.encode_log_data(),
+                    address: alloy::primitives::Address::with_last_byte(0xab),
+                },
+                block_number: Some($block_num),
+                block_hash: Some(B256::with_last_byte(0xab)),
+                block_timestamp: Some(1),
+                transaction_hash: Some(B256::with_last_byte(0xab)),
+                transaction_index: Some(1),
+                log_index: Some(1),
+                removed: false,
+            };
+            let mut pg = $pool
+                .get()
+                .await
+                .expect("unable to get test pg client from pool");
+            let pgtx = pg
+                .transaction()
+                .await
+                .expect("unable to start new pgtx from pg pool");
+            sync::copy(&pgtx, $chain, vec![log.clone()])
+                .await
+                .expect("unable to copy new logs");
+            pgtx.execute(
+                "insert into blocks(chain, num, hash) values ($1, $2, $3)",
+                &[
+                    &$chain,
+                    &U64::from(log.block_number.unwrap()),
+                    &log.block_hash.unwrap(),
+                ],
+            )
+            .await
+            .expect("unable to update blocks table");
+            pgtx.commit()
+                .await
+                .expect("unable to commit the add_logs pg tx");
+        }};
+    }
 
     #[tokio::test]
     async fn test_index() {
@@ -222,23 +268,18 @@ mod tests {
     #[tokio::test]
     async fn test_query_post_with_params() {
         let (_pg_server, pool) = pg::test_utils::test_pg().await;
-        let pg = pool.get().await.expect("unable to get pg from pool");
-        pg::test_utils::insert(
-            &pg,
-            vec![pg::test_utils::Log {
-                chain: U64::from(1),
-                block_num: U64::from(1),
-                topics: vec![B256::with_last_byte(0x42)],
-                data: Bytes::from_static(&[0x42]),
-            }],
-        )
-        .await;
+        sol! {
+            #[sol(abi)]
+            event Foo(uint a);
+        };
+        add_log!(pool, api::Chain(1), 1, Foo { a: U256::from(42) });
+
         let config = api::Config::new(pool, None);
         let server = TestServer::new(service(config)).unwrap();
         let request = vec![api_sql::Request {
             block_height: None,
-            event_signatures: vec![],
-            query: String::from("select block_num from logs"),
+            event_signatures: vec![Foo::abi().full_signature()],
+            query: String::from("select a, block_num from foo"),
         }];
         server
             .post("/query")
@@ -248,7 +289,7 @@ mod tests {
             .await
             .assert_json(&json!({
                 "block_height": 1,
-                "result": [[["block_num"],[1]]]
+                "result": [[["a", "block_num"],["42", 1]]]
             }));
     }
 }
