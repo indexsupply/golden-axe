@@ -116,7 +116,7 @@ impl Downloader {
         tracing::info!("initializing blocks table at: {}", self.start);
         let block = self
             .eth_client
-            .get_block_by_number(self.start, false)
+            .get_block_by_number(self.start, alloy::rpc::types::BlockTransactionsKind::Hashes)
             .await?
             .ok_or_eyre(eyre!("missing block {}", self.start))?;
         self.pg_pool
@@ -130,8 +130,8 @@ impl Downloader {
                 ",
                 &[
                     &self.chain,
-                    &U64::from(block.header.number.expect("missing header number")),
-                    &block.header.hash.unwrap_or_default(),
+                    &U64::from(block.header.number),
+                    &block.header.hash,
                 ],
             )
             .await
@@ -191,11 +191,11 @@ impl Downloader {
         let next = self.next(&pgtx, batch_size).await?;
 
         let (start, end, end_hash) = (
-            next.start.header.number.unwrap(),
-            next.end.header.number.unwrap(),
-            next.end.header.hash.unwrap(),
+            next.start.header.number,
+            next.end.header.number,
+            next.end.header.hash,
         );
-        let filter = self.filter.clone().select(start..end);
+        let filter = self.filter.clone().from_block(start).to_block(end);
 
         tracing::Span::current()
             .record("start", start)
@@ -224,11 +224,14 @@ impl Downloader {
         for _ in 0..5000 {
             let latest_remote = self
                 .eth_client
-                .get_block_by_number(BlockNumberOrTag::Latest, false)
+                .get_block_by_number(
+                    BlockNumberOrTag::Latest,
+                    alloy::rpc::types::BlockTransactionsKind::Hashes,
+                )
                 .await
                 .wrap_err("requesting latest block")?
                 .ok_or(eyre!("missing latest block"))?;
-            let remote_num = latest_remote.header.number.unwrap();
+            let remote_num = latest_remote.header.number;
             let (local_num, local_hash) = self.get_local_latest(pgtx).await?;
             let local_num: u64 = local_num.to();
 
@@ -249,12 +252,18 @@ impl Downloader {
             let (from, to) = (local_num + 1, local_num + delta);
             let (from, to) = (
                 self.eth_client
-                    .get_block_by_number(BlockNumberOrTag::Number(from), false)
+                    .get_block_by_number(
+                        BlockNumberOrTag::Number(from),
+                        alloy::rpc::types::BlockTransactionsKind::Hashes,
+                    )
                     .await
                     .map_err(|e| Error::Retry(eyre!("downloading block: {}", e)))?
                     .ok_or_else(|| Error::Retry(eyre!("missing block: {}", from)))?,
                 self.eth_client
-                    .get_block_by_number(BlockNumberOrTag::Number(to), false)
+                    .get_block_by_number(
+                        BlockNumberOrTag::Number(to),
+                        alloy::rpc::types::BlockTransactionsKind::Hashes,
+                    )
                     .await
                     .map_err(|e| Error::Retry(eyre!("downloading block: {}", e)))?
                     .ok_or_else(|| Error::Retry(eyre!("missing block: {}", to)))?,
@@ -262,8 +271,8 @@ impl Downloader {
             if from.header.parent_hash != local_hash {
                 tracing::error!(
                     "reorg remote={}/{} local={}/{} removed={}",
-                    from.header.number.unwrap(),
-                    hex::encode(&from.header.hash.unwrap()[..4]),
+                    from.header.number,
+                    hex::encode(&from.header.hash[..4]),
                     local_num,
                     hex::encode(&local_hash[..4]),
                     removed,
