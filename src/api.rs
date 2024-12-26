@@ -246,6 +246,12 @@ impl Broadcaster {
             })
             .or_insert(broadcast::channel(16).0);
     }
+    pub fn close(&self, chain: Chain) {
+        self.clients
+            .lock()
+            .expect("unlocking mutext for broadcast")
+            .remove_entry(&chain);
+    }
 }
 
 pub async fn limit(

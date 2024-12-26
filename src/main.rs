@@ -292,4 +292,57 @@ mod tests {
                 "result": [[["a", "block_num"],["42", 1]]]
             }));
     }
+
+    #[tokio::test]
+    async fn test_query_sse() {
+        let (_pg_server, pool) = pg::test_utils::test_pg().await;
+        sol! {
+            #[sol(abi)]
+            event Foo(uint a);
+        };
+
+        let config = api::Config::new(pool.clone(), None);
+        let server = TestServer::new(service(config.clone())).unwrap();
+        let request = api_sql::Request {
+            block_height: None,
+            event_signatures: vec![Foo::abi().full_signature()],
+            query: String::from("select a, block_num from foo"),
+        };
+
+        tokio::spawn(async move {
+            let bcaster = config.broadcaster.clone();
+            let mut block = 1;
+            loop {
+                if block > 5 {
+                    bcaster.close(api::Chain(1));
+                    break;
+                } else {
+                    add_log!(pool, api::Chain(1), block, Foo { a: U256::from(42) });
+                    bcaster.broadcast(api::Chain(1), block);
+                    block += 1;
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+            }
+        });
+        let resp = server
+            .get("/query-live")
+            .add_query_param("chain", 1)
+            .add_raw_query_param(&serde_html_form::to_string(&request).unwrap())
+            .await;
+        resp.assert_text_contains(
+            r#"data: {"block_height":1,"result":[[["a","block_num"],["42",1]]]}"#,
+        );
+        resp.assert_text_contains(
+            r#"data: {"block_height":2,"result":[[["a","block_num"],["42",2]]]}"#,
+        );
+        resp.assert_text_contains(
+            r#"data: {"block_height":3,"result":[[["a","block_num"],["42",3]]]}"#,
+        );
+        resp.assert_text_contains(
+            r#"data: {"block_height":4,"result":[[["a","block_num"],["42",4]]]}"#,
+        );
+        resp.assert_text_contains(
+            r#"data: {"block_height":5,"result":[[["a","block_num"],["42",5]]]}"#,
+        );
+    }
 }
