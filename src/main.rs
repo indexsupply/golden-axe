@@ -311,18 +311,12 @@ mod tests {
 
         tokio::spawn(async move {
             let bcaster = config.broadcaster.clone();
-            let mut block = 1;
-            loop {
-                if block > 5 {
-                    bcaster.close(api::Chain(1));
-                    break;
-                } else {
-                    add_log!(pool, api::Chain(1), block, Foo { a: U256::from(42) });
-                    bcaster.broadcast(api::Chain(1), block);
-                    block += 1;
-                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                }
+            for i in 1..=5 {
+                add_log!(pool, api::Chain(1), i, Foo { a: U256::from(42) });
+                bcaster.broadcast(api::Chain(1), i);
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
+            bcaster.close(api::Chain(1));
         });
         let resp = server
             .get("/query-live")
