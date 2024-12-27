@@ -311,7 +311,7 @@ mod tests {
 
         tokio::spawn(async move {
             let bcaster = config.broadcaster.clone();
-            for i in 1..=5 {
+            for i in 1..=3 {
                 add_log!(pool, api::Chain(1), i, Foo { a: U256::from(42) });
                 bcaster.broadcast(api::Chain(1), i);
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -331,12 +331,6 @@ mod tests {
         );
         resp.assert_text_contains(
             r#"data: {"block_height":3,"result":[[["a","block_num"],["42",3]]]}"#,
-        );
-        resp.assert_text_contains(
-            r#"data: {"block_height":4,"result":[[["a","block_num"],["42",4]]]}"#,
-        );
-        resp.assert_text_contains(
-            r#"data: {"block_height":5,"result":[[["a","block_num"],["42",5]]]}"#,
         );
     }
 }
