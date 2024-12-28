@@ -8,7 +8,7 @@ use std::{
 
 use axum::{
     extract::{rejection::JsonRejection, ConnectInfo, FromRequest, FromRequestParts, State},
-    http::{HeaderMap, StatusCode},
+    http::{request::Parts, HeaderMap, StatusCode},
     response::{
         sse::{Event as SSEvent, KeepAlive},
         Html, IntoResponse, Sse,
@@ -265,8 +265,8 @@ pub async fn limit(
         match origin_domain {
             None => tracing::error!("missing origin"),
             Some(domain) => {
-                if !account_limit.origins.contains(&domain) {
-                    tracing::error!("origin {} not allowed", domain);
+                if !account_limit.origins.contains(domain.0.as_str()) {
+                    tracing::error!("origin {:?} not allowed", domain);
                 }
             }
         }
@@ -330,12 +330,9 @@ impl tokio_postgres::types::ToSql for Chain {
 }
 
 #[axum::async_trait]
-impl FromRequestParts<Config> for Chain {
+impl<S: Send + Sync> FromRequestParts<S> for Chain {
     type Rejection = Error;
-    async fn from_request_parts(
-        parts: &mut axum::http::request::Parts,
-        _: &Config,
-    ) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
         let params = parts.uri.query().unwrap_or_default();
         let decoded =
             serde_urlencoded::from_str::<HashMap<String, String>>(params).unwrap_or_default();
@@ -366,12 +363,9 @@ impl fmt::Display for Key {
 }
 
 #[axum::async_trait]
-impl FromRequestParts<Config> for Key {
+impl<S: Send + Sync> FromRequestParts<S> for Key {
     type Rejection = Error;
-    async fn from_request_parts(
-        parts: &mut axum::http::request::Parts,
-        _: &Config,
-    ) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
         let params = parts.uri.query().unwrap_or_default();
         let decoded =
             serde_urlencoded::from_str::<HashMap<String, String>>(params).unwrap_or_default();
@@ -380,25 +374,23 @@ impl FromRequestParts<Config> for Key {
     }
 }
 
-type OriginDomain = String;
+#[derive(Debug)]
+pub struct OriginDomain(String);
 
 #[axum::async_trait]
-impl FromRequestParts<Config> for Option<OriginDomain> {
+impl<S: Send + Sync> FromRequestParts<S> for OriginDomain {
     type Rejection = Error;
-    async fn from_request_parts(
-        parts: &mut axum::http::request::Parts,
-        _: &Config,
-    ) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
         if let Some(origin_header) = parts.headers.get("origin") {
             if let Ok(origin) = origin_header.to_str() {
                 if let Ok(origin) = Url::parse(origin) {
                     if let Some(domain) = origin.domain() {
-                        return Ok(Some(OriginDomain::from(domain)));
+                        return Ok(OriginDomain(domain.to_string()));
                     }
                 }
             }
         }
-        return Ok(None);
+        user_error!("missing origin domain")
     }
 }
 
@@ -412,12 +404,9 @@ impl OriginIp {
 }
 
 #[axum::async_trait]
-impl FromRequestParts<Config> for OriginIp {
+impl<S: Send + Sync> FromRequestParts<S> for OriginIp {
     type Rejection = Error;
-    async fn from_request_parts(
-        parts: &mut axum::http::request::Parts,
-        _: &Config,
-    ) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
         let ip = parts
             .headers
             .get("X-Forwarded-For")
@@ -439,7 +428,7 @@ impl FromRequestParts<Config> for OriginIp {
 impl FromRequestParts<Config> for Arc<gafe::AccountLimit> {
     type Rejection = Error;
     async fn from_request_parts(
-        parts: &mut axum::http::request::Parts,
+        parts: &mut Parts,
         config: &Config,
     ) -> Result<Self, Self::Rejection> {
         if !config.gafe.enabled() {
