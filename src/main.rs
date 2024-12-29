@@ -155,16 +155,19 @@ async fn flatten<T>(handle: tokio::task::JoinHandle<Result<T>>) -> Result<T> {
 fn service(config: api::Config) -> IntoMakeServiceWithConnectInfo<Router, SocketAddr> {
     let tracing = TraceLayer::new_for_http()
         .make_span_with(|req: &axum::http::Request<Body>| {
-             let path = req
-                 .extensions()
+            let method = req.method().as_str().to_lowercase();
+            let path = req
+                .extensions()
                  .get::<MatchedPath>()
                  .map(MatchedPath::as_str);
              tracing::info_span!("http",
-                 "api-key" = tracing::field::Empty,
-                 "ip" = tracing::field::Empty,
-                 "size" = tracing::field::Empty,
-                 status = tracing::field::Empty,
+                 method,
                  path,
+                 ip = tracing::field::Empty,
+                 domain = tracing::field::Empty,
+                 key = tracing::field::Empty,
+                 size = tracing::field::Empty,
+                 status = tracing::field::Empty,
                  chain = tracing::field::Empty,
              )
         })
@@ -181,6 +184,7 @@ fn service(config: api::Config) -> IntoMakeServiceWithConnectInfo<Router, Socket
     let service = ServiceBuilder::new()
         .layer(axum::middleware::from_fn(api::latency_header))
         .layer(tracing)
+        .layer(axum::middleware::from_fn(api::log_fields))
         .layer(axum::middleware::from_fn(api::content_length_header))
         .layer(HandleErrorLayer::new(api::handle_service_error))
         .load_shed()

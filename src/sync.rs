@@ -139,7 +139,7 @@ impl Downloader {
             .wrap_err("unable to init blocks table")
     }
 
-    #[tracing::instrument(skip_all fields(event, chain = self.chain.into_inner()))]
+    #[tracing::instrument(skip_all fields(event, chain = self.chain.0))]
     pub async fn run(&self, broadcaster: Arc<api::Broadcaster>) {
         {
             let pg = self

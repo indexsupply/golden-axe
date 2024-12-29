@@ -289,12 +289,6 @@ pub async fn limit(
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
 pub struct Chain(pub u64);
 
-impl Chain {
-    pub fn into_inner(self) -> u64 {
-        self.0
-    }
-}
-
 impl fmt::Display for Chain {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
@@ -318,7 +312,7 @@ impl tokio_postgres::types::ToSql for Chain {
     ) -> Result<tokio_postgres::types::IsNull, Box<dyn std::error::Error + Sync + Send + 'static>>
     {
         if matches!(*ty, tokio_postgres::types::Type::INT8) {
-            out.put_i64(self.into_inner() as i64);
+            out.put_i64(self.0 as i64);
             Ok(tokio_postgres::types::IsNull::No)
         } else {
             Err(Box::new(tokio_postgres::types::WrongType::new::<Self>(
@@ -337,7 +331,6 @@ impl<S: Send + Sync> FromRequestParts<S> for Chain {
         let decoded =
             serde_urlencoded::from_str::<HashMap<String, String>>(params).unwrap_or_default();
         if let Some(chain) = decoded.get("chain").cloned().and_then(|c| c.parse().ok()) {
-            tracing::Span::current().record("chain", chain);
             Ok(Chain(chain))
         } else if let Some(chain) = parts
             .headers
@@ -345,7 +338,6 @@ impl<S: Send + Sync> FromRequestParts<S> for Chain {
             .and_then(|c| c.to_str().ok())
             .and_then(|c| c.parse().ok())
         {
-            tracing::Span::current().record("chain", chain);
             Ok(Chain(chain))
         } else {
             user_error!("must supply Chain header or chain query parameter")
@@ -359,6 +351,12 @@ pub struct Key(String);
 impl fmt::Display for Key {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+impl Key {
+    pub fn short(&self) -> String {
+        self.0[..self.0.len().min(4)].to_string()
     }
 }
 
@@ -376,6 +374,12 @@ impl<S: Send + Sync> FromRequestParts<S> for Key {
 
 #[derive(Debug)]
 pub struct OriginDomain(String);
+
+impl fmt::Display for OriginDomain {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 #[axum::async_trait]
 impl<S: Send + Sync> FromRequestParts<S> for OriginDomain {
@@ -396,6 +400,12 @@ impl<S: Send + Sync> FromRequestParts<S> for OriginDomain {
 
 #[derive(Clone)]
 pub struct OriginIp(String);
+
+impl fmt::Display for OriginIp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 impl OriginIp {
     pub fn into_inner(self) -> String {
@@ -419,7 +429,6 @@ impl<S: Send + Sync> FromRequestParts<S> for OriginIp {
                     .map(|ConnectInfo(addr)| addr.ip().to_string())
             })
             .ok_or_else(|| Error::User("unable to get ip address".to_string()))?;
-        tracing::Span::current().record("ip", ip.to_string());
         Ok(OriginIp(ip))
     }
 }
@@ -438,8 +447,6 @@ impl FromRequestParts<Config> for Arc<gafe::AccountLimit> {
         let decoded =
             serde_urlencoded::from_str::<HashMap<String, String>>(params).unwrap_or_default();
         let client_id = decoded.get("api-key").cloned().unwrap_or_default();
-        let client_id_short = &client_id[..client_id.len().min(4)];
-        tracing::Span::current().record("api-key", client_id_short);
         match config.account_limits.lock().unwrap().get(&client_id) {
             Some(limit) => Ok(limit.clone()),
             None => Ok(config.free_limit.clone()),
@@ -475,4 +482,20 @@ pub async fn content_length_header(
         .map(|cl| cl.parse::<u64>().ok())
         .map(|size| span.record("size", size));
     Ok(response)
+}
+
+pub async fn log_fields(
+    ip: OriginIp,
+    domain: Option<OriginDomain>,
+    key: Option<Key>,
+    chain: Chain,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Result<axum::response::Response, Error> {
+    let span = tracing::Span::current();
+    span.record("ip", ip.to_string());
+    domain.map(|d| span.record("origin", d.to_string()));
+    key.map(|k| span.record("key", k.short()));
+    span.record("chain", chain.0);
+    Ok(next.run(request).await)
 }
