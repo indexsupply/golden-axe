@@ -93,7 +93,7 @@ pub async fn handle_sse(
 }
 
 macro_rules! log_query {
-    ($enabled:expr, $config:expr, $api_key:expr, $chain:expr, $query:expr, $block:block) => {{
+    ($enabled:expr, $config:expr, $key:expr, $chain:expr, $events:expr, $query:expr, $block:block) => {{
         if !$enabled {
             $block
         } else {
@@ -107,7 +107,7 @@ macro_rules! log_query {
                 .as_millis() as u64;
             $config
                 .gafe
-                .log_query($api_key.to_string(), $chain, $query, latency)
+                .log_query($key.to_string(), $chain, $events, $query, latency)
                 .await;
         }
     }};
@@ -151,9 +151,17 @@ async fn query(
             &r.query,
             r.event_signatures.iter().map(|s| s.as_str()).collect(),
         )?;
-        log_query!(log_enabled, config, api_key, chain, query, {
-            res.push(handle_rows(pgtx.query(&query.generated_query, &[]).await?)?);
-        });
+        log_query!(
+            log_enabled,
+            config,
+            api_key,
+            chain,
+            r.event_signatures,
+            r.query,
+            {
+                res.push(handle_rows(pgtx.query(&query, &[]).await?)?);
+            }
+        );
     }
     Ok(Json(Response {
         block_height: pgtx

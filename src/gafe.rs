@@ -9,7 +9,7 @@ use deadpool_postgres::Pool;
 use governor::{Quota, RateLimiter};
 use nonzero::nonzero;
 
-use crate::{api, sql_generate};
+use crate::api;
 
 #[derive(Debug)]
 pub struct AccountLimit {
@@ -104,9 +104,10 @@ impl Connection {
     #[tracing::instrument(level = "debug" skip_all)]
     pub async fn log_query(
         &self,
-        api_key: String,
+        key: String,
         chain: api::Chain,
-        query: sql_generate::Query,
+        events: Vec<String>,
+        query: String,
         latency: u64,
     ) {
         if self.pg.is_none() {
@@ -129,19 +130,9 @@ impl Connection {
                             chain,
                             events,
                             user_query,
-                            rewritten_query,
-                            generated_query,
                             latency
-                        ) values ($1, $2, $3, $4, $5, $6, $7)",
-                        &[
-                            &api_key,
-                            &chain,
-                            &query.event_sigs,
-                            &query.user_query,
-                            &query.rewritten_query,
-                            &query.generated_query,
-                            &(latency as i32),
-                        ],
+                        ) values ($1, $2, $3, $4, $5)",
+                        &[&key, &chain, &events, &query, &(latency as i32)],
                     )
                     .await;
                 if res.is_err() {
