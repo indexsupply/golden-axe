@@ -486,7 +486,7 @@ pub async fn content_length_header(
 
 pub async fn log_fields(
     ip: OriginIp,
-    domain: Option<OriginDomain>,
+    origin: Option<OriginDomain>,
     key: Option<Key>,
     chain: Option<Chain>,
     request: axum::extract::Request,
@@ -494,7 +494,7 @@ pub async fn log_fields(
 ) -> Result<axum::response::Response, Error> {
     let span = tracing::Span::current();
     span.record("ip", ip.to_string());
-    domain.map(|v| span.record("origin", v.to_string()));
+    origin.map(|v| span.record("origin", v.to_string()));
     key.map(|v| span.record("key", v.short()));
     chain.map(|v| span.record("chain", v.0));
     Ok(next.run(request).await)

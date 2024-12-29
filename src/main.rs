@@ -164,7 +164,7 @@ fn service(config: api::Config) -> IntoMakeServiceWithConnectInfo<Router, Socket
                  method,
                  path,
                  ip = tracing::field::Empty,
-                 domain = tracing::field::Empty,
+                 origin = tracing::field::Empty,
                  key = tracing::field::Empty,
                  size = tracing::field::Empty,
                  status = tracing::field::Empty,
