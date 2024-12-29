@@ -273,7 +273,7 @@ pub async fn limit(
     }
     if account_limit
         .rate
-        .check_key(&origin_ip.into_inner())
+        .check_key(&origin_ip.to_string())
         .is_err()
     {
         return Err(Error::TooManyRequests(Some(String::from(
@@ -404,12 +404,6 @@ pub struct OriginIp(String);
 impl fmt::Display for OriginIp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
-    }
-}
-
-impl OriginIp {
-    pub fn into_inner(self) -> String {
-        self.0.to_string()
     }
 }
 
