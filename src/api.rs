@@ -488,14 +488,14 @@ pub async fn log_fields(
     ip: OriginIp,
     domain: Option<OriginDomain>,
     key: Option<Key>,
-    chain: Chain,
+    chain: Option<Chain>,
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Result<axum::response::Response, Error> {
     let span = tracing::Span::current();
     span.record("ip", ip.to_string());
-    domain.map(|d| span.record("origin", d.to_string()));
-    key.map(|k| span.record("key", k.short()));
-    span.record("chain", chain.0);
+    domain.map(|v| span.record("origin", v.to_string()));
+    key.map(|v| span.record("key", v.short()));
+    chain.map(|v| span.record("chain", v.0));
     Ok(next.run(request).await)
 }
