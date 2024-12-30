@@ -281,6 +281,7 @@ mod tests {
         let config = api::Config::new(pool, None);
         let server = TestServer::new(service(config)).unwrap();
         let request = vec![api_sql::Request {
+            destination_url: None,
             api_key: None,
             chain: None,
             block_height: None,
@@ -310,6 +311,7 @@ mod tests {
         let config = api::Config::new(pool.clone(), None);
         let server = TestServer::new(service(config.clone())).unwrap();
         let request = api_sql::Request {
+            destination_url: None,
             api_key: None,
             chain: Some(api::Chain(1)),
             block_height: None,

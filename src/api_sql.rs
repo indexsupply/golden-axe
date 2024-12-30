@@ -13,6 +13,7 @@ use axum::{
     Json,
 };
 use axum_extra::extract::Form;
+use deadpool_postgres::Pool;
 use eyre::{Context, Result};
 use futures::Stream;
 use itertools::Itertools;
@@ -27,6 +28,7 @@ use crate::{
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Request {
+    pub destination_url: Option<String>,
     #[serde(alias = "api-key")]
     pub api_key: Option<api::Key>,
     pub chain: Option<api::Chain>,
@@ -96,6 +98,52 @@ pub async fn handle_sse(
         }
     };
     Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+async fn webhooks(pool: Pool, broadcaster: api::Broadcaster) {
+    let requests: Vec<Request> = vec![];
+    for request in requests {
+        let pool = pool.clone();
+        let mut req = request.clone();
+        let mut rx = broadcaster.wait(req.chain.unwrap());
+        tokio::spawn(async move {
+            loop {
+                match rx.recv().await {
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Ok(_) => match deliver(pool.clone(), &mut req).await {
+                        Err(e) => tracing::error!("failed webhook {:?}", e),
+                        Ok(()) => tracing::info!("successful webhook"),
+                    },
+                }
+            }
+        });
+    }
+}
+
+async fn deliver(pool: Pool, req: &mut Request) -> Result<(), api::Error> {
+    let dest_url = req
+        .destination_url
+        .as_ref()
+        .ok_or(api::Error::User(String::from("missing destination url")))?;
+    let resp = response(pool.clone(), req).await?;
+    post(dest_url, &resp).await?;
+    req.block_height = Some(resp.block_height + 1);
+    save_attempt(pool, req).await?;
+    Ok(())
+}
+
+async fn response(pool: Pool, req: &Request) -> Result<Response, api::Error> {
+    let mut pg = pool.get().await.expect("unable to get pg from pool");
+    query(&mut pg, &vec![req.clone()]).await
+}
+
+async fn post(url: &str, resp: &Response) -> Result<(), api::Error> {
+    todo!()
+}
+
+async fn save_attempt(pool: Pool, req: &mut Request) -> Result<(), api::Error> {
+    todo!()
 }
 
 async fn query(pg: &mut Client, requests: &Vec<Request>) -> Result<Response, api::Error> {
