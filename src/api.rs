@@ -356,7 +356,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Chain {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Key(String);
+pub struct Key(pub String);
 
 impl fmt::Display for Key {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

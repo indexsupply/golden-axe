@@ -88,6 +88,10 @@ async fn main() -> Result<(), api::Error> {
             config.remote_broadcaster.clone(),
             config.broadcaster.clone(),
         ))),
+        flatten(tokio::spawn(api_sql::webhooks(
+            config.pool.clone(),
+            config.broadcaster.clone(),
+        ))),
         flatten(tokio::spawn(
             axum::serve(listener, service(config.clone()))
                 .into_future()

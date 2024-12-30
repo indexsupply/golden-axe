@@ -18,6 +18,16 @@ create view account_limits as
         '{" foo.com", " www.foo.com "}'::text[] as origins,
         '{7777777}'::bigint[]                   as chains;
 
+drop view if exists webhooks;
+create view webhooks as
+    select
+        'http://127.0.0.1:8000'                 as destination_url,
+        0                                       as block_height,
+        'face'                                  as api_key,
+        7777777                                 as chain,
+        '{"Foo(uint a)"}'::text[]               as event_signatures,
+        'select a from foo'                     as query;
+
 -- for testing. in production ga instances should write to
 -- gafe's database.
  create unlogged table if not exists user_queries(
