@@ -281,6 +281,8 @@ mod tests {
         let config = api::Config::new(pool, None);
         let server = TestServer::new(service(config)).unwrap();
         let request = vec![api_sql::Request {
+            api_key: None,
+            chain: None,
             block_height: None,
             event_signatures: vec![Foo::abi().full_signature()],
             query: String::from("select a, block_num from foo"),
@@ -308,6 +310,8 @@ mod tests {
         let config = api::Config::new(pool.clone(), None);
         let server = TestServer::new(service(config.clone())).unwrap();
         let request = api_sql::Request {
+            api_key: None,
+            chain: Some(api::Chain(1)),
             block_height: None,
             event_signatures: vec![Foo::abi().full_signature()],
             query: String::from("select a, block_num from foo"),
@@ -324,7 +328,6 @@ mod tests {
         });
         let resp = server
             .get("/query-live")
-            .add_query_param("chain", 1)
             .add_raw_query_param(&serde_html_form::to_string(&request).unwrap())
             .await;
         resp.assert_text_contains(

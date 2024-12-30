@@ -286,8 +286,18 @@ pub async fn limit(
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct Chain(pub u64);
+
+pub trait ChainOptionExt {
+    fn unwrap_chain(self) -> Result<Chain, Error>;
+}
+
+impl ChainOptionExt for Option<Chain> {
+    fn unwrap_chain(self) -> Result<Chain, Error> {
+        self.ok_or_else(|| Error::User(String::from("missing chain")))
+    }
+}
 
 impl fmt::Display for Chain {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -345,7 +355,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Chain {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Key(String);
 
 impl fmt::Display for Key {
@@ -367,8 +377,11 @@ impl<S: Send + Sync> FromRequestParts<S> for Key {
         let params = parts.uri.query().unwrap_or_default();
         let decoded =
             serde_urlencoded::from_str::<HashMap<String, String>>(params).unwrap_or_default();
-        let key = decoded.get("api-key").cloned().unwrap_or_default();
-        Ok(Key(key))
+        Ok(Key(decoded
+            .get("api-key")
+            .or_else(|| decoded.get("api_key"))
+            .cloned()
+            .unwrap_or_default()))
     }
 }
 

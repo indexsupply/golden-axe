@@ -18,103 +18,18 @@ use futures::Stream;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio_postgres::types::Type;
+use tokio_postgres::{types::Type, Client};
 
-use crate::{api, s256, sql_generate};
-
-pub async fn handle_get(
-    api_key: api::Key,
-    chain: api::Chain,
-    State(config): State<api::Config>,
-    Form(req): Form<Request>,
-) -> Result<Json<Response>, api::Error> {
-    query(
-        true,
-        api_key.clone(),
-        chain,
-        State(config.clone()),
-        api::Json(vec![req.clone()]),
-    )
-    .await
-}
-
-pub async fn handle_post(
-    api_key: api::Key,
-    chain: api::Chain,
-    State(config): State<api::Config>,
-    api::Json(req): api::Json<Vec<Request>>,
-) -> Result<Json<Response>, api::Error> {
-    query(
-        true,
-        api_key.clone(),
-        chain,
-        State(config.clone()),
-        api::Json(req),
-    )
-    .await
-}
-
-pub async fn handle_sse(
-    api_key: api::Key,
-    chain: api::Chain,
-    State(conf): State<api::Config>,
-    Form(req): Form<Request>,
-) -> axum::response::Sse<impl Stream<Item = Result<SSEvent, Infallible>>> {
-    let mut req = req.clone();
-    let mut rx = conf.broadcaster.wait(chain);
-
-    let mut log_enabled = true;
-    let stream = async_stream::stream! {
-        loop {
-            let resp = query(
-                log_enabled,
-                api_key.clone(),
-                chain,
-                State(conf.clone()),
-                api::Json(vec![req.clone()]),
-            ).await.expect("unable to make request");
-            log_enabled = false; //only log first sse query
-            let last_block = resp.0.block_height;
-            yield Ok(SSEvent::default().json_data(resp.0).expect("unable to serialize json"));
-            match rx.recv().await {
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                    tracing::error!("stream closed. closing sse connection");
-                    return
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                    tracing::error!(skipped, "stream lagged")
-                }
-                Ok(_) => {},
-            }
-            req.block_height = Some(last_block + 1);
-        }
-    };
-    Sse::new(stream).keep_alive(KeepAlive::default())
-}
-
-macro_rules! log_query {
-    ($enabled:expr, $config:expr, $key:expr, $chain:expr, $events:expr, $query:expr, $block:block) => {{
-        if !$enabled {
-            $block
-        } else {
-            let start_query = std::time::SystemTime::now();
-            {
-                $block
-            };
-            let latency = std::time::SystemTime::now()
-                .duration_since(start_query)
-                .unwrap()
-                .as_millis() as u64;
-            $config
-                .gafe
-                .log_query($key.to_string(), $chain, $events, $query, latency)
-                .await;
-        }
-    }};
-}
+use crate::{
+    api::{self, ChainOptionExt},
+    log_query, s256, sql_generate,
+};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Request {
+    #[serde(alias = "api-key")]
+    pub api_key: Option<api::Key>,
+    pub chain: Option<api::Chain>,
     pub event_signatures: Vec<String>,
     pub query: String,
     pub block_height: Option<u64>,
@@ -129,51 +44,92 @@ pub struct Response {
     pub result: Vec<Rows>,
 }
 
-async fn query(
-    log_enabled: bool,
+pub async fn handle_post(
     api_key: api::Key,
     chain: api::Chain,
     State(config): State<api::Config>,
-    api::Json(req): api::Json<Vec<Request>>,
+    api::Json(mut req): api::Json<Vec<Request>>,
+) -> Result<Json<Response>, api::Error> {
+    // It's possible to specify chain/api_key in either the header or the query params for POST
+    req.iter_mut().for_each(|r| {
+        r.chain.get_or_insert(chain);
+        r.api_key.get_or_insert(api_key.clone());
+    });
+    let mut pg = config.pool.get().await.wrap_err("getting conn from pool")?;
+    log_query!(config.gafe, batch: req, { Ok(Json(query(&mut pg, &req).await?)) })
+}
+
+pub async fn handle_get(
+    State(config): State<api::Config>,
+    Form(req): Form<Request>,
 ) -> Result<Json<Response>, api::Error> {
     let mut pg = config.pool.get().await.wrap_err("getting conn from pool")?;
+    log_query!(config.gafe, single: req, {
+        Ok(Json(query(&mut pg, &vec![req]).await?))
+    })
+}
+
+pub async fn handle_sse(
+    State(config): State<api::Config>,
+    Form(mut req): Form<Request>,
+) -> axum::response::Sse<impl Stream<Item = Result<SSEvent, Infallible>>> {
+    log_query!(config.gafe, &req);
+    let mut rx = config.broadcaster.wait(req.chain.expect("missing chain"));
+    let stream = async_stream::stream! {
+        loop {
+            {
+                let mut pg = config.pool.get().await.expect("unable to get pg from pool");
+                let resp = query(&mut pg, &vec![req.clone()]).await.expect("unable to make request");
+                req.block_height = Some(resp.block_height + 1);
+                yield Ok(SSEvent::default().json_data(resp).expect("unable to serialize json"));
+            }
+            match rx.recv().await {
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    tracing::error!("stream closed. closing sse connection");
+                    return
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                    tracing::error!(skipped, "stream lagged")
+                }
+                Ok(_) => {},
+            }
+        }
+    };
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+async fn query(pg: &mut Client, requests: &Vec<Request>) -> Result<Response, api::Error> {
     let pgtx = pg
         .build_transaction()
         .isolation_level(tokio_postgres::IsolationLevel::RepeatableRead)
         .start()
         .await
         .wrap_err("starting sql api read tx")?;
-    let mut res: Vec<Rows> = Vec::new();
-    for r in req {
+    let mut result: Vec<Rows> = Vec::new();
+    for r in requests {
         let query = sql_generate::query(
-            chain,
+            r.chain.unwrap_chain()?,
             r.block_height,
             &r.query,
             r.event_signatures.iter().map(|s| s.as_str()).collect(),
         )?;
-        log_query!(
-            log_enabled,
-            config,
-            api_key,
-            chain,
-            r.event_signatures,
-            r.query,
-            {
-                res.push(handle_rows(pgtx.query(&query, &[]).await?)?);
-            }
-        );
+        result.push(handle_rows(pgtx.query(&query, &[]).await?)?);
     }
-    Ok(Json(Response {
+    Ok(Response {
+        result,
         block_height: pgtx
             .query_one(
                 "select coalesce(max(num), 0)::text from blocks where chain = $1",
-                &[&chain],
+                &[&requests
+                    .first()
+                    .expect("no queries in request")
+                    .chain
+                    .unwrap_chain()?],
             )
             .await?
             .get::<usize, U64>(0)
             .to::<u64>(),
-        result: res,
-    }))
+    })
 }
 
 fn handle_rows(rows: Vec<tokio_postgres::Row>) -> Result<Rows, api::Error> {

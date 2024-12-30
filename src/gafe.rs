@@ -104,7 +104,7 @@ impl Connection {
     #[tracing::instrument(level = "debug" skip_all)]
     pub async fn log_query(
         &self,
-        key: String,
+        key: Option<api::Key>,
         chain: api::Chain,
         events: Vec<String>,
         query: String,
@@ -132,7 +132,13 @@ impl Connection {
                             user_query,
                             latency
                         ) values ($1, $2, $3, $4, $5)",
-                        &[&key, &chain, &events, &query, &(latency as i32)],
+                        &[
+                            &key.map(|k| k.to_string()),
+                            &chain,
+                            &events,
+                            &query,
+                            &(latency as i32),
+                        ],
                     )
                     .await;
                 if res.is_err() {
@@ -145,4 +151,59 @@ impl Connection {
             }
         });
     }
+}
+
+#[macro_export]
+macro_rules! log_query {
+    ($gafe:expr, $req:expr) => {{
+        let req = $req.clone();
+        $gafe
+            .log_query(
+                req.api_key,
+                req.chain.unwrap(),
+                req.event_signatures,
+                req.query,
+                0,
+            )
+            .await;
+    }};
+    ($gafe:expr, single: $request:expr, $block:block) => {{
+        let start = std::time::SystemTime::now();
+        let req = $request.clone();
+        let result = $block;
+        let latency = std::time::SystemTime::now()
+            .duration_since(start)
+            .unwrap()
+            .as_millis() as u64;
+        $gafe
+            .log_query(
+                req.api_key,
+                req.chain.unwrap_chain()?,
+                req.event_signatures,
+                req.query,
+                latency,
+            )
+            .await;
+        result
+    }};
+    ($gafe:expr, batch: $requests:expr, $block:block) => {{
+        let start = std::time::SystemTime::now();
+        let result = $block;
+        let latency = std::time::SystemTime::now()
+            .duration_since(start)
+            .unwrap()
+            .as_millis() as u64;
+        for req in $requests {
+            $gafe
+                .log_query(
+                    req.api_key,
+                    req.chain.unwrap_chain()?,
+                    req.event_signatures,
+                    req.query,
+                    latency,
+                )
+                .await;
+        }
+        result
+    }};
 }
