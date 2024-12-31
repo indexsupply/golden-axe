@@ -33,7 +33,7 @@ pub struct Request {
     pub chain: Option<api::Chain>,
     pub event_signatures: Vec<String>,
     pub query: String,
-    pub block_height: Option<u64>,
+    pub block_height: Option<U64>,
 }
 
 type Row = Vec<Value>;
@@ -41,7 +41,7 @@ type Rows = Vec<Row>;
 
 #[derive(Deserialize, Serialize)]
 pub struct Response {
-    pub block_height: u64,
+    pub block_height: U64,
     pub result: Vec<Rows>,
 }
 
@@ -81,7 +81,7 @@ pub async fn handle_sse(
             {
                 let mut pg = config.pool.get().await.expect("unable to get pg from pool");
                 let resp = query(&mut pg, &vec![req.clone()]).await.expect("unable to make request");
-                req.block_height = Some(resp.block_height + 1);
+                req.block_height = Some(resp.block_height + U64::from(1));
                 yield Ok(SSEvent::default().json_data(resp).expect("unable to serialize json"));
             }
             match rx.recv().await {
@@ -110,7 +110,7 @@ pub async fn query(pg: &mut Client, requests: &Vec<Request>) -> Result<Response,
     for r in requests {
         let query = sql_generate::query(
             r.chain.unwrap_chain()?,
-            r.block_height,
+            r.block_height.map(|h| h.to()),
             &r.query,
             r.event_signatures.iter().map(|s| s.as_str()).collect(),
         )?;
@@ -128,8 +128,7 @@ pub async fn query(pg: &mut Client, requests: &Vec<Request>) -> Result<Response,
                     .unwrap_chain()?],
             )
             .await?
-            .get::<usize, U64>(0)
-            .to::<u64>(),
+            .get::<usize, U64>(0),
     })
 }
 

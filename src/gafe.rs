@@ -45,7 +45,7 @@ impl AccountLimit {
 
 #[derive(Clone)]
 pub struct Connection {
-    pg: Option<Pool>,
+    pub pg: Option<Pool>,
 }
 
 impl Connection {

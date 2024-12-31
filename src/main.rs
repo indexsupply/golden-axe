@@ -90,7 +90,6 @@ async fn main() -> Result<(), api::Error> {
     let listener = tokio::net::TcpListener::bind(&args.listen)
         .await
         .expect("binding to tcp for http server");
-
     let res = tokio::try_join!(
         flatten(tokio::spawn(account_limits(config.clone()))),
         flatten(tokio::spawn(sync(
@@ -99,6 +98,7 @@ async fn main() -> Result<(), api::Error> {
             config.broadcaster.clone(),
         ))),
         flatten(tokio::spawn(webhooks::run(
+            config.gafe.pg.as_ref().unwrap().clone(),
             config.pool.clone(),
             config.broadcaster.clone(),
         ))),
