@@ -103,6 +103,19 @@ pub enum Error {
     Server(Box<dyn std::error::Error + Send + Sync>),
 }
 
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::User(msg) => write!(f, "User error: {}", msg),
+            Error::Timeout(Some(msg)) => write!(f, "Timeout: {}", msg),
+            Error::Timeout(None) => write!(f, "Timeout occurred"),
+            Error::TooManyRequests(Some(msg)) => write!(f, "Too many requests: {}", msg),
+            Error::TooManyRequests(None) => write!(f, "Too many requests"),
+            Error::Server(err) => write!(f, "Server error: {}", err),
+        }
+    }
+}
+
 impl From<eyre::Report> for Error {
     fn from(value: eyre::Report) -> Self {
         Error::Server(value.into())

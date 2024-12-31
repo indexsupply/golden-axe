@@ -7,6 +7,7 @@ mod sql_generate;
 mod sql_test;
 mod sync;
 mod user_query;
+mod webhooks;
 
 use std::{future::IntoFuture, net::SocketAddr, sync::Arc, time::Duration};
 
@@ -77,6 +78,15 @@ async fn main() -> Result<(), api::Error> {
             .and_then(|url| pg::new_pool(url, 4).ok()),
     );
 
+    config
+        .pool
+        .get()
+        .await
+        .expect("unable to get pg from pool for migrations")
+        .batch_execute(SCHEMA)
+        .await
+        .expect("unable to run schema file");
+
     let listener = tokio::net::TcpListener::bind(&args.listen)
         .await
         .expect("binding to tcp for http server");
@@ -88,7 +98,7 @@ async fn main() -> Result<(), api::Error> {
             config.remote_broadcaster.clone(),
             config.broadcaster.clone(),
         ))),
-        flatten(tokio::spawn(api_sql::webhooks(
+        flatten(tokio::spawn(webhooks::run(
             config.pool.clone(),
             config.broadcaster.clone(),
         ))),
@@ -115,7 +125,6 @@ async fn sync(
     }
     let pg_pool = pg::new_pool(&args.pg_url, 16)?;
     let pg = pg_pool.get().await?;
-    pg.batch_execute(SCHEMA).await.unwrap();
     let tasks = Config::load(&pg)
         .await?
         .into_iter()
@@ -285,7 +294,7 @@ mod tests {
         let config = api::Config::new(pool, None);
         let server = TestServer::new(service(config)).unwrap();
         let request = vec![api_sql::Request {
-            destination_url: None,
+            destination: None,
             api_key: None,
             chain: None,
             block_height: None,
@@ -315,7 +324,7 @@ mod tests {
         let config = api::Config::new(pool.clone(), None);
         let server = TestServer::new(service(config.clone())).unwrap();
         let request = api_sql::Request {
-            destination_url: None,
+            destination: None,
             api_key: None,
             chain: Some(api::Chain(1)),
             block_height: None,

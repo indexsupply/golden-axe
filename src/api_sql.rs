@@ -1,5 +1,4 @@
-use core::time;
-use std::{convert::Infallible, sync::Arc};
+use std::convert::Infallible;
 
 use alloy::{
     hex,
@@ -14,7 +13,6 @@ use axum::{
     Json,
 };
 use axum_extra::extract::Form;
-use deadpool_postgres::Pool;
 use eyre::{Context, Result};
 use futures::Stream;
 use itertools::Itertools;
@@ -29,7 +27,7 @@ use crate::{
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Request {
-    pub destination_url: Option<String>,
+    pub destination: Option<String>,
     #[serde(alias = "api-key")]
     pub api_key: Option<api::Key>,
     pub chain: Option<api::Chain>,
@@ -101,74 +99,7 @@ pub async fn handle_sse(
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
-pub async fn webhooks(pool: Pool, broadcaster: Arc<api::Broadcaster>) -> Result<()> {
-    let http_client = reqwest::Client::builder().build().unwrap();
-    let requests: Vec<Request> = pool
-        .get()
-        .await
-        .expect("unable to get pg from pool")
-        .query(
-            "select
-                destination_url,
-                block_height,
-                api_key,
-                chain,
-                event_signatures,
-                query
-            from webhooks
-            ",
-            &[],
-        )
-        .await
-        .unwrap()
-        .iter()
-        .map(|row| Request {
-            destination_url: row.get("destination_url"),
-            block_height: Some(row.get::<&str, U64>("block_height").to()),
-            api_key: Some(api::Key(row.get::<&str, String>("api_key"))),
-            chain: Some(api::Chain(row.get::<&str, U64>("chain").to())),
-            event_signatures: row.get("event_signatures"),
-            query: row.get("query"),
-        })
-        .collect();
-    for mut req in requests {
-        tracing::info!("running webhook {:?}", req.destination_url);
-        let pool = pool.clone();
-        let http = http_client.clone();
-        let mut rx = broadcaster.wait(req.chain.unwrap());
-        tokio::spawn(async move {
-            loop {
-                match rx.recv().await {
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {}
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
-                    Ok(_) => {
-                        let resp = {
-                            let mut pg = pool.get().await.expect("unable to get pg from pool");
-                            query(&mut pg, &vec![req.clone()]).await.unwrap()
-                        };
-                        if !resp.result.first().map_or(false, |r| r.is_empty()) {
-                            http.post(req.destination_url.as_ref().unwrap())
-                                .timeout(time::Duration::from_secs(10))
-                                .json(&resp)
-                                .send()
-                                .await
-                                .unwrap();
-                            req.block_height = Some(resp.block_height + 1);
-                            tracing::info!(
-                                "webhook {} {}",
-                                req.block_height.as_ref().unwrap(),
-                                req.destination_url.as_ref().unwrap()
-                            )
-                        }
-                    }
-                }
-            }
-        });
-    }
-    Ok(())
-}
-
-async fn query(pg: &mut Client, requests: &Vec<Request>) -> Result<Response, api::Error> {
+pub async fn query(pg: &mut Client, requests: &Vec<Request>) -> Result<Response, api::Error> {
     let pgtx = pg
         .build_transaction()
         .isolation_level(tokio_postgres::IsolationLevel::RepeatableRead)
@@ -237,8 +168,11 @@ fn handle_rows(rows: Vec<tokio_postgres::Row>) -> Result<Rows, api::Error> {
                     Value::Number(n.into())
                 }
                 Type::INT8 => {
-                    let n: i64 = row.get(idx);
-                    Value::Number(n.into())
+                    let n: Option<i64> = row.get(idx);
+                    match n {
+                        Some(n) => Value::Number(n.into()),
+                        None => Value::Null,
+                    }
                 }
                 Type::BYTEA => {
                     let b: &[u8] = row.get(idx);
