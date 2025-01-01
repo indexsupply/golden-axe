@@ -73,12 +73,12 @@
         }
 
         function computeDiff(row) {
-            const parse = (s) => parseFloat(s.replace(/,/g, ""));
+            const parse = (s) => parseFloat(s.split(",").join(""));
             const local = parse(row.querySelector(".local").textContent);
             const remote = parse(row.querySelector(".remote").textContent);
+            console.log(local, remote);
             if (local > 0 && remote > 0) {
-                const diff = parse(remote) - parse(local);
-                row.querySelector(".diff").textContent = diff.toLocaleString();
+                row.querySelector(".diff").textContent = (remote - local).toLocaleString();
             }
         }
 
