@@ -21,11 +21,12 @@
                 color: blue;
                 text-decoration: none;
             }
+            main {
+                padding: 0 10px 0 10px;
+            }
             #response {
                 font-family: monospace;
                 width: 100%;
-                margin-top: 5px;
-                padding: 10px;
                 display: flex;
                 flex-direction: column;
             }
@@ -41,6 +42,9 @@
                 text-overflow: ellipsis;
                 max-width: 20%;
             }
+            .row .diff {
+                max-width: 20px;
+            }
             .header {
                 text-transform: capitalize;
                 font-size: large;
@@ -54,6 +58,7 @@
     </head>
     <body>
         <main>
+            <h1>Index Supply API Status</h1>
             <div id="response">
                 <div class="row header">
                     <div>chain</div>
