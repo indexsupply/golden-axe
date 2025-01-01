@@ -74,11 +74,11 @@
 
         function computeDiff(row) {
             const parse = (s) => parseFloat(s.split(",").join(""));
+            const delta = (n) => ["∅", "▏", "▎", "▍", "▌", "▋", "█"][Math.min(6, Math.floor(n / 3))];
             const local = parse(row.querySelector(".local").textContent);
             const remote = parse(row.querySelector(".remote").textContent);
-            console.log(local, remote);
             if (local > 0 && remote > 0) {
-                row.querySelector(".diff").textContent = (remote - local).toLocaleString();
+                row.querySelector(".diff").textContent = delta(remote - local);
             }
         }
 
