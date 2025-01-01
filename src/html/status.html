@@ -74,7 +74,7 @@
 
         function computeDiff(row) {
             const parse = (s) => parseFloat(s.split(",").join(""));
-            const delta = (n) => ["∅", "▏", "▎", "▍", "▌", "▋", "█"][Math.min(6, Math.floor(n / 3))];
+            const delta = (n) => ["", "▏", "▎", "▍", "▌", "▋", "█"][Math.min(6, Math.floor(n / 3))];
             const local = parse(row.querySelector(".local").textContent);
             const remote = parse(row.querySelector(".remote").textContent);
             if (local > 0 && remote > 0) {
@@ -100,11 +100,11 @@
                 if (source == "Local") {
                     newDiv(chainRow, "local", num.toLocaleString());
                     newDiv(chainRow, "remote", 0);
-                    newDiv(chainRow, "diff", 0);
+                    newDiv(chainRow, "diff", "");
                 } else {
                     newDiv(chainRow, "local", 0);
                     newDiv(chainRow, "remote", num.toLocaleString());
-                    newDiv(chainRow, "diff", 0);
+                    newDiv(chainRow, "diff", "");
                 }
                 document.querySelector("#response").appendChild(chainRow);
                 computeDiff(chainRow);
