@@ -129,8 +129,9 @@ async fn main() -> Result<()> {
     };
 
     #[derive(Embed)]
-    #[folder = "src/html"]
+    #[folder = "src/static"]
     #[include = "*.html"]
+    #[include = "*.md"]
     struct Assets;
 
     handlebars::handlebars_helper!(trunc: |s: String, n: usize| s.chars().take(n).collect::<String>());
@@ -140,7 +141,7 @@ async fn main() -> Result<()> {
     reg.register_helper("trunc", Box::new(trunc));
     reg.register_helper("join", Box::new(join));
     reg.set_dev_mode(true);
-    reg.register_embed_templates_with_extension::<Assets>(".html")?;
+    reg.register_embed_templates::<Assets>()?;
 
     let example: HashMap<String, Vec<query::Query>> =
         toml::from_str(include_str!("../examples.toml")).expect("unable to read toml");
@@ -172,7 +173,7 @@ async fn main() -> Result<()> {
         .route("/login", get(session::try_login))
         .route(
             "/login-form.js",
-            get(|| async { include_str!("html/login-form.js") }),
+            get(|| async { include_str!("static/login-form.js") }),
         )
         .route("/email-login-link", get(session::login))
         .route("/email-login-link", post(session::email_login_link))

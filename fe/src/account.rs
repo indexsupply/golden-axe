@@ -37,7 +37,7 @@ pub mod handlers {
             None
         };
         let resp = Html(state.templates.render(
-            "index",
+            "index.html",
             &json!({
                 "api_url": state.api_url,
                 "api_keys": api_keys,
@@ -86,7 +86,7 @@ pub mod handlers {
         let plan = current_plan(&pg, &user.email).await?;
         let api_keys = api_key::list(&pg, &user.email).await?;
         let rendered_html = state.templates.render(
-            "account",
+            "account.html",
             &json!({
                 "user": user,
                 "flash": FlashMessage::from(flash.clone()),

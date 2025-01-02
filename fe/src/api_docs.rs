@@ -5,7 +5,7 @@ use serde_json::json;
 use crate::web;
 
 pub async fn index(State(state): State<web::State>) -> Result<Html<String>, web::Error> {
-    let index = web::get_doc_md("index.md");
+    let index = state.templates.render("docs/index.md", &json!({}))?;
     let mut options = Options::empty();
     options.insert(Options::ENABLE_GFM);
     options.insert(Options::ENABLE_HEADING_ATTRIBUTES);
@@ -16,6 +16,6 @@ pub async fn index(State(state): State<web::State>) -> Result<Html<String>, web:
     html::push_html(&mut body, parser);
 
     Ok(Html(
-        state.templates.render("docs", &json!({"body": body}))?,
+        state.templates.render("docs.html", &json!({"body": body}))?,
     ))
 }

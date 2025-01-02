@@ -3,20 +3,9 @@ use axum_extra::extract::cookie::Key;
 use axum_flash::IncomingFlashes;
 use deadpool_postgres::Pool;
 use reqwest::StatusCode;
-use rust_embed::Embed;
 use serde::Serialize;
 
 use crate::{postmark, query, stripe};
-
-#[derive(Embed)]
-#[folder = "src/docs"]
-#[include = "*.md"]
-pub struct Docs;
-
-pub fn get_doc_md(path: &str) -> String {
-    let file = Docs::get(path).unwrap().data;
-    std::str::from_utf8(&file).unwrap().to_string()
-}
 
 #[derive(Clone)]
 pub struct State {

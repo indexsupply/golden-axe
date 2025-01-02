@@ -90,7 +90,7 @@ pub mod handlers {
         let plan = account::current_plan(&pg, &user.email).await?;
         let api_keys = list(&pg, &user.email).await?;
         let rendered_html = state.templates.render(
-            "new-api-key",
+            "new-api-key.html",
             &json!({
                 "user": user,
                 "plan": plan,

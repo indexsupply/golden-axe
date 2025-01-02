@@ -27,7 +27,7 @@ impl User {
 }
 
 pub async fn try_login(State(state): State<web::State>) -> Result<impl IntoResponse, web::Error> {
-    Ok(Html(state.templates.render("login", &json!(""))?))
+    Ok(Html(state.templates.render("login.html", &json!(""))?))
 }
 
 #[derive(Deserialize)]
@@ -108,7 +108,7 @@ pub async fn login(
             level: "Error".to_string(),
             message: "please request new login link".to_string(),
         }];
-        let resp = Html(state.templates.render("index", &json!({"flash": flash}))?);
+        let resp = Html(state.templates.render("index.html", &json!({"flash": flash}))?);
         Ok(resp.into_response())
     } else {
         let res = res.first().expect("no rows found");

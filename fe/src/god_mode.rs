@@ -60,7 +60,7 @@ pub async fn index(
     Ok(Html(
         state
             .templates
-            .render("godmode", &json!({"history": history}))?,
+            .render("godmode.html", &json!({"history": history}))?,
     ))
 }
 
