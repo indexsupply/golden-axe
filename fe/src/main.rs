@@ -7,16 +7,13 @@ use axum::{
 };
 use axum_extra::extract::cookie::Key;
 use clap::{command, Parser};
-use deadpool_postgres::{Manager, ManagerConfig, Pool};
 use eyre::{Context, Result};
-use gafe::{account, api_docs, api_key, god_mode, postmark, query, session, stripe, web};
+use gafe::{account, api_docs, api_key, god_mode, pg, postmark, query, session, stripe, web};
 use metrics_exporter_prometheus::PrometheusBuilder;
 use metrics_tracing_context::{MetricsLayer, TracingContextLayer};
 use metrics_util::layers::Layer as MetricsUtilLayer;
-use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
-use postgres_openssl::MakeTlsConnector;
 use rust_embed::Embed;
-use std::{collections::HashMap, future::ready, net::SocketAddr, str::FromStr};
+use std::{collections::HashMap, future::ready, net::SocketAddr};
 use tower_http::trace::TraceLayer;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
@@ -51,24 +48,6 @@ struct Args {
 
     #[arg(long, env = "SESSION_KEY")]
     session_key: Option<String>,
-}
-
-fn pg_pool(pg_url: &str) -> Pool {
-    let pg_config = tokio_postgres::Config::from_str(pg_url).expect("unable to connect to pg");
-    let mut builder = SslConnector::builder(SslMethod::tls()).expect("tls builder");
-    builder.set_verify(SslVerifyMode::NONE);
-    let connector = MakeTlsConnector::new(builder.build());
-    let pg_mgr = Manager::from_config(
-        pg_config,
-        connector,
-        ManagerConfig {
-            recycling_method: deadpool_postgres::RecyclingMethod::Fast,
-        },
-    );
-    Pool::builder(pg_mgr)
-        .max_size(16)
-        .build()
-        .expect("unable to build new ro pool")
 }
 
 #[tokio::main]
@@ -147,7 +126,7 @@ async fn main() -> Result<()> {
         site_url: args.site_url,
         key: session_key,
         templates: reg,
-        pool: pg_pool(&args.pg_url),
+        pool: pg::new_pool(&args.pg_url, 16).expect("unable to create pg pool"),
         flash: axum_flash::Config::new(Key::generate()).use_secure_cookies(false),
         postmark: postmark::Client::new(args.postmark_key),
         stripe: stripe::Client::new(args.stripe_key),
