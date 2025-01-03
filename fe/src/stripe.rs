@@ -22,7 +22,24 @@ pub struct Card {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PaymentMethod {
+    pub id: String,
     pub card: Card,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PaymentIntent {
+    pub customer: String,
+    pub amount: i64,
+    pub currency: String,
+    pub payment_method: String,
+    pub description: String,
+    pub confirm: bool,
+    pub off_session: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Payment {
+    pub id: String,
 }
 
 #[derive(Deserialize)]
@@ -47,6 +64,7 @@ impl Client {
     pub async fn payment_methods(&self, customer_id: &str) -> Result<Option<PaymentMethod>> {
         if self.key.is_none() {
             return Ok(Some(PaymentMethod {
+                id: String::from("LOCAL_DEV"),
                 card: Card {
                     brand: String::from("LOCAL DEV"),
                     exp_month: 1,
@@ -93,6 +111,33 @@ impl Client {
         self.post(path, &data).await
     }
 
+    pub async fn charge_customer(
+        &self,
+        customer: String,
+        description: String,
+        amount: i64,
+    ) -> Result<Payment> {
+        match self.payment_methods(&customer).await {
+            Err(_) => Err(eyre!("no payment method for {}", customer)),
+            Ok(None) => Err(eyre!("no payment method for {}", customer)),
+            Ok(Some(pm)) => {
+                self.post(
+                    "v1/payment_intents",
+                    &PaymentIntent {
+                        customer,
+                        description,
+                        payment_method: pm.id,
+                        amount,
+                        currency: String::from("usd"),
+                        confirm: true,
+                        off_session: true,
+                    },
+                )
+                .await
+            }
+        }
+    }
+
     pub async fn get<T: DeserializeOwned, D: Serialize + ?Sized>(
         &self,
         path: &str,
@@ -121,7 +166,10 @@ impl Client {
         let response = self
             .reqwest
             .post(format!("https://api.stripe.com/{}", path))
-            .basic_auth(self.key.as_ref().unwrap().to_string(), Some(""))
+            .basic_auth(
+                self.key.as_ref().expect("missing stripe key").to_string(),
+                Some(""),
+            )
             .form(data)
             .send()
             .await?;
