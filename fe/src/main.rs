@@ -153,11 +153,12 @@ async fn main() -> Result<()> {
     let state = web::State {
         examples,
         api_url: args.api_url,
+        site_url: args.site_url,
         key: session_key,
         templates: reg,
         pool: pg_pool(&args.pg_url),
         flash: axum_flash::Config::new(Key::generate()).use_secure_cookies(false),
-        postmark: postmark::Client::new(args.postmark_key, args.site_url.clone()),
+        postmark: postmark::Client::new(args.postmark_key),
         stripe: stripe::Client::new(args.stripe_key),
         stripe_pub_key: args.stripe_pub_key,
     };

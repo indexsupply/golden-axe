@@ -72,9 +72,21 @@ pub async fn email_login_link(
     )
     .await?;
     pgtx.commit().await?;
-    state.postmark.send_email_login(&req.email, secret).await?;
+    send_email_login(state, &req.email, secret).await?;
     let flash = flash.success("Please check your email to log in.");
     Ok((flash, Redirect::to("/")).into_response())
+}
+
+async fn send_email_login(state: web::State, to: &str, secret: Vec<u8>) -> Result<()> {
+    let body = format!(
+        "Hello,\n\nHere is your one-time log in link: {}/email-login-link?secret={}\n\nIf you have any issues logging in, reply to this email to get help.\n\nRegards,\nIndex Supply",
+        state.site_url,
+        hex::encode(secret),
+    );
+    state
+        .postmark
+        .send("login@indexsupply.net", to, "One-Time Log In Link", &body)
+        .await
 }
 
 #[derive(Deserialize)]
@@ -108,7 +120,11 @@ pub async fn login(
             level: "Error".to_string(),
             message: "please request new login link".to_string(),
         }];
-        let resp = Html(state.templates.render("index.html", &json!({"flash": flash}))?);
+        let resp = Html(
+            state
+                .templates
+                .render("index.html", &json!({"flash": flash}))?,
+        );
         Ok(resp.into_response())
     } else {
         let res = res.first().expect("no rows found");
