@@ -2,6 +2,12 @@
 name = "gafe"
 version = "0.1.0"
 edition = "2021"
+default-run = "gafe"
+
+
+[[bin]]
+name = "gafe"
+path = "src/main.rs"
 
 [dependencies]
 axum = "0.7.5"

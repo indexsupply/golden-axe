@@ -1,13 +1,3 @@
-mod account;
-mod api_docs;
-mod api_key;
-mod god_mode;
-mod postmark;
-mod query;
-mod session;
-mod stripe;
-mod web;
-
 use axum::{
     body::Body,
     extract::MatchedPath,
@@ -19,6 +9,7 @@ use axum_extra::extract::cookie::Key;
 use clap::{command, Parser};
 use deadpool_postgres::{Manager, ManagerConfig, Pool};
 use eyre::{Context, Result};
+use gafe::{account, api_docs, api_key, god_mode, postmark, query, session, stripe, web};
 use metrics_exporter_prometheus::PrometheusBuilder;
 use metrics_tracing_context::{MetricsLayer, TracingContextLayer};
 use metrics_util::layers::Layer as MetricsUtilLayer;
