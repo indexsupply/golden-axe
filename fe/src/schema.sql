@@ -69,5 +69,6 @@ create unlogged table if not exists user_queries(
     rewritten_query text,
     generated_query text,
     latency int,
+    status int2,
     created_at timestamptz default now()
 );
