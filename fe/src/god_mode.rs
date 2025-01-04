@@ -79,6 +79,7 @@ async fn log(
                     latency,
                     user_queries.created_at
                 from user_queries
+                where created_at > now() - '1 day'::interval
                 left join api_keys on api_keys.secret = user_queries.api_key
                 {}
                 order by user_queries.created_at desc
@@ -121,6 +122,7 @@ async fn top(
                     max(latency) latency,
                     max(user_queries.created_at) created_at
                 from user_queries
+                where created_at > now() - '1 day'::interval
                 left join api_keys on api_keys.secret = user_queries.api_key
                 {}
                 group by 1, 2, 3
