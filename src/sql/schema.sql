@@ -28,6 +28,7 @@ create view account_limits as
     rewritten_query text,
     generated_query text,
     latency int,
+    status int2,
     created_at timestamptz default now()
 );
 

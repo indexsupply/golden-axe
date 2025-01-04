@@ -119,7 +119,7 @@ impl RequestLog {
         self.0.lock().unwrap().requests = requests;
     }
 
-    async fn done(&self, gafe: gafe::Connection, status: String) {
+    async fn done(&self, gafe: gafe::Connection, status: u16) {
         let log = self.0.lock().unwrap().clone();
         let latency = std::time::SystemTime::now()
             .duration_since(log.start)
@@ -132,7 +132,7 @@ impl RequestLog {
                 req.event_signatures.clone(),
                 req.query.clone(),
                 latency,
-                status.clone(),
+                status,
             )
             .await
         }
@@ -150,7 +150,7 @@ pub async fn log_request(
     })));
     request.extensions_mut().insert(log.clone());
     let resp = next.run(request).await;
-    log.done(config.gafe, resp.status().to_string()).await;
+    log.done(config.gafe, resp.status().as_u16()).await;
     Ok(resp)
 }
 

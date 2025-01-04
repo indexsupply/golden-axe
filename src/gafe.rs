@@ -109,7 +109,7 @@ impl Connection {
         events: Vec<String>,
         query: String,
         latency: u64,
-        status: String,
+        status: u16,
     ) {
         if self.pg.is_none() {
             tracing::info!("gafe pg not configured");
@@ -140,7 +140,7 @@ impl Connection {
                             &events,
                             &query,
                             &(latency as i32),
-                            &status,
+                            &(status as i16),
                         ],
                     )
                     .await;
