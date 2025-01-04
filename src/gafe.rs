@@ -109,6 +109,7 @@ impl Connection {
         events: Vec<String>,
         query: String,
         latency: u64,
+        status: String,
     ) {
         if self.pg.is_none() {
             tracing::info!("gafe pg not configured");
@@ -130,14 +131,16 @@ impl Connection {
                             chain,
                             events,
                             user_query,
-                            latency
-                        ) values ($1, $2, $3, $4, $5)",
+                            latency,
+                            status
+                        ) values ($1, $2, $3, $4, $5, $6)",
                         &[
                             &key.map(|k| k.to_string()),
                             &chain,
                             &events,
                             &query,
                             &(latency as i32),
+                            &status,
                         ],
                     )
                     .await;
@@ -151,59 +154,4 @@ impl Connection {
             }
         });
     }
-}
-
-#[macro_export]
-macro_rules! log_query {
-    ($gafe:expr, $req:expr) => {{
-        let req = $req.clone();
-        $gafe
-            .log_query(
-                req.api_key,
-                req.chain.unwrap(),
-                req.event_signatures,
-                req.query,
-                0,
-            )
-            .await;
-    }};
-    ($gafe:expr, single: $request:expr, $block:block) => {{
-        let start = std::time::SystemTime::now();
-        let req = $request.clone();
-        let result = $block;
-        let latency = std::time::SystemTime::now()
-            .duration_since(start)
-            .unwrap()
-            .as_millis() as u64;
-        $gafe
-            .log_query(
-                req.api_key,
-                req.chain.unwrap_chain()?,
-                req.event_signatures,
-                req.query,
-                latency,
-            )
-            .await;
-        result
-    }};
-    ($gafe:expr, batch: $requests:expr, $block:block) => {{
-        let start = std::time::SystemTime::now();
-        let result = $block;
-        let latency = std::time::SystemTime::now()
-            .duration_since(start)
-            .unwrap()
-            .as_millis() as u64;
-        for req in $requests {
-            $gafe
-                .log_query(
-                    req.api_key,
-                    req.chain.unwrap_chain()?,
-                    req.event_signatures,
-                    req.query,
-                    latency,
-                )
-                .await;
-        }
-        result
-    }};
 }

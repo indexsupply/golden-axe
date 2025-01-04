@@ -286,7 +286,7 @@ pub async fn limit(
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Copy, Default, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct Chain(pub u64);
 
 pub trait ChainOptionExt {

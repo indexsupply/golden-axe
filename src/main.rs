@@ -192,6 +192,10 @@ fn service(config: api::Config) -> IntoMakeServiceWithConnectInfo<Router, Socket
         .layer(CorsLayer::permissive())
         .layer(axum::middleware::from_fn_with_state(
             config.clone(),
+            api_sql::log_request,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            config.clone(),
             api::limit,
         ))
         .layer(CompressionLayer::new());

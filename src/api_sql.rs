@@ -1,4 +1,8 @@
-use std::convert::Infallible;
+use std::{
+    convert::Infallible,
+    sync::{Arc, Mutex},
+    time::{self},
+};
 
 use alloy::{
     hex,
@@ -10,7 +14,7 @@ use axum::{
         sse::{Event as SSEvent, KeepAlive},
         Sse,
     },
-    Json,
+    Extension, Json,
 };
 use axum_extra::extract::Form;
 use eyre::{Context, Result};
@@ -22,10 +26,10 @@ use tokio_postgres::{types::Type, Client};
 
 use crate::{
     api::{self, ChainOptionExt},
-    log_query, s256, sql_generate,
+    gafe, s256, sql_generate,
 };
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Default)]
 pub struct Request {
     #[serde(alias = "api-key")]
     pub api_key: Option<api::Key>,
@@ -45,6 +49,7 @@ pub struct Response {
 }
 
 pub async fn handle_post(
+    Extension(log): Extension<RequestLog>,
     api_key: api::Key,
     chain: api::Chain,
     State(config): State<api::Config>,
@@ -55,25 +60,27 @@ pub async fn handle_post(
         r.chain.get_or_insert(chain);
         r.api_key.get_or_insert(api_key.clone());
     });
+    log.add(req.clone());
     let mut pg = config.pool.get().await.wrap_err("getting conn from pool")?;
-    log_query!(config.gafe, batch: req, { Ok(Json(query(&mut pg, &req).await?)) })
+    Ok(Json(query(&mut pg, &req).await?))
 }
 
 pub async fn handle_get(
+    Extension(log): Extension<RequestLog>,
     State(config): State<api::Config>,
     Form(req): Form<Request>,
 ) -> Result<Json<Response>, api::Error> {
+    log.add(vec![req.clone()]);
     let mut pg = config.pool.get().await.wrap_err("getting conn from pool")?;
-    log_query!(config.gafe, single: req, {
-        Ok(Json(query(&mut pg, &vec![req]).await?))
-    })
+    Ok(Json(query(&mut pg, &vec![req]).await?))
 }
 
 pub async fn handle_sse(
+    Extension(log): Extension<RequestLog>,
     State(config): State<api::Config>,
     Form(mut req): Form<Request>,
 ) -> axum::response::Sse<impl Stream<Item = Result<SSEvent, Infallible>>> {
-    log_query!(config.gafe, &req);
+    log.add(vec![req.clone()]);
     let mut rx = config.broadcaster.wait(req.chain.expect("missing chain"));
     let stream = async_stream::stream! {
         loop {
@@ -96,6 +103,55 @@ pub async fn handle_sse(
         }
     };
     Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+#[derive(Clone)]
+pub struct RequestMeta {
+    requests: Vec<Request>,
+    start: time::SystemTime,
+}
+
+#[derive(Clone)]
+pub struct RequestLog(Arc<Mutex<RequestMeta>>);
+
+impl RequestLog {
+    fn add(&self, requests: Vec<Request>) {
+        self.0.lock().unwrap().requests = requests;
+    }
+
+    async fn done(&self, gafe: gafe::Connection, status: String) {
+        let log = self.0.lock().unwrap().clone();
+        let latency = std::time::SystemTime::now()
+            .duration_since(log.start)
+            .unwrap()
+            .as_millis() as u64;
+        for req in &log.requests {
+            gafe.log_query(
+                req.api_key.clone(),
+                req.chain.unwrap_or_default(),
+                req.event_signatures.clone(),
+                req.query.clone(),
+                latency,
+                status.clone(),
+            )
+            .await
+        }
+    }
+}
+
+pub async fn log_request(
+    State(config): State<api::Config>,
+    mut request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Result<axum::response::Response, api::Error> {
+    let log: RequestLog = RequestLog(Arc::new(Mutex::new(RequestMeta {
+        requests: Vec::new(),
+        start: time::SystemTime::now(),
+    })));
+    request.extensions_mut().insert(log.clone());
+    let resp = next.run(request).await;
+    log.done(config.gafe, resp.status().to_string()).await;
+    Ok(resp)
 }
 
 async fn query(pg: &mut Client, requests: &Vec<Request>) -> Result<Response, api::Error> {
