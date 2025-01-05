@@ -1,0 +1,194 @@
+<!doctype html>
+<html>
+    <head>
+        <link rel="preload" href="https://indexsupply.net/godmode.png" as="image">
+        <meta charset="utf-8" />
+        <title>godmode</title>
+        <style>
+            body {
+                font-family: system, sans-serif;
+                font-size: 0.95em;
+                letter-spacing: -0.005em;
+                line-height: 1.58;
+
+                max-width: 800px;
+                margin: 0 auto;
+            }
+            a:link,
+            a:visited,
+            a:hover,
+            a:active {
+                color: blue;
+                text-decoration: none;
+            }
+            form {
+                display: flex;
+                flex-direction: row;
+                justify-content: space-between;
+                margin-bottom: 10px;
+            }
+            .header {
+                width: 100%;
+                margin: 0 0 20px 0;
+            }
+            .header img {
+                width: 50%;
+                display: block;
+                margin-left: auto;
+                margin-right: auto;
+            }
+            #history {
+                width: 100%;
+            }
+            .query {
+                width: 98%;
+                padding: 10px 5px 10px 5px;
+                margin: 0 0 5px 0;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                border: 1px solid #E5E4E2;
+                font-size: small;
+                font-family: monospace;
+            }
+            .query:hover {
+                cursor: pointer;
+                background-color: lightyellow;
+                transition: background-color 0.1s ease-in-out;
+            }
+            .query .timing {
+                display: flex;
+                flex-direction: row;
+                gap: 10px;
+            }
+            .query .created_at {
+                width: 100%;
+            }
+            .query .event {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .query .sql {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .highlight {
+                background-color: lightyellow;
+                transition: background-color 0.25s ease-in-out;
+            }
+            .error {
+                padding: 20px;
+                font-size: x-large;
+                color: #eb2d3a;
+            }
+            .info {
+                padding: 20px;
+                font-size: x-large;
+                color: #000000;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="header"><a href="/godmode"><img src="https://indexsupply.net/godmode.png" width="400" height="78"/></a></div>
+        <main>
+            <form action="/godmode">
+                <div><input type="text" name="owner_email" placeholder="email"></div>
+                <div><input type="submit" value="search" /></div>
+            </form>
+            <div id="history">
+                {{#each history}}
+                <div class="query" data-chain="{{chain}}" data-sql="{{sql}}" data-events="{{(join events "\n")}}">
+                    <div class="timing">
+                        <div class="created_at">{{ created_at }}</div>
+                        {{#if count }}
+                        <div class="count"><em>{{ count }}</em></div>
+                        {{/if}}
+                        {{#if latency}}
+                        <div class="latency"><em>{{ latency }}ms</em></div>
+                        {{/if}}
+                    </div>
+                    <div class="owner">{{ owner_email }}</div>
+                    <div class="event">{{(join events ",")}}</div>
+                    <div class="sql">{{ sql }}</div>
+                </div>
+                {{/each}}
+            </div>
+        </main>
+    </body>
+    <script>
+      function querySelected(event) {
+        const div = event.target.closest("div.query");
+        const chain = div.getAttribute("data-chain");
+        const sql = div.getAttribute("data-sql");
+        const events = div.getAttribute("data-events").split("\n");
+
+        let params = new URLSearchParams();
+        params.append("query", sql);
+        params.append("chain", chain);
+        events.forEach((sig) => params.append("event_signatures", sig.trim()));
+        let url = new URL(window.location.href);
+        url.pathname = "query";
+        url.search = params.toString();
+        window.open(url, '_blank');
+      }
+
+      function cmdEnter(event) {
+        if (event.keyCode == 13 && event.metaKey) {
+          event.preventDefault();
+          const selected = document.querySelector("#history > div.query.highlight");
+          if (selected) {
+            selected.click();
+          }
+        }
+      }
+
+      function jk(event) {
+        if (document.activeElement.tagName.toLowerCase() === "textarea") {
+          return;
+        }
+        if (event.key == "ArrowDown" || event.key == "j") {
+          const examples = document.querySelectorAll("#history > div.query");
+          const selected = document.querySelector("#history > div.query.highlight");
+          if (selected.nextElementSibling) {
+            document
+              .querySelectorAll('div.query')
+              .forEach((div) => div.classList.remove('highlight'));
+            selected.nextElementSibling.classList.add("highlight");
+            selected.scrollIntoView({behavior: "smooth", block: "center"});
+          }
+        } else if (event.key == "ArrowUp" || event.key == "k") {
+          const examples = document.querySelectorAll("#history > div.query");
+          const selected = document.querySelector("#history > div.query.highlight");
+          if (selected.previousElementSibling) {
+            document
+              .querySelectorAll('div.query')
+              .forEach((div) => div.classList.remove('highlight'));
+            selected.previousElementSibling.classList.add("highlight");
+            selected.scrollIntoView({behavior: "smooth", block: "center"});
+          }
+        }
+      }
+
+      function navigate(event) {
+        if (event.ctrlKey && event.key == "t") {
+          event.preventDefault();
+          window.location.href = '/godmode';
+        } else if (event.ctrlKey && event.key == 'l') {
+          event.preventDefault();
+          window.location.href = '/godmode?log=true';
+        }
+      }
+
+      document.addEventListener("DOMContentLoaded", function () {
+        document.addEventListener("keydown", navigate);
+        document.addEventListener("keydown", jk);
+        document.addEventListener("keydown", cmdEnter);
+        document.querySelector("#history > div.query").classList.add("highlight");
+        document
+          .querySelectorAll("div.query")
+          .forEach((div) => div.addEventListener("click", querySelected));
+      });
+    </script>
+</html>

@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <title>Index Supply / API Docs</title>
+        <meta charset="utf-8" />
+        <meta name="Description" content="SQL API for Ethereum" />
+        <meta name="viewport" content="initial-scale" ="1" />
+        <style>
+            html {
+                overflow-x: hidden;
+            }
+            body {
+                overflow-x: hidden;
+
+                font-family: system, sans-serif;
+                font-size: 0.95em;
+                letter-spacing: -0.005em;
+                line-height: 1.58;
+
+                margin: 0 auto;
+                padding: 0 5px 0 10px;
+                max-width: 800px;
+
+                display: flex;
+                flex-wrap: wrap;
+                flex-direction: row;
+            }
+            a,
+            a:link,
+            a:visited {
+                color: blue;
+                text-decoration: none;
+            }
+            nav {
+                position: fixed;
+                width: 200px;
+            }
+            main {
+                margin: 0 0 50px 200px;
+                width: 600px;
+            }
+            header {
+                font-size: large;
+                display: flex;
+                flex-direction: row;
+                justify-content: space-between;
+            }
+            header a {
+                padding-top: 10px;
+            }
+            footer {
+                font-size: small;
+            }
+            hr {
+                margin-left: -30px;
+            }
+            h1 {
+                font-size: 2em;
+                font-weight: 600;
+                margin-top: 0;
+                margin-bottom: 15px;
+                padding-top: 0;
+            }
+            h2 {
+                font-weight: 400;
+                margin: 0 0 5px 0;
+            }
+            h3 {
+                font-weight: normal;
+            }
+            h3 code {
+                font-size: x-large;
+            }
+            h3.reference {
+                border-top: 0.5px solid black;
+                padding-top: 5px;
+            }
+            img {
+                background: transparent;
+                width: 98vw;
+                max-width: 100%;
+            }
+            ul {
+                margin-top: 0px;
+                padding-left: 15px;
+                list-style-type: "- ";
+            }
+            pre {
+                margin: 0 0 20px 0;
+                padding: 5px;
+                background-color: whitesmoke;
+                overflow: scroll;
+            }
+            details {
+                margin: 10px 0 0 0;
+                padding: 0 0 0 10px;
+            }
+            summary h2 {
+                display: inline;
+            }
+            table {
+                font-family: monospace;
+                width: 100%;
+                border-collapse: collapse;
+            }
+            th,
+            td {
+                border: 0.5px solid black;
+                padding: 8px;
+                text-align: left;
+            }
+            th {
+                background-color: whitesmoke;
+            }
+            tr:nth-child(even) {
+                background-color: whitesmoke;
+            }
+            #config-object-list li a {
+                text-decoration: none;
+            }
+            @media only screen and (max-width: 700px) {
+                nav {
+                    position: static;
+                }
+                main {
+                    width: 98%;
+                    margin: 0;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <nav>
+            <header><h1>API Docs</h1></header>
+            <span>Overview</span>
+            <ul>
+                <li><a href="#getting-started">Getting Started</a></li>
+            </ul>
+            <span>Reference</span>
+            <ul class="reference"></ul>
+            <span>Company</span>
+            <ul>
+                <li><a href="https://indexsupply.com">Index Supply</a></li>
+                <li><a href="https://github.com/indexsupply/code">Github</a></li>
+            </ul>
+        </nav>
+        <main>
+            <header>
+                <h1 id="getting-started">Getting Started</h1>
+                <a href="/">Query</a>
+            </header>
+            <section>{{{ body }}}</section>
+            <footer>
+                <a href="https://www.indexsupply.net/">Home</a>
+                <span>,</span>
+                <a href="https://indexsupply.com/about">About</a>
+                <span>,</span>
+                <a href="https://twitter.com/indexsupply">@indexsupply</a>
+                <span>,</span>
+                <a href="https://github.com/indexsupply">github.com/indexsupply</a>
+            </footer>
+        </main>
+    </body>
+</html>
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        let navList = document.querySelector("nav ul");
+        let refNavList = document.querySelector("nav ul.reference");
+        document.querySelectorAll("h2:not(.reference)").forEach((h) => {
+            let a = document.createElement("a");
+            a.appendChild(document.createTextNode(h.textContent));
+            a.href = `#${h.id}`;
+
+            let li = document.createElement("li");
+            li.appendChild(a);
+            navList.appendChild(li);
+        });
+        document.querySelectorAll("h2.reference").forEach((h) => {
+            let a = document.createElement("a");
+            a.appendChild(document.createTextNode(h.textContent));
+            a.href = `#${h.id}`;
+
+            let li = document.createElement("li");
+            li.appendChild(a);
+            refNavList.appendChild(li);
+        });
+        document.querySelectorAll("h2, h3").forEach((h) => {
+            const original = h.innerHTML;
+            h.addEventListener("mouseenter", (e) => {
+                const a = h.querySelector("a");
+                if (!a) {
+                    const base = location.protocol + "//" + location.host + location.pathname;
+                    const href = `${base}#${h.id}`;
+                    h.innerHTML = `${original} <a href="${href}">#</a>`;
+                }
+            });
+            h.addEventListener("mouseleave", (e) => {
+                h.innerHTML = original;
+            });
+            h.addEventListener("click", (e) => {
+                e.preventDefault();
+                const a = h.querySelector("a");
+                a.style.color = "orange";
+                setTimeout(() => {
+                    a.style.color = "";
+                }, 150);
+                navigator.clipboard.writeText(a.href);
+            });
+        });
+    });
+</script>

@@ -1,0 +1,539 @@
+<!doctype html>
+    <head>
+        <link
+            rel="icon"
+            href="https://indexsupply.net/ga.ico"
+            type="image/x-icon"
+        />
+        <meta charset="utf-8" />
+        <title>Index Supply / Account</title>
+        <style>
+        body {
+            font-family: system, sans-serif;
+            font-size: 0.95em;
+            letter-spacing: -0.005em;
+            line-height: 1.58;
+
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        a:link,
+        a:visited,
+        a:hover,
+        a:active {
+            color: blue;
+            text-decoration: none;
+        }
+        .header img {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 30px;
+        }
+        .navigation {
+            width: 100%;
+            padding: 10px;
+            font-size: large;
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+            height: 30px;
+        }
+        .navigation .Success {
+            color: green;
+        }
+        .navigation.Error {
+            color: red;
+        }
+        #api-keys {
+            width: 100%;
+            border: 1px solid #E5E4E2;
+            padding: 10px;
+        }
+        .api-key {
+            width: 100%;
+            display: flex;
+            flex-direction: row;
+        }
+        .api-key:last-of-type {
+            border-bottom: 1px solid black;
+        }
+        .api-key .header {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .api-key .secret {
+            font-family: monospace;
+            width: 40%;
+            white-space: nowrap;
+            display: inline-block;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .api-key .origins {
+            text-align: left;
+            width: 30%;
+            white-space: nowrap;
+            display: inline-block;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .api-key .created_at {
+            text-align: left;
+            width: 20%;
+        }
+        .api-key .delete {
+            text-align: right;
+            width: 10%;
+        }
+        #new-api-key {
+            padding: 10px 0 0 0;
+            text-align: right;
+        }
+        #plan {
+            width: 100%;
+            border: 1px solid #E5E4E2;
+            padding: 10px;
+        }
+        #menu {
+            width: 100%;
+            display: flex;
+            flex-direction: row;
+            justify-content: flex-start;
+            align-items: flex-start;
+            flex-grow: 1;
+            gap: 20px;
+            margin-bottom: 10px;
+        }
+        #menu h3 {
+            text-align: center;
+            padding-bottom: 12px;
+            border-bottom: 2px solid black;
+        }
+        .option.current {
+            border: 2px dotted black;
+        }
+        .option.selected {
+            border: 2px solid green;
+        }
+        .option {
+            width: 100%;
+            box-sizing: border-box;
+            border: 2px inset black;
+            padding: 0 0 10px 0;
+        }
+        .option ul {
+            padding-inline-start: 20px;
+        }
+        .option li {
+            padding-left: 0px;
+        }
+        .option .price {
+            width: 100%;
+            text-align: center;
+            font-size: large;
+        }
+        #change-plan {
+            text-align: right;
+        }
+        #chain-selection {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        #card {
+            height: 100%;
+            width: 100%;
+            border: 1px solid #E5E4E2;
+            padding: 10px;
+        }
+        @keyframes pulse {
+          0% { background-color: rgba(0, 0, 0, 0); }
+          50% { background-color: #D0F0C0; }
+          100% { background-color: rgba(0, 0, 0, 0); }
+        }
+        #card.loading {
+            animation: pulse 2s infinite;
+        }
+        #current-card {
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+        }
+        #current-card span {
+            text-transform: capitalize;
+        }
+        #new-card {
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+            margin: 15px 0 0 0;
+        }
+        #error {
+            color: red;
+            text-align: left;
+            font-size: 13px;
+            line-height: 17px;
+        }
+        #card-element {
+            border: 1px solid black;
+            width: 40%;
+        }
+        .hidden {
+            visibility: hidden;
+        }
+        .opaque {
+            opacity: 10%;
+        }
+        .highlight {
+            background-color: lightyellow;
+        }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <img src="https://indexsupply.net/beta.png" />
+        </div>
+        <div class="navigation">
+            <div>
+                {{#each flash }}
+                <marquee class="{{level}}">{{ message }}</marquee>
+                {{/each}}
+            </div>
+            <div>
+                {{#with user}}
+                <a href="/logout">log out</a>,
+                <a href="/">home</a>
+                {{else}}
+                <a href="/login">log in</a>
+                {{/with}}
+            </div>
+        </div>
+        <div id="card">
+            {{#with payment_method.card }}
+            <h2>Current Credit Card</h2>
+            <div id="current-card">
+                <span>{{ brand }} {{ last4 }} {{ exp_month }}/{{ exp_year }} </span>
+                <a id="show-new-card" href="">new card</a>
+            </div>
+            {{else}}
+            <h2>Please Add Your Credit Card To Get Started</h2>
+            <div id="current-card">
+                <a id="show-new-card" class="hidden" href="">new card</a>
+            </div>
+            {{/with }}
+            <div id="new-card" {{#if payment_method.card }} class="hidden" {{/if}}>
+                <div id="card-element"><!-- Stripe card Element --></div>
+                <a id="submit" href="#">add card</a>
+            </div>
+            <div id="error" role="alert"></div>
+        </div>
+        <div id="plan" {{#unless payment_method.card }} class="opaque" {{/unless}}>
+            <h2>Plan</h2>
+            <div id="menu">
+                <div class="option" name="indie">
+                    <h3>Indie</h3>
+                    <ul>
+                        <li>2 Chains</li>
+                        <li>5 requests per second per client</li>
+                        <li>100 connected clients</li>
+                        <li>Best Effort Support</li>
+                    </ul>
+                    <div class="price">$20 per month</div>
+                </div>
+                <div class="option" name="pro">
+                    <h3>Pro</h3>
+                    <ul>
+                        <li>Unlimited Chains</li>
+                        <li>10 requests per second per client</li>
+                        <li>1,000 connected clients</li>
+                        <li>Same Day Support</li>
+                    </ul>
+                    <div class="price">$100 per month</div>
+                </div>
+                <div class="option" name="extreme">
+                    <h3>Dedicated</h3>
+                    <ul>
+                        <li>Custom Chains</li>
+                        <li>Custom Tuned Performance</li>
+                        <li>Custom Database Indexing</li>
+                        <li>On-call Support</li>
+                    </ul>
+                    <div class="price">Custom</div>
+                </div>
+            </div>
+            <h3>Chains</h3>
+            <div id="chain-selection">
+                <div>
+                    <input type="checkbox" name="arbitrum-one" value="42161">
+                    <label for="arbitrum-one">Arbitrum One</label>
+                </div>
+                <div>
+                    <input type="checkbox" name="base" value="8453">
+                    <label for="base">Base</label>
+                </div>
+                <div>
+                    <input type="checkbox" name="baseSepolia" value="84532">
+                    <label for="baseSepolia">Base Sepolia</label>
+                </div>
+                <div>
+                    <input type="checkbox" name="bleTestnet" value="52085143">
+                    <label for="baseSepolia">Ble Testnet</label>
+                </div>
+                <div>
+                    <input type="checkbox" name="donatuz" value="42026">
+                    <label for="donatuz">Donatuz</label>
+                </div>
+                <div>
+                    <input type="checkbox" name="forma" value="984122">
+                    <label for="forma">Forma</label>
+                </div>
+                <div>
+                    <input type="checkbox" name="gnosis" value="100">
+                    <label for="gnosis">Gnosis</label>
+                </div>
+                <div>
+                    <input type="checkbox" name="mainnet" value="1">
+                    <label for="mainnet">Mainnet</label>
+                </div>
+                <div>
+                    <input type="checkbox" name="odyssey" value="911867">
+                    <label for="odyssey">Odyssey</label>
+                </div>
+                <div>
+                    <input type="checkbox" name="polygon-amoy" value="80002">
+                    <label for="polygon-amoy">Polygon Amoy</label>
+                </div>
+                <div>
+                    <input type="checkbox" name="spotlight-sep" value="10058112">
+                    <label for="spotlight-sep">Spotlight Sepolia</label>
+                </div>
+                <div>
+                    <input type="checkbox" name="world" value="480">
+                    <label for="world">World Chain</label>
+                </div>
+                <div>
+                    <input type="checkbox" name="world-sepolia" value="4801">
+                    <label for="world-sepolia">World Chain Sepolia</label>
+                </div>
+                <div>
+                    <input type="checkbox" name="zora" value="7777777">
+                    <label for="zora">Zora</label>
+                </div>
+            </div>
+            <div id="change-plan">
+                <a href="">change plan</a>
+            </div>
+        </div>
+        <div id="api-keys" {{#unless payment_method.card }} class="opaque" {{/unless}}>
+            <h2>API Keys</h2>
+            <div id="keys">
+            {{#if (gt (len api_keys) 0)}}
+            <div class="api-key header">
+                <div class="secret header"><span>key</span></div>
+                <div class="origins header"><span>origins</span></div>
+                <div class="created_at header"><span>created_at</span></div>
+            </div>
+            {{/if}}
+            {{#each api_keys }}
+            <div class="api-key">
+                <div class="secret"><span>{{ secret }}</span></div>
+                <div class="origins"><span>{{ (join origins ",") }}</span></div>
+                <div class="created_at"><span>{{ created_at }}</span></div>
+                <div class="delete"><a href="{{ secret }}">delete</a></div>
+            </div>
+            {{/each}}
+            </div>
+            <div id="new-api-key">
+                <a href="/new-api-key">new api key</a>
+            </div>
+        </div>
+    </body>
+    <script src="https://js.stripe.com/v3/" defer></script>
+    <script defer>
+
+    var disableSubmit = false;
+    var addCard = function () {
+      if (disableSubmit) {
+        return;
+      }
+      var stripe = Stripe("{{ stripe_pub_key }}");
+      var elements = stripe.elements();
+      var card = elements.create("card");
+      card.mount("#card-element");
+      var button = document.getElementById("submit");
+      button.addEventListener("click", function (event) {
+        event.preventDefault();
+        disableSubmit = true;
+        document.getElementById("card").classList.add("loading");
+        stripe
+          .confirmCardSetup("{{ client_secret }}", {
+            payment_method: { card: card },
+          })
+          .then(function (result) {
+            if (result.error) {
+              disableSubmit = false;
+              document.getElementById("card").classList.remove("loading");
+              document.getElementById("error").textContent = result.error.message;
+            } else {
+              stripe
+                .retrieveSetupIntent("{{ client_secret }}")
+                .then(function (result) {
+                  disableSubmit = false
+                  document.getElementById("card").classList.remove("loading");
+                });
+              location.reload();
+            }
+          });
+      });
+    };
+
+      function showNewCard(event) {
+        event.preventDefault();
+        document.getElementById("new-card").classList.remove("hidden");
+      };
+
+      function setCurrentPlan(name) {
+        let current = document.querySelector(`div.option[name="${name}"]`);
+        if (current) {
+          current.classList.add("current");
+          current.classList.add("selected");
+        }
+      }
+
+      function changePlan(event) {
+        event.preventDefault();
+        const newPlan = document.querySelector(".option.selected").getAttribute("name");
+        let chains = [];
+        document.querySelectorAll('#chain-selection input[type="checkbox"]:checked').forEach(cb => {
+          chains.push(Number(cb.value));
+        });
+
+        if (!confirm(`change plan to: ${newPlan} with chains ${chains}`)) {
+          return;
+        }
+        fetch("/change-plan", {
+          method: "POST",
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({name: newPlan, chains: chains}),
+        }).then(response => {
+          if (response.ok) {
+            window.location.reload();
+          } else {
+            response.text().then(msg => {
+              document.getElementById("error").textContent = msg;
+            })
+          }
+        });
+      }
+
+      function deleteApiKey(event) {
+        event.preventDefault();
+        const secret = this.getAttribute('href');
+        if (!confirm(`delete api key: ${secret.substring(0,4)}...?`)) {
+          return;
+        }
+        fetch("/delete-api-key", {
+          method: "POST",
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(secret),
+        }).then(response => {
+          if (response.ok) {
+            window.location.reload();
+          } else {
+            response.text().then(msg => {
+              document.getElementById("error").textContent = msg;
+            });
+          }
+        })
+      };
+
+      function selectChain(event) {
+        let selected = document.querySelector(".option.selected");
+        const n = document.querySelectorAll('#chain-selection input[type="checkbox"]:checked').length;
+        const plan = selected.getAttribute("name");
+        let max = n;
+        if (plan == "indie") {
+          max = 2;
+        }
+        if (n > max) {
+          event.target.checked = false;
+          alert("Please upgrade to pro or extreme for more chains.")
+          return
+        }
+      };
+
+      function selectOption(optionDiv, event) {
+        document.querySelectorAll(".option").forEach(div => {
+          div.classList.remove('selected');
+        });
+        optionDiv.classList.add('selected');
+
+        const newPlan = optionDiv.getAttribute("name");
+        if (newPlan == "indie") {
+          document.querySelectorAll(`#chain-selection input[type="checkbox"]`).forEach((cb, i) => {
+            if (i < 2) {
+              cb.checked = true;
+            } else {
+              cb.checked = false;
+            }
+          });
+        } else {
+          document.querySelectorAll(`#chain-selection input[type="checkbox"]`).forEach(cb => {
+            cb.checked = true;
+          });
+        }
+      };
+
+      document.addEventListener("DOMContentLoaded", () => {
+        addCard();
+
+        {{#if plan }}
+        const planChains = {{ plan.chains }};
+        setCurrentPlan("{{ plan.name }}");
+        {{ else }}
+        const planChains = [];
+        setCurrentPlan("indie");
+        {{/if}}
+
+        document
+          .getElementById("show-new-card")
+          .addEventListener("click", showNewCard);
+
+        document
+          .getElementById("change-plan")
+          .addEventListener("click", changePlan);
+
+        document.querySelectorAll(".api-key:not(.header)").forEach(div => {
+          div.addEventListener("mouseover", event => {
+            div.classList.add("highlight");
+          });
+          div.addEventListener("mouseout", event => {
+            div.classList.remove("highlight");
+          });
+        });
+        document.querySelectorAll(".api-key .delete a").forEach(div => {
+          div.addEventListener("click", deleteApiKey);
+        });
+
+        document.querySelectorAll(".option").forEach(div => {
+          div.addEventListener("click", (event) => {
+            selectOption(div, event);
+          })
+        });
+
+        document.querySelectorAll('#chain-selection input[type="checkbox"]').forEach(div => {
+          if (planChains.includes(Number(div.value))) {
+            div.checked = true;
+          }
+          div.addEventListener("change", selectChain);
+        });
+
+        setTimeout(() => {
+          document.querySelectorAll('marquee').forEach(el => {
+            el.style.display = 'none';
+          });
+        }, 10000);
+      });
+    </script>
+</html>

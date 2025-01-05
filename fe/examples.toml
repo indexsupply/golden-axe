@@ -1,0 +1,158 @@
+[[queries]]
+chain = 8453
+desc = "ERC20 Token Balances for All Tokens in Wallet"
+events = ["Transfer(address indexed from, address indexed to, uint256 value)"]
+sql = """
+select
+  max(block_num) block,
+  address token,
+  sum(
+    case
+    when "from" = 0xB9621a707869d45A600acc2851418a1fe60500e7
+    then -value
+    when "to" = 0xB9621a707869d45A600acc2851418a1fe60500e7
+    then value
+    else 0
+    end
+  ) balance
+from transfer
+where (
+  "to" = 0xB9621a707869d45A600acc2851418a1fe60500e7
+  or "from" = 0xB9621a707869d45A600acc2851418a1fe60500e7
+)
+group by token
+"""
+
+[[queries]]
+chain = 480
+desc = "World App User Migration (case expressions)"
+events = ["Transfer(address indexed from, address indexed to, uint256 value)"]
+sql = """
+SELECT
+  block_num,
+  COUNT (DISTINCT "to") AS migrated_users,
+  SUM (CASE
+    WHEN address = 0x2cfc85d8e48f8eab294be644d9e25c3030863003
+    THEN value
+    ELSE 0
+    END
+  ) AS wld,
+  SUM (CASE
+    WHEN address = 0x03c7054bcb39f7b2e5b2c7acb37583e32d70cfa3
+    THEN value
+    ELSE 0
+    END
+  ) AS btc,
+  SUM(CASE
+    WHEN address = 0x4200000000000000000000000000000000000006
+    THEN value
+    ELSE 0
+    END
+  ) AS eth,
+  SUM (CASE
+    WHEN address = 0x79a02482a880bce3f13e09da970dc34db4cd24d1
+    THEN value
+    ELSE 0
+    END
+  ) AS usdc
+FROM transfer
+WHERE "from" = 0xC6968c6DF1a2C31Ac66B42945BbaD91635a0095B
+GROUP BY block_num
+ORDER BY block_num DESC
+LIMIT 20
+"""
+
+[[queries]]
+chain = 8453
+desc = "Daimo Name Registrations"
+events = ["Registered(bytes32 indexed name, address indexed addr)"]
+sql = """
+select
+  block_num,
+  h2s(name) name,
+  addr
+from registered
+where address = 0x4430A644B215a187a3daa5b114fA3f3d9DeBc17D
+order by block_num desc
+"""
+
+[[queries]]
+chain = 8453
+desc = "ERC-1155 Transfer Batch (arrays)"
+events = [
+    "TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] amounts)",
+]
+sql = """
+select
+  log_idx,
+  "from",
+  "to",
+  ids,
+  amounts
+from transferbatch
+where block_num = 21258465
+and log_idx = 4
+"""
+
+[[queries]]
+chain = 8453
+desc = "Unique Senders/Receivers of ERC-721 Transfers per Block"
+events = [
+    "Transfer(address indexed from, address indexed to, uint indexed tokenId)",
+]
+sql = """
+select
+  block_num,
+  count(distinct(tx_hash)) transactions,
+  count(distinct("from")) senders,
+  count(distinct("to")) receivers
+from transfer
+group by block_num
+order by block_num desc
+limit 1
+"""
+
+[[queries]]
+chain = 84532
+desc = "ERC721 Current Token Holders (self join)"
+events = [
+    "Transfer(address indexed from, address indexed to, uint indexed tokenId)",
+]
+sql = """
+select t1."to", t1.tokenId, t1.block_num
+from transfer t1
+left join transfer t2
+on t1.tokenId = t2.tokenId
+and t1.block_num < t2.block_num
+and t1.address = t2.address
+where t1.address = 0xE81b94b09B9dE001b75f2133A0Fb37346f7E8BA4
+and t2.tokenId is null
+"""
+
+[[queries]]
+chain = 8453
+desc = "Base Name Registrations"
+events = [
+    "NameRegistered(string name, bytes32 indexed label, address indexed owner, uint256 expires)",
+]
+sql = """
+select
+    tx_hash,
+    name,
+    owner
+from nameregistered
+where address = 0x4ccb0bb02fcaba27e82a56646e81d8c5bc4119a5
+order by block_num desc
+limit 100
+"""
+[[queries]]
+chain = 7777777
+desc = "Zora Mint Comments from a Random User"
+events = [
+    "MintComment(address indexed sender, address indexed collection, uint256 indexed tokenId, uint256 quantity, string comment)",
+]
+sql = """
+select comment
+from mintcomment
+where sender = 0x1d14d9e297dfbce003f5a8ebcf8cba7faee70b91
+"""

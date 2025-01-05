@@ -1,0 +1,80 @@
+<!doctype html>
+<html>
+    <head>
+        <link
+            rel="icon"
+            href="https://indexsupply.net/ga.ico"
+            type="image/x-icon"
+        />
+        <meta charset="utf-8" />
+        <title>Index Supply / API Key</title>
+        <style>
+            body {
+                font-family: system, sans-serif;
+                font-size: 0.95em;
+                letter-spacing: -0.005em;
+                line-height: 1.58;
+
+                margin: 100px auto 0 auto;
+                max-width: 500px;
+                margin: 0 auto;
+            }
+            form {
+                width: 100%;
+            }
+            input {
+                font-size: x-large;
+                width: 100%;
+                box-sizing: border-box;
+            }
+            input::placeholder {
+                color: lightgray;
+                font-family: monospace;
+                font-style: italic;
+            }
+            button {
+                margin: 10px 0 0 0;
+                width: 100%;
+                box-sizing: border-box;
+            }
+            span.capitalize {
+                font-weight: bold;
+                text-transform: capitalize;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Create an API Key</h1>
+        <p>
+            An API key can be a secret stored on the server
+            or a publishable key included in your website for your users.
+            The API key can either be a request parameter or an http header.
+        </p>
+        <p><code>https://api.indexsupply.net/query?api-key=XXX&...</code></p>
+        <p><code>Api-Key: XXX</code></p>
+        <form method="post" action="/create-api-key">
+            <h2>Requests Per Second</h2>
+            <p><span class="capitalize">{{plan.name}}</span> includes {{ plan.rate }} requests per second</p>
+            <p>The rate limit is applied per ip address. Each client IP address has the ability to make {{plan.rate}} requests per second.</p>
+            <h2>Request Timeout</h2>
+            <p><span class="capitalize">{{plan.name}}</span> has a {{plan.timeout}} second request timeout</p>
+            <h2>Origin Domains</h2>
+            <p>
+                <em>Optionally </em>provide a comma separated list of domain names.
+                <em>i.e. <code>foo.com, bar.com</code></em>
+            <p/>
+            <p>
+                When domain names are provided, HTTP requests using
+                this API Key will be valid when the <code>Host</code> header
+                is contained in this list of domains.
+            </p>
+            <p>
+                This isn't perfect security. It is possible for the <code>Host</code>
+                header to be spoofed outside of a browser. But it does prevent someone
+                from using this API Key on someone else's domain.
+            </p>
+            <input type="text" name="origins" placeholder="foo.com,bar.com" autofocus></input>
+            <button type="submit">Create API Key</button>
+        </form>
+    </body>
+</html>

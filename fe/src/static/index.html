@@ -1,0 +1,779 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <title>Index Supply</title>
+        <style>
+            body {
+                font-family: system, sans-serif;
+                font-size: 0.95em;
+                letter-spacing: -0.005em;
+                line-height: 1.58;
+
+                max-width: 800px;
+                margin: 0 auto;
+            }
+            a:link,
+            a:visited,
+            a:hover,
+            a:active {
+                color: blue;
+                text-decoration: none;
+            }
+            .navigation {
+                width: 100%;
+                padding-top: 10px;
+                font-size: large;
+                display: flex;
+                flex-direction: row;
+                justify-content: space-between;
+                height: 30px;
+            }
+            .navigation .Success {
+                color: green;
+            }
+            .navigation .Error {
+                color: red;
+            }
+            .header {
+                width: 100%;
+                margin: 0 0 20px 0;
+            }
+            .header h1 {
+                width: 100%;
+                font-size: 4.5em;
+                font-weight: bolder;
+                margin: 0 0 -15px -2px;
+            }
+            .header img {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 30px;
+            }
+            .header h1 a {
+                color: #000000;
+                text-decoration: none;
+            }
+            #request {
+                width: 100%;
+            }
+            #events {
+                /*
+                setting width to 100% causes the textarea
+                to spill outside the #request div. Not sure why.
+                I arrived at 99.25 by adjusting till it lined up
+                */
+                width: 99.25%;
+                height: 100px;
+                font-size: large;
+                font-family: monospace;
+            }
+            #query {
+                /*
+                setting width to 100% causes the textarea
+                to spill outside the #request div. Not sure why.
+                I arrived at 99.25 by adjusting till it lined up
+                */
+                width: 99.25%;
+                height: 300px;
+                font-size: large;
+                font-family: monospace;
+            }
+            #query-options {
+                display: flex;
+                flex-direction: row;
+                justify-content: space-between;
+                padding-bottom: 10px;
+                border-bottom: 1px dotted gray;
+            }
+            .query-options-left {
+                display: flex;
+                flex-direction: row;
+                align-items: baseline;
+                gap: 20px;
+            }
+            .query-options-right {
+                width: 10%;
+            }
+            .query-options-right input {
+                width: 100%;
+            }
+            #live-query {
+                padding-bottom: 1px;
+            }
+            #response {
+                width: 100%;
+                margin-top: 5px;
+            }
+            #examples {
+                display: none;
+                width: 100%;
+            }
+            #history {
+                display: none;
+                width: 100%;
+                overflow-y: scroll;
+                scrollbar-width: thin;
+                max-height: 400px;
+            }
+            .query {
+                padding: 10px 0 10px 0;
+                margin: 0 0 5px 0;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                border: 1px solid #E5E4E2;
+            }
+            .query:hover {
+                cursor: pointer;
+                background-color: lightyellow;
+                transition: background-color 0.1s ease-in-out;
+            }
+            .query .timing {
+                display: flex;
+                flex-direction: row;
+            }
+            .query .desc {
+                width: calc(100% - 5px);
+                margin-left: 5px;
+                font-size: large;
+                font-weight: bold;
+                width: 100%;
+            }
+            .query .latency {
+                font-size: small;
+                font-family: monospace;
+                margin-right: 5px;
+            }
+            .query .created_at {
+                width: calc(100% - 5px);
+                margin-left: 5px;
+                font-size: small;
+                font-family: monospace;
+                width: 100%;
+            }
+            .query .event {
+                width: calc(100% - 15px);
+                margin-left: 10px;
+                font-family: monospace;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .query .sql {
+                width: calc(100% - 15px);
+                margin-left: 10px;
+                font-family: monospace;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            #stats {
+                font-family: monospace;
+                display: none;
+                width: 100%;
+                color: gray;
+                padding-top: 5px;
+                padding-bottom: 10px;
+            }
+            #stats span {
+                margin: 0;
+            }
+            #response table {
+                font-family: monospace;
+                table-layout: fixed;
+                width: 100%;
+            }
+            #response th {
+                font-size: medium;
+                padding-bottom: 5px;
+                text-align: left;
+            }
+            #response td {
+                max-width: 200px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .highlight {
+                background-color: lightyellow;
+                transition: background-color 0.25s ease-in-out;
+            }
+            .error {
+                padding: 20px;
+                font-size: x-large;
+                color: #eb2d3a;
+            }
+            .info {
+                padding: 20px;
+                font-size: x-large;
+                color: #000000;
+            }
+            #loading {
+                display: none;
+                margin-top: 100px;
+                text-align: center;
+            }
+            #timeout {
+                display: none;
+            }
+            #timeout li {
+                padding-bottom: 10px;
+            }
+            #timeout p img {
+                height: 12px;
+                margin-right: 10px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="navigation">
+            <div>
+                {{#each flash }}
+                <marquee class="{{level}}">{{ message }}</marquee>
+                {{/each}}
+            </div>
+            <div>
+                <a href="/docs">Docs</a>, {{#with user}}
+                <a href="/account">Account</a>,
+                {{else}}
+                <a href="/login">Log In</a>,
+                {{/with}}
+                <a href="https://www.indexsupply.com">Home</a>
+            </div>
+        </div>
+        <div class="header">
+            <img src="https://indexsupply.net/beta.png" />
+            <h1><a href="/">Index Supply</a></h1>
+        </div>
+        <main>
+            <form action="/query" id="request" method="POST">
+                <textarea id="events" type="text" placeholder="Event Signatures" spellcheck="false"></textarea>
+                <textarea id="query" type="text" tabindex="1" placeholder="SQL Query" spellcheck="false"></textarea>
+                <div id="query-options">
+                    <div class="query-options-left">
+                        <div>
+                            <label for="live-query">Live Query</label>
+                            <input type="checkbox" id="live-query" />
+                        </div>
+                        <div>
+                            <label for="chain-selection">Chain</label>
+                            <select id="chain-selection">
+                                <optgroup label="Popular Chains">
+                                    <option value="8453">Base</option>
+                                    <option value="84532">Base Sepolia</option>
+                                    <option value="1">Main</option>
+                                </optgroup>
+                                <optgroup label="Good Chains">
+                                    <option value="42161">Arbitrum One</option>
+                                    <option value="52085143">Ble Testnet</option>
+                                    <option value="42026">Donatuz</option>
+                                    <option value="984122">Forma</option>
+                                    <option value="100">Gnosis</option>
+                                    <option value="911867">Odyssey</option>
+                                    <option value="80002">Polygon Amoy</option>
+                                    <option value="480">World Chain</option>
+                                    <option value="4801">World Chain Sepolia</option>
+                                    <option value="7777777">Zora</option>
+                                </optgroup>
+                            </select>
+                        </div>
+                        {{#if api_keys}}
+                        <div>
+                            <label for="api-key-selection">API Key</label>
+                            <select id="api-key-selection">
+                                {{#each api_keys}}
+                                <option value="{{ secret }}">{{ (trunc secret 6) }}...</option>
+                                {{/each}}
+                            </select>
+                        </div>
+                        <div><a id="request-query-history" href="">History</a></div>
+                        {{/if}}
+                        <div><a id="request-query-examples" href="">Examples</a></div>
+                    </div>
+                    <div class="query-options-right">
+                        <div><input type="submit" value="Submit" /></div>
+                    </div>
+                </div>
+            </form>
+            <div id="response">
+                <div id="examples" class="queries">
+                    <h2>Examples</h2>
+                    {{#each examples }}
+                    <div class="query" data-chain="{{chain}}" data-sql="{{sql}}" data-events="{{(join events "\n")}}">
+                        <div class="desc">{{ desc }}</div>
+                        <div class="event">{{(join events ",")}}</div>
+                        <div class="sql">{{ sql }}</div>
+                    </div>
+                    {{/each}}
+                </div>
+                <div id="history" class="queries">
+                    <h2>History</h2>
+                    {{#each history}}
+                    <div class="query" data-chain="{{chain}}" data-sql="{{sql}}" data-events="{{(join events "\n")}}">
+                        <div class="timing">
+                            <div class="created_at">{{ created_at }}</div>
+                            <div class="latency"><em>{{ latency }}ms</em></div>
+                        </div>
+                        <div class="event">{{(join events ",")}}</div>
+                        <div class="sql">{{ sql }}</div>
+                    </div>
+                    {{/each}}
+                </div>
+                <div id="stats">
+                    <label>Block:</label>
+                    <span id="block-height"></span>
+                    <label>Rows:</label>
+                    <span id="num-rows"></span>
+                    <label id="latency-label">Latency:</label>
+                    <span id="latency"></span>
+                </div>
+                <table><thead></thead><tbody></tbody></table>
+                <div id="loading">
+                    <img src="https://indexsupply.net/book.gif">
+                </div>
+                <div id="timeout">
+                    <p><img src="https://indexsupply.net/hourglass-last.gif"/><strong>This query is taking too much time.</strong></p>
+                    <p>Reasons Why</p>
+                    <ol>
+                        <li>The Event is common and has millions of rows. For instance: <code>Transfer</code> or <code>Swap</code></li>
+                        <li>The Event and Contract have millions of rows. For instance: <code>USDC</code></li>
+                        <li>
+                            The Event and Contract are common and the query has a predicate on a non-indexed field. <br /><br />
+                            When an Event contains an indexed field <em>(eg <code>Foo(address indexed bar, uint256 baz)</code>)</em>
+                            and there is a query <code>`select baz from foo where bar = 0x... and baz > 42`</code> the query planner
+                            will use a database index to find all <code>Foo</code> Events <code>`where bar = 0x...`</code> but if that
+                            set contains millions of rows then the database will have to scan each of them checking for
+                            <code>`baz > 42`</code> –which is expensive.
+                        </li>
+                        <li>
+                            There may be a bug! Please email:
+                            <a href="mailto:support@indexsupply.com">support@indexsupply.com</a>
+                        </li>
+                    </ol>
+                    <p>Tips for Fast Queries</p>
+                    <ol>
+                        <li>Use<code>`where address = 0x000...000`</code> when possible. If a particular event is popular (eg Transfer(...)) and if you are only interested in Transfers for a particular contract, then adding the address predicate will speed up the query.</li>
+                        <li>
+                            Use <code>`where block_num > X`</code> or <code>`where block_num >= X and block_num < Y`</code>
+                            to paginate through a large dataset. In general, adding <code>block_num</code> predicates
+                            to your query will positively impact performance.
+                            <br />
+                            <br />
+                            In fact, <em>live queries </em> are sub-millisecond because they only query recent blocks.
+                        </li>
+                        <li>
+                            Consider using events with <strong>indexed</strong> fields. Each indexed field in the event
+                            signature is indexed in the database. If you are designing a new contract, keep this in mind.
+                        </li>
+                        <li>
+                            Finally, if you need low latency access to non-indexed data, the <strong>Dedicated</strong> plan
+                            will allow you to create custom database indexes over non-indexed data resulting in sub-millisecond
+                            queries. Please create an account and reach out to
+                            <a href="mailto:support@indexsupply.com">support@indexsupply.com</a> for assistance.
+                        </li>
+                    </ol>
+                </div>
+            </div>
+        </main>
+    </body>
+    <script>
+      function querySelected(event) {
+        const div = event.target.closest("div.query");
+        const chain = div.getAttribute("data-chain");
+        const sql = div.getAttribute("data-sql");
+        const events = div.getAttribute("data-events");
+        setOrAddChain(chain);
+        document.getElementById("query").value = sql;
+        document.getElementById("events").value = events;
+
+        document
+          .querySelectorAll('div.query')
+          .forEach((div) => div.classList.remove('highlight'));
+        div.classList.add("highlight");
+      }
+
+      function showExamples(event) {
+        //It's possible to call this function from a click
+        //or on page load so we don't always have an event.
+        if (event) {
+          event.preventDefault();
+        }
+        resetResponse();
+        document.getElementById("examples").style.display = 'block';
+        document.querySelector("#examples > div.query").click();
+      }
+
+      function showTimeout() {
+        resetResponse();
+        document.getElementById("timeout").style.display = 'block';
+      }
+
+      function showLoading() {
+        resetResponse();
+        document.getElementById("loading").style.display = 'block';
+      }
+
+      function showHistory() {
+        //There is no event here because showHistory is determined on
+        //page load. If there is ?history=true in the url
+        //then we call this function and then remove the param from the url.
+        resetResponse();
+        document.getElementById("history").style.display = 'block';
+        document.querySelector("#history > div.query").click();
+      }
+
+      function showTable() {
+        resetResponse();
+        document.querySelector("#response table").style.display = 'table';
+      }
+
+      function clickHistory(event) {
+        //We don't prevent default bwe want to reload the page
+        //to get the latest history from the db.
+        const url = new URL(window.location.href);
+        url.searchParams.set("history", true);
+        window.history.replaceState({}, '', url);
+      }
+
+      function addHeaderRow(row) {
+        let thead = document.querySelector("#response table thead");
+        let tr = thead.insertRow(0);
+        row.forEach((col, i) => {
+          const th = document.createElement("th");
+          th.textContent = col;
+          tr.appendChild(th);
+        });
+      }
+
+      function addRow(rows, shouldAppend) {
+        let tbody = document.querySelector("#response table tbody");
+        rows.forEach((row) => {
+          let tr = document.createElement("tr");
+          row.forEach((col, i) => {
+            let td = document.createElement("td");
+            td.textContent = col;
+            tr.appendChild(td);
+          });
+          if (shouldAppend) {
+            tbody.appendChild(tr);
+          } else {
+            tbody.insertBefore(tr, tbody.rows[0]);
+          }
+          tr.classList.add("highlight");
+          setTimeout(() => {
+            tr.classList.remove("highlight");
+          }, 500);
+        });
+        while (tbody.rows.length > 100) {
+          //-1 removes the last row of the table
+          tbody.deleteRow(-1);
+        }
+      }
+
+      function resetResponse() {
+        document.querySelectorAll('#response table tr').forEach(row => row.remove());
+        document.querySelectorAll('#response > *').forEach(child => child.style.display = 'none');
+      }
+
+      function printInfo(msg) {
+        resetResponse();
+        const response = document.getElementById("response");
+        const p = document.createElement("p");
+        p.classList.add("info");
+        p.textContent = msg;
+        response.appendChild(p);
+      }
+
+      function printError(msg) {
+        resetResponse();
+        const response = document.getElementById("response");
+        const p = document.createElement("p");
+        p.classList.add("error");
+        p.textContent = msg;
+        response.appendChild(p);
+      }
+
+      function printRateLimit() {
+        resetResponse();
+        const p = document.createElement("p");
+        p.classList.add("error");
+        {{#with user}}
+        p.textContent = "Too many requests for this chain. Please upgrade to PRO or check to see if you have selected this chain in your account page.";
+        {{ else }}
+        p.textContent = "The free plan includes ~5 requests per minute. Log in and select a paid plan for more requests.";
+        {{/with}}
+        response.appendChild(p);
+      }
+
+      let sseHandler = {};
+      let blockHeight = 0;
+
+      function apiKey() {
+        const select = document.getElementById("api-key-selection");
+        if (select) {
+          return select.options[select.selectedIndex].value;
+        }
+      }
+
+      function apiURL(path, params = new URLSearchParams()) {
+        let chain = document.getElementById("chain-selection").value;
+        params.set("chain", chain);
+        let key = apiKey();
+        if (key) {
+          params.set("api-key", key);
+        }
+        return `{{ api_url }}${path}?${params}`;
+      }
+
+      function updateStats(height, nrows, latency) {
+        document.getElementById("stats").style.display = "block";
+        blockHeight = height;
+        document.querySelector("#block-height").textContent = height;
+        document.querySelector("#num-rows").textContent = nrows;
+        if (latency) {
+          document.querySelector("#latency-label").style.display = 'inline';
+          document.querySelector("#latency").style.display = 'inline';
+          document.querySelector("#latency").textContent = latency;
+        } else {
+          document.querySelector("#latency-label").style.display = 'none';
+          document.querySelector("#latency").style.display = 'none';
+        }
+      }
+
+      function changeLiveQuery(event) {
+        closeHandler();
+        if (event.target.checked) {
+          startHandler();
+        }
+      }
+
+      function closeHandler() {
+        if ("close" in sseHandler) {
+          sseHandler.close();
+        }
+      }
+
+      function startHandler() {
+        function liveQueryEnabled() {
+          return document.getElementById("live-query").checked;
+        }
+        if (!liveQueryEnabled()) {
+          return;
+        }
+        console.log(`sse start: ${blockHeight}`);
+        sseHandler = new EventSource(
+          apiURL("/query-live", form2queryParams()),
+        );
+        sseHandler.onmessage = function (event) {
+          let data = JSON.parse(event.data);
+          let newHeight = data["block_height"];
+          let result = data["result"][0];
+          console.log(`sse latest: ${newHeight}`);
+          if (newHeight <= blockHeight) {
+            console.log("sse nothing new");
+            return;
+          }
+          result.shift(); //remove column names
+          /*
+            When we are adding data to the table from an SSE update
+            we have to take care of 2 things:
+            1. Add the data to the table by prepending instead of appending.
+                New data should be at the top of the table.
+            2. If there are multiple reseults from an SSE update then
+                we want to prepend them in reverse order.
+          */
+          addRow(result.reverse(), false);
+          updateStats(newHeight, result.length);
+        };
+        sseHandler.onerror = function (e) {
+          console.log(`sse error: `, e);
+        };
+      }
+
+      async function submitQuery(event) {
+        event.preventDefault();
+        resetResponse();
+        closeHandler();
+        form2url();
+        let submitInput = document.querySelector(`#request input[type="submit"]`);
+        submitInput.disabled = true;
+        function enableSubmit() {
+          document.querySelector(`#request input[type="submit"]`).disabled = false;
+        };
+        let loaded = false;
+        setTimeout(() => {
+          if (!loaded) {
+            showLoading();
+          }
+        }, 700);
+        const response = await fetch(apiURL("/query"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(form2JSON()),
+        });
+        loaded = true;
+        if (response.status == 429) {
+          printRateLimit();
+        } else if (response.status == 408) {
+          showTimeout();
+        } else if (!response.ok) {
+          const { message } = await response.json();
+          printError(message);
+        } else {
+          const data = await response.json();
+          let height = data["block_height"];
+          let result = data["result"][0];
+          console.log(`downloaded ${result.length} records`);
+          if (result.length > 0) {
+            showTable();
+            addHeaderRow(result.shift());
+            addRow(result.slice(0, 100), true);
+            updateStats(height, result.length, response.headers.get("Latency"));
+            startHandler();
+          } else {
+            printInfo("no rows");
+          }
+        }
+        enableSubmit();
+      }
+
+      function cmdEnter(event) {
+        if (event.keyCode == 13 && event.metaKey) {
+          event.preventDefault();
+          let query = document.getElementById("query");
+          query.value = query.value.trim();
+          document.getElementById("request").dispatchEvent(
+            new Event("submit", {bubbles: true, cancelable: true}),
+          );
+        }
+      }
+
+      function jk(event) {
+        if (document.activeElement.tagName.toLowerCase() === "textarea") {
+          return;
+        }
+        if (event.key == "ArrowDown" || event.key == "j") {
+          const examples = document.querySelectorAll(".queries > div.query");
+          const selected = document.querySelector(".queries > div.query.highlight");
+          if (selected.nextElementSibling) {
+            selected.nextElementSibling.click();
+          }
+        } else if (event.key == "ArrowUp" || event.key == "k") {
+          const examples = document.querySelectorAll(".queries > div.query");
+          const selected = document.querySelector(".queries > div.query.highlight");
+          if (selected.previousElementSibling) {
+            selected.previousElementSibling.click();
+          }
+        }
+      }
+
+      function form2JSON() {
+        let query = document.getElementById("query").value;
+        let eventSigs = document.getElementById("events").value.split("\n");
+        return [{ event_signatures: eventSigs, query: query }];
+      }
+
+      function form2queryParams() {
+        let params = new URLSearchParams();
+        let query = document.getElementById("query").value;
+        params.append("query", query);
+        let eventSigs = document.getElementById("events").value.split("\n");
+        eventSigs.forEach((sig) => {
+          params.append("event_signatures", sig.trim());
+        });
+        let chain = document.getElementById("chain-selection").value;
+        params.set("chain", chain);
+        params.set("block_height", blockHeight);
+        return params;
+      }
+
+      function form2url() {
+        let url = new URL(window.location.href);
+        url.pathname = "query";
+        url.search = form2queryParams().toString();
+        history.pushState(null, "", url);
+        return url.searchParams.toString();
+      }
+
+      function setOrAddChain(chain) {
+        let select = document.getElementById("chain-selection");
+        let options = Array.from(select.options);
+        for (let i = 0; i < options.length; i++) {
+          if (options[i].value === chain) {
+            select.selectedIndex = i;
+            return;
+          }
+        }
+        let opt = document.createElement("option");
+        opt.value = chain;
+        opt.text = chain;
+        select.add(opt);
+        select.value = chain;
+      }
+
+      function url2form() {
+        const params = new URLSearchParams(window.location.search);
+        if (params.size == 0) {
+          showExamples();
+          return;
+        }
+
+        let query = params.get("query");
+        if (query) {
+            document.getElementById("query").value = query;
+        }
+        let eventSigs = params.getAll("event_signatures");
+        if (eventSigs.length > 0) {
+            document.getElementById("events").value = eventSigs.join("\n");
+        }
+        let chain = params.get("chain");
+        if (chain) {
+            setOrAddChain(chain);
+        }
+        /*
+          When History is clicked, ?history=true is added to the
+          url and the page is redirected. As we are loading the page
+          if we find a history=true param then we should show the history
+          and then remove the param from the URL so that if/when the user
+          grabs the URL to share/save the history param is not included.
+        */
+        let history = params.get("history");
+        if (history) {
+          showHistory();
+          params.delete("history");
+          const url = new URL(window.location.href);
+          url.search = params;
+          window.history.replaceState({}, '', url);
+        }
+      }
+
+      window.addEventListener("popstate", function (event) {
+        url2form();
+      });
+      window.addEventListener("pushstate", function (event) {
+        url2form();
+      });
+
+      document.addEventListener("DOMContentLoaded", function () {
+        document.addEventListener("keydown", jk);
+        document.addEventListener("keydown", cmdEnter);
+        document
+          .getElementById("request")
+          .addEventListener("submit", submitQuery);
+          document
+            .getElementById("live-query")
+            .addEventListener("change", changeLiveQuery);
+          document
+            .getElementById("request-query-examples")
+            .addEventListener("click", showExamples);
+          document
+            .querySelectorAll("#request-query-history")
+            .forEach((div) => div.addEventListener("click", clickHistory));
+          document
+            .querySelectorAll("div.query")
+            .forEach((div) => div.addEventListener("click", querySelected));
+          url2form();
+      });
+    </script>
+</html>
