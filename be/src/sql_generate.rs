@@ -145,9 +145,10 @@ fn abi_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pg;
+    use pg::test;
 
     const PG: &sqlparser::dialect::PostgreSqlDialect = &sqlparser::dialect::PostgreSqlDialect {};
+    static SCHEMA: &str = include_str!("./sql/schema.sql");
 
     pub fn fmt_sql(sql: &str) -> Result<String> {
         let ast = sqlparser::parser::Parser::parse_sql(PG, sql)?;
@@ -168,7 +169,7 @@ mod tests {
         if got.to_lowercase().ne(&want.to_lowercase()) {
             panic!("got:\n{}\n\nwant:\n{}\n", got, want);
         }
-        let (_pg_server, pool) = pg::test_utils::test_pg().await;
+        let (_pg_server, pool) = test::pg(SCHEMA).await;
         let pg = pool.get().await.expect("getting pg from test pool");
         pg.query(&got, &[]).await.expect("issue with query");
     }

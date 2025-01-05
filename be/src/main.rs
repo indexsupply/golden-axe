@@ -1,13 +1,3 @@
-mod api;
-mod api_sql;
-mod gafe;
-mod pg;
-mod s256;
-mod sql_generate;
-mod sql_test;
-mod sync;
-mod user_query;
-
 use std::{future::IntoFuture, net::SocketAddr, sync::Arc, time::Duration};
 
 use axum::{
@@ -16,11 +6,14 @@ use axum::{
     extract::{connect_info::IntoMakeServiceWithConnectInfo, MatchedPath},
     routing::{get, post, Router},
 };
+use be::{
+    api, api_sql, pg,
+    sync::{Config, Downloader},
+};
 use clap::Parser;
 use eyre::{eyre, Result};
 use futures::TryFutureExt;
 use itertools::Itertools;
-use sync::{Config, Downloader};
 use tower::ServiceBuilder;
 use tower_http::{
     classify::ServerErrorsFailureClass, compression::CompressionLayer, cors::CorsLayer,
@@ -220,8 +213,11 @@ mod tests {
     use axum_test::TestServer;
     use serde_json::json;
 
-    use super::*;
-    use crate::pg;
+    use crate::SCHEMA;
+
+    use super::service;
+    use be::{api, api_sql, sync};
+    use pg::test;
 
     macro_rules! add_log {
         ($pool:expr, $chain:expr, $block_num:expr, $event:expr) => {{
@@ -267,7 +263,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_index() {
-        let (_pg_server, pool) = pg::test_utils::test_pg().await;
+        let (_pg_server, pool) = test::pg(SCHEMA).await;
         let config = api::Config::new(pool, None);
         let server = TestServer::new(service(config)).unwrap();
         server.get("/").await.assert_text_contains("hello");
@@ -275,7 +271,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_query_post_with_params() {
-        let (_pg_server, pool) = pg::test_utils::test_pg().await;
+        let (_pg_server, pool) = test::pg(SCHEMA).await;
         sol! {
             #[sol(abi)]
             event Foo(uint a);
@@ -305,7 +301,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_query_sse() {
-        let (_pg_server, pool) = pg::test_utils::test_pg().await;
+        let (_pg_server, pool) = test::pg(SCHEMA).await;
         sol! {
             #[sol(abi)]
             event Foo(uint a);
