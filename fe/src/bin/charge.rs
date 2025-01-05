@@ -10,7 +10,7 @@ use fe::{pg, postmark, stripe, web};
 
 #[derive(Parser)]
 struct Args {
-    #[arg(long, env = "PG_URL", default_value = "postgres://localhost/gafe")]
+    #[arg(long, env = "PG_URL_GAFE", default_value = "postgres://localhost/fe")]
     pg_url: String,
     #[arg(long, env = "STRIPE_KEY")]
     stripe_key: Option<String>,

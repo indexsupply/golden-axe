@@ -39,7 +39,7 @@ pub mod handlers {
         let resp = Html(state.templates.render(
             "index.html",
             &json!({
-                "api_url": state.api_url,
+                "api_url": state.be_url,
                 "api_keys": api_keys,
                 "examples": state.examples,
                 "history": history,

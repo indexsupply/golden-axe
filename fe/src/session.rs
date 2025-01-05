@@ -80,7 +80,7 @@ pub async fn email_login_link(
 async fn send_email_login(state: web::State, to: &str, secret: Vec<u8>) -> Result<()> {
     let body = format!(
         "Hello,\n\nHere is your one-time log in link: {}/email-login-link?secret={}\n\nIf you have any issues logging in, reply to this email to get help.\n\nRegards,\nIndex Supply",
-        state.site_url,
+        state.fe_url,
         hex::encode(secret),
     );
     state

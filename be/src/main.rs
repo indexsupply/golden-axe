@@ -34,13 +34,13 @@ struct Args {
     #[arg(long, env = "START_BLOCK")]
     start_block: Option<u64>,
 
-    #[arg(long = "pg", env = "PG_URL", default_value = "postgres://localhost/ga")]
+    #[arg(long = "pg", env = "PG_URL", default_value = "postgres://localhost/be")]
     pg_url: String,
 
     #[arg(
         long = "pg-ro",
         env = "PG_URL_RO",
-        default_value = "postgres://uapi:XXX@localhost/ga"
+        default_value = "postgres://uapi:XXX@localhost/be"
     )]
     pg_url_ro: String,
 

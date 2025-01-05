@@ -23,11 +23,19 @@ static SCHEMA: &str = include_str!("./schema.sql");
 #[derive(Parser)]
 #[command(name = "fe", about = "A front end for Golden Axe", version = "0.1")]
 struct Args {
-    #[arg(long, env = "PG_URL", default_value = "postgres://localhost/gafe")]
+    #[arg(long, env = "PG_URL_GAFE", default_value = "postgres://localhost/gafe")]
     pg_url: String,
 
-    #[arg(long, env = "API_URL", default_value = "https://api.indexsupply.net")]
-    api_url: String,
+    #[arg(long, env = "BE_URL", default_value = "https://api.indexsupply.net")]
+    be_url: String,
+
+    #[arg(
+        long,
+        help = "included in generated links",
+        env = "FE_URL",
+        default_value = "http://localhost:8001"
+    )]
+    fe_url: String,
 
     #[arg(long, env = "POSTMARK_KEY")]
     postmark_key: Option<String>,
@@ -37,14 +45,6 @@ struct Args {
 
     #[arg(long, env = "STRIPE_PUB_KEY")]
     stripe_pub_key: Option<String>,
-
-    #[arg(
-        long,
-        help = "Base url to include in generated links",
-        env = "SITE_URL",
-        default_value = "http://localhost:8001"
-    )]
-    site_url: String,
 
     #[arg(long, env = "SESSION_KEY")]
     session_key: Option<String>,
@@ -122,8 +122,8 @@ async fn main() -> Result<()> {
 
     let state = web::State {
         examples,
-        api_url: args.api_url,
-        site_url: args.site_url,
+        be_url: args.be_url,
+        fe_url: args.fe_url,
         key: session_key,
         templates: reg,
         pool: pg::new_pool(&args.pg_url, 16).expect("unable to create pg pool"),
