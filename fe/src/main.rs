@@ -8,7 +8,7 @@ use axum::{
 use axum_extra::extract::cookie::Key;
 use clap::{command, Parser};
 use eyre::{Context, Result};
-use gafe::{account, api_docs, api_key, god_mode, pg, postmark, query, session, stripe, web};
+use fe::{account, api_docs, api_key, god_mode, pg, postmark, query, session, stripe, web};
 use metrics_exporter_prometheus::PrometheusBuilder;
 use metrics_tracing_context::{MetricsLayer, TracingContextLayer};
 use metrics_util::layers::Layer as MetricsUtilLayer;
@@ -21,7 +21,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 static SCHEMA: &str = include_str!("./schema.sql");
 
 #[derive(Parser)]
-#[command(name = "gafe", about = "A front end for Golden Axe", version = "0.1")]
+#[command(name = "fe", about = "A front end for Golden Axe", version = "0.1")]
 struct Args {
     #[arg(long, env = "PG_URL", default_value = "postgres://localhost/gafe")]
     pg_url: String,

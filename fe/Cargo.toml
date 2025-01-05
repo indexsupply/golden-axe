@@ -1,12 +1,11 @@
 [package]
-name = "gafe"
+name = "fe"
 version = "0.1.0"
 edition = "2021"
-default-run = "gafe"
-
+default-run = "fe"
 
 [[bin]]
-name = "gafe"
+name = "fe"
 path = "src/main.rs"
 
 [dependencies]
