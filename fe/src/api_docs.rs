@@ -16,6 +16,8 @@ pub async fn index(State(state): State<web::State>) -> Result<Html<String>, web:
     html::push_html(&mut body, parser);
 
     Ok(Html(
-        state.templates.render("docs.html", &json!({"body": body}))?,
+        state
+            .templates
+            .render("docs.html", &json!({"body": body}))?,
     ))
 }

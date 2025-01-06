@@ -1,6 +1,8 @@
+use std::net::SocketAddr;
+
 use crate::web::Error;
 use crate::{session, web};
-use axum::extract::{FromRequestParts, State};
+use axum::extract::{ConnectInfo, FromRequestParts, State};
 use axum::response::{Html, IntoResponse};
 use axum::Form;
 use axum_extra::extract::SignedCookieJar;
@@ -18,17 +20,35 @@ time::serde::format_description!(
 #[derive(Clone, Debug, Serialize)]
 struct UserQuery {
     owner_email: Option<String>,
+    chain: be::api::Chain,
     events: Vec<String>,
     sql: String,
     latency: Option<u64>,
+    status: Option<u16>,
     count: Option<u64>,
     #[serde(skip_deserializing, with = "short")]
     created_at: OffsetDateTime,
+    #[serde(skip_deserializing)]
+    generated_sql: Option<String>,
+}
+
+impl UserQuery {
+    pub fn gen_sql(mut self) -> UserQuery {
+        self.generated_sql = be::sql_generate::query(
+            self.chain,
+            None,
+            &self.sql,
+            self.events.iter().map(AsRef::as_ref).collect(),
+        )
+        .ok();
+        self
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Request {
-    log: Option<bool>,
+    top: Option<bool>,
+    status: Option<u16>,
     owner_email: Option<String>,
 }
 
@@ -39,6 +59,9 @@ impl Request {
         )];
         if let Some(email) = &self.owner_email {
             predicates.push(format!("owner_email like '%{}%'", email))
+        }
+        if let Some(status) = &self.status {
+            predicates.push(format!("status / 100 = {}", status))
         }
         if predicates.is_empty() {
             String::new()
@@ -54,10 +77,10 @@ pub async fn index(
     Form(req): Form<Request>,
 ) -> Result<impl IntoResponse, web::Error> {
     let pg = state.pool.get().await.wrap_err("getting db connection")?;
-    let history = if req.log.is_some() {
-        log(&pg, Form(req)).await?
-    } else {
+    let history = if req.top.is_some() {
         top(&pg, Form(req)).await?
+    } else {
+        log(&pg, Form(req)).await?
     };
     Ok(Html(
         state
@@ -75,10 +98,12 @@ async fn log(
             &format!(
                 "
                 select
+                    chain,
                     coalesce(nullif(owner_email, ''), 'free') owner_email,
                     events,
                     user_query,
                     latency,
+                    status,
                     user_queries.created_at
                 from user_queries
                 left join api_keys on api_keys.secret = user_queries.api_key
@@ -93,13 +118,17 @@ async fn log(
         .await?
         .into_iter()
         .map(|row| UserQuery {
+            chain: be::api::Chain(row.get::<&str, i64>("chain") as u64),
             owner_email: row.get("owner_email"),
             events: row.get("events"),
             sql: row.get("user_query"),
+            generated_sql: None,
             count: None,
             latency: Some(row.get::<_, i32>("latency") as u64),
+            status: Some(row.get::<_, i16>("status") as u16),
             created_at: row.get("created_at"),
         })
+        .map(UserQuery::gen_sql)
         .collect::<Vec<UserQuery>>())
 }
 
@@ -112,6 +141,7 @@ async fn top(
             &format!(
                 r#"
                 select
+                    chain,
                     coalesce(nullif(owner_email, ''), 'free') owner_email,
                     events,
                     coalesce(substring(
@@ -135,11 +165,14 @@ async fn top(
         .await?
         .into_iter()
         .map(|row| UserQuery {
+            chain: be::api::Chain(row.get::<&str, i64>("chain") as u64),
             owner_email: row.get("owner_email"),
             events: row.get("events"),
             sql: row.get("user_query"),
+            generated_sql: None,
             count: Some(row.get::<_, i64>("count") as u64),
             latency: Some(row.get::<_, i32>("latency") as u64),
+            status: None,
             created_at: row.get("created_at"),
         })
         .collect::<Vec<UserQuery>>())
@@ -154,6 +187,11 @@ impl FromRequestParts<web::State> for God {
         parts: &mut axum::http::request::Parts,
         state: &web::State,
     ) -> Result<Self, Self::Rejection> {
+        if let Some(addr) = parts.extensions.get::<ConnectInfo<SocketAddr>>() {
+            if addr.ip().is_loopback() {
+                return Ok(God {});
+            }
+        }
         let jar: SignedCookieJar = SignedCookieJar::from_request_parts(parts, state)
             .await
             .unwrap();

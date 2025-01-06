@@ -13,6 +13,7 @@ axum = "0.7.5"
 axum-extra = { version = "0.9.3", features = ["cookie-signed", "typed-header"] }
 axum-flash = "0.8.0"
 axum-macros = "0.4.1"
+be = { path = "../be" }
 clap = { version = "4.5.13", features = ["derive", "env"] }
 deadpool-postgres = "0.14.0"
 eyre = "0.6.12"

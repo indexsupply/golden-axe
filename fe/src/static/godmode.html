@@ -51,14 +51,15 @@
                 font-size: small;
                 font-family: monospace;
             }
-            .query:hover {
-                cursor: pointer;
-                background-color: lightyellow;
-                transition: background-color 0.1s ease-in-out;
-            }
             .query .timing {
                 display: flex;
                 flex-direction: row;
+                gap: 10px;
+            }
+            .query .actions {
+                display: flex;
+                flex-direction: row;
+                justify-content: flex-end;
                 gap: 10px;
             }
             .query .created_at {
@@ -70,6 +71,11 @@
                 white-space: nowrap;
             }
             .query .sql {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .query .generated_sql {
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
@@ -99,11 +105,14 @@
             </form>
             <div id="history">
                 {{#each history}}
-                <div class="query" data-chain="{{chain}}" data-sql="{{sql}}" data-events="{{(join events "\n")}}">
+                <div class="query" data-chain="{{chain}}" data-sql="{{sql}}" data-generated-sql="{{ generated_sql }}" data-events="{{(join events "\n")}}">
                     <div class="timing">
                         <div class="created_at">{{ created_at }}</div>
                         {{#if count }}
                         <div class="count"><em>{{ count }}</em></div>
+                        {{/if}}
+                        {{#if status}}
+                        <div class="status"><em>{{ status }}</em></div>
                         {{/if}}
                         {{#if latency}}
                         <div class="latency"><em>{{ latency }}ms</em></div>
@@ -112,13 +121,29 @@
                     <div class="owner">{{ owner_email }}</div>
                     <div class="event">{{(join events ",")}}</div>
                     <div class="sql">{{ sql }}</div>
+                    <div class="actions">
+                        <div class="run-query"><a href="#">Run</a></div>
+                        <div class="debug-query"><a href="#">Debug</a></div>
+                    </div>
                 </div>
                 {{/each}}
             </div>
         </main>
     </body>
     <script>
-      function querySelected(event) {
+      function debugQuery(event) {
+        event.preventDefault();
+        let original = event.target.textContent;
+        event.target.textContent = "Copied";
+        setTimeout(() => {
+          event.target.textContent = original;
+        }, 1000);
+        const div = event.target.closest("div.query");
+        navigator.clipboard.writeText(div.getAttribute("data-generated-sql"));
+      }
+
+      function runQuery(event) {
+        event.preventDefault();
         const div = event.target.closest("div.query");
         const chain = div.getAttribute("data-chain");
         const sql = div.getAttribute("data-sql");
@@ -172,12 +197,12 @@
       }
 
       function navigate(event) {
-        if (event.ctrlKey && event.key == "t") {
+        if (event.ctrlKey && event.key == "l") {
           event.preventDefault();
           window.location.href = '/godmode';
-        } else if (event.ctrlKey && event.key == 'l') {
+        } else if (event.ctrlKey && event.key == 't') {
           event.preventDefault();
-          window.location.href = '/godmode?log=true';
+          window.location.href = '/godmode?top=true';
         }
       }
 
@@ -187,8 +212,11 @@
         document.addEventListener("keydown", cmdEnter);
         document.querySelector("#history > div.query").classList.add("highlight");
         document
-          .querySelectorAll("div.query")
-          .forEach((div) => div.addEventListener("click", querySelected));
+          .querySelectorAll("div.run-query")
+          .forEach((div) => div.addEventListener("click", runQuery));
+        document
+          .querySelectorAll("div.debug-query")
+          .forEach((div) => div.addEventListener("click", debugQuery));
       });
     </script>
 </html>

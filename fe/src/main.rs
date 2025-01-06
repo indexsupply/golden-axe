@@ -23,7 +23,7 @@ static SCHEMA: &str = include_str!("./schema.sql");
 #[derive(Parser)]
 #[command(name = "fe", about = "A front end for Golden Axe", version = "0.1")]
 struct Args {
-    #[arg(long, env = "PG_URL_GAFE", default_value = "postgres://localhost/gafe")]
+    #[arg(long, env = "PG_URL_GAFE", default_value = "postgres://localhost/fe")]
     pg_url: String,
 
     #[arg(long, env = "BE_URL", default_value = "https://api.indexsupply.net")]
