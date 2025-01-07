@@ -1,7 +1,7 @@
 use eyre::{eyre, Result};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Client {
     key: Option<String>,
     client: reqwest::Client,

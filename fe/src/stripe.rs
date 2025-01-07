@@ -47,7 +47,7 @@ struct List<T> {
     pub data: Vec<T>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Client {
     key: Option<String>,
     reqwest: reqwest::Client,
