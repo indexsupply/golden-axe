@@ -3227,6 +3227,9 @@ name = "pg"
 version = "0.1.0"
 dependencies = [
  "deadpool-postgres",
+ "eyre",
+ "openssl",
+ "postgres-openssl",
  "postgresql_embedded",
  "tokio-postgres",
 ]

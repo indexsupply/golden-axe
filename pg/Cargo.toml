@@ -8,5 +8,8 @@ testhelper = ["dep:postgresql_embedded"]
 
 [dependencies]
 deadpool-postgres = "0.14.1"
+eyre = "0.6.12"
+openssl = "0.10.64"
 postgresql_embedded = { version = "0.12", optional = true }
+postgres-openssl = "0.5"
 tokio-postgres = "0.7.12"

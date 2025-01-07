@@ -6,7 +6,7 @@ use axum::{
     extract::{connect_info::IntoMakeServiceWithConnectInfo, MatchedPath},
     routing::{get, post, Router},
 };
-use be::{api, api_sql, pg, sync};
+use be::{api, api_sql, sync};
 use clap::Parser;
 use tower::ServiceBuilder;
 use tower_http::{

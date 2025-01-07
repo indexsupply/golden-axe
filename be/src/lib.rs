@@ -1,7 +1,6 @@
 pub mod api;
 pub mod api_sql;
 pub mod gafe;
-pub mod pg;
 pub mod s256;
 pub mod sql_generate;
 pub mod sql_test;
