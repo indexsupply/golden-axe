@@ -1,6 +1,7 @@
 pub mod account;
 pub mod api_docs;
 pub mod api_key;
+pub mod conduit_api;
 pub mod god_mode;
 pub mod pg;
 pub mod postmark;

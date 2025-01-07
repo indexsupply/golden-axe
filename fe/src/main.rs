@@ -8,7 +8,9 @@ use axum::{
 use axum_extra::extract::cookie::Key;
 use clap::{command, Parser};
 use eyre::{Context, Result};
-use fe::{account, api_docs, api_key, god_mode, pg, postmark, query, session, stripe, web};
+use fe::{
+    account, api_docs, api_key, conduit_api, god_mode, pg, postmark, query, session, stripe, web,
+};
 use metrics_exporter_prometheus::PrometheusBuilder;
 use metrics_tracing_context::{MetricsLayer, TracingContextLayer};
 use metrics_util::layers::Layer as MetricsUtilLayer;
@@ -158,6 +160,7 @@ async fn main() -> Result<()> {
         .route("/new-api-key", get(api_key::handlers::new))
         .route("/create-api-key", post(api_key::handlers::create))
         .route("/delete-api-key", post(api_key::handlers::delete))
+        .route("/conduit/add-chain", post(conduit_api::add))
         .fallback(fallback)
         .layer(service)
         .with_state(state);

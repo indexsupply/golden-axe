@@ -78,7 +78,8 @@ create table if not exists config (
     chain int8 primary key,
     url text not null,
     batch_size int2 not null default 2000,
-    concurrency int2 not null default 10
+    concurrency int2 not null default 10,
+    conduit_id text
 );
 
 insert into
