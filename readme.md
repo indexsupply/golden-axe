@@ -30,14 +30,16 @@ createdb be
 createdb fe
 ```
 
-5. Start backend `be`
-
-```
-cargo run -p be
-```
-
-6. Start frontend `fe`
+5. Start frontend `fe`
 
 ```
 cargo run -p fe
+```
+
+6. Start backend `be`
+
+The backend depends on the account_limits view and the config table provided by the frontend. The backend will not attempt to update the frontend's schema and therefore must initially be ran after `fe`.
+
+```
+cargo run -p be
 ```
