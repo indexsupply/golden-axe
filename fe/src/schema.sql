@@ -72,3 +72,31 @@ create unlogged table if not exists user_queries(
     status int2,
     created_at timestamptz default now()
 );
+
+create table if not exists config (
+    enabled bool default true,
+    chain int8 primary key,
+    url text not null,
+    batch_size int2 not null default 2000,
+    concurrency int2 not null default 10
+);
+
+insert into
+    config(enabled, chain, url)
+    values
+        (false, 1, 'https://multi-omniscient-mound.quiknode.pro/fdedc14dec34659ffbb65528ec174998087d0df7'),
+        (false, 100, 'https://sly-fluent-shadow.xdai.quiknode.pro/efa31e398dd8294c4ffb394e62b95750299cd918'),
+        (false, 480, 'https://smart-winter-sun.worldchain-mainnet.quiknode.pro/f9891920fd207eb0143303f53bd71ebf5a4ea66a'),
+        (false, 4801, 'https://maximum-damp-replica.worldchain-sepolia.quiknode.pro/558c716ed53af313e8c9db1e176334ea3f5b588e'),
+        (false, 8453, 'https://capable-thrumming-film.base-mainnet.quiknode.pro/56b49c04b3b9ad2e6162c946d89854181338f420'),
+        (false, 42026, 'https://rpc.donatuz.com'),
+        (false, 42161, 'https://hardworking-shy-arrow.arbitrum-mainnet.quiknode.pro/aa8d2cbd1f0a856b1ea64a66dfa0da3c9b704ca4'),
+        (false, 84532, 'https://special-divine-pond.base-sepolia.quiknode.pro/14a6b6521b135c48a9e71884c14b8beb984d6f93'),
+        (false, 80002, 'https://tiniest-sparkling-dawn.matic-amoy.quiknode.pro/db261d98a880460e6c5a1a5de39fddc189817bec'),
+        (false, 911867, 'https://odyssey.ithaca.xyz'),
+        (false, 984122, 'https://rpc.forma.art'),
+        (true,  7777777, 'https://rpc.zora.energy'),
+        (false, 10058112, 'https://spotlight-sepolia.g.alchemy.com/v2/RBovy_2RtzmHz-3xpxIbzSArz0v_-oc9'),
+        (false, 52085143, 'https://rpc-ethena-testnet-0.t.conduit.xyz')
+    on conflict(chain)
+    do nothing;
