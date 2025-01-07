@@ -8,8 +8,6 @@ use axum::{
 };
 use be::{api, api_sql, pg, sync};
 use clap::Parser;
-use eyre::{eyre, Result};
-use futures::TryFutureExt;
 use tower::ServiceBuilder;
 use tower_http::{
     classify::ServerErrorsFailureClass, compression::CompressionLayer, cors::CorsLayer,
@@ -54,7 +52,7 @@ struct Args {
 static SCHEMA_BE: &str = include_str!("./sql/schema.sql");
 
 #[tokio::main]
-async fn main() -> Result<(), api::Error> {
+async fn main() {
     let fmt_layer = fmt::layer()
         .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
         .compact();
@@ -68,8 +66,8 @@ async fn main() -> Result<(), api::Error> {
 
     let args = Args::parse();
     let config = api::Config::new(
-        pg::new_pool(&args.pg_url, 32)?,
-        pg::new_pool(&args.pg_url_fe, 4)?,
+        pg::new_pool(&args.pg_url, 32).expect("pg_be pool"),
+        pg::new_pool(&args.pg_url_fe, 4).expect("pg_fe pool"),
     );
 
     config
@@ -85,35 +83,22 @@ async fn main() -> Result<(), api::Error> {
         .await
         .expect("binding to tcp for http server");
 
-    let res = tokio::try_join!(
-        flatten(tokio::spawn(account_limits(config.clone()))),
-        flatten(tokio::spawn(sync::run(config.clone()))),
-        flatten(tokio::spawn(
-            axum::serve(listener, service(config.clone()))
-                .into_future()
-                .map_err(|e| eyre!("serving http: {}", e))
-        )),
-    );
-    match res {
-        Err(err) => panic!("{}", err),
-        _ => Ok(()),
+    match tokio::try_join!(
+        tokio::spawn(account_limits(config.clone())),
+        tokio::spawn(sync::run(config.clone())),
+        tokio::spawn(axum::serve(listener, service(config.clone())).into_future()),
+    ) {
+        Ok(_) => tracing::error!("task died too soon"),
+        Err(e) => panic!("task failed {}", e),
     }
 }
 
-async fn account_limits(config: api::Config) -> Result<()> {
+async fn account_limits(config: api::Config) {
     loop {
         if let Some(limits) = config.gafe.load_account_limits().await {
             *config.account_limits.lock().unwrap() = limits;
         }
         tokio::time::sleep(Duration::from_secs(10)).await;
-    }
-}
-
-async fn flatten<T>(handle: tokio::task::JoinHandle<Result<T>>) -> Result<T> {
-    match handle.await {
-        Ok(Ok(result)) => Ok(result),
-        Ok(Err(err)) => Err(err),
-        Err(err) => Err(eyre!("handle error: {}", err)),
     }
 }
 

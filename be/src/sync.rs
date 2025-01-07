@@ -88,7 +88,7 @@ impl RemoteConfig {
     }
 }
 
-pub async fn run(config: api::Config) -> Result<()> {
+pub async fn run(config: api::Config) {
     let mut table: HashMap<RemoteConfig, JoinHandle<()>> = HashMap::new();
     loop {
         let remotes = RemoteConfig::load(&config.fe_pool)
