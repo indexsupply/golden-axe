@@ -15,21 +15,6 @@ create table if not exists logs (
     data bytea
 ) partition by list(chain);
 
-create table if not exists logs_1           partition of logs for values in (1);
-create table if not exists logs_100         partition of logs for values in (100);
-create table if not exists logs_480         partition of logs for values in (480);
-create table if not exists logs_4801        partition of logs for values in (4801);
-create table if not exists logs_8453        partition of logs for values in (8453);
-create table if not exists logs_42026       partition of logs for values in (42026);
-create table if not exists logs_42161       partition of logs for values in (42161);
-create table if not exists logs_84532       partition of logs for values in (84532);
-create table if not exists logs_80002       partition of logs for values in (80002);
-create table if not exists logs_911867      partition of logs for values in (911867);
-create table if not exists logs_984122      partition of logs for values in (984122);
-create table if not exists logs_7777777     partition of logs for values in (7777777);
-create table if not exists logs_10058112    partition of logs for values in (10058112);
-create table if not exists logs_52085143    partition of logs for values in (52085143);
-
 create or replace function b2i(data bytea) returns int4 as $$
 declare
 	n int4 = 0;

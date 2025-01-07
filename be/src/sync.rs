@@ -230,24 +230,26 @@ impl Downloader {
             .get_block_by_number(self.start, alloy::rpc::types::BlockTransactionsKind::Hashes)
             .await?
             .ok_or_eyre(eyre!("missing block {}", self.start))?;
-        self.be_pool
-            .get()
-            .await
-            .wrap_err("pg conn")?
-            .execute(
-                "
-                insert into blocks(chain, num, hash)
-                values ($1, $2, $3) on conflict(chain, num) do nothing
-                ",
-                &[
-                    &self.chain,
-                    &U64::from(block.header.number),
-                    &block.header.hash,
-                ],
-            )
-            .await
-            .map(|_| ())
-            .wrap_err("unable to init blocks table")
+        let mut pg = self.be_pool.get().await?;
+        let pgtx = pg.transaction().await?;
+        pgtx.execute(
+            "
+            insert into blocks(chain, num, hash)
+            values ($1, $2, $3) on conflict(chain, num) do nothing
+            ",
+            &[
+                &self.chain,
+                &U64::from(block.header.number),
+                &block.header.hash,
+            ],
+        )
+        .await?;
+        let stmt = format!(
+            r#"create table if not exists "logs_{}" partition of logs for values in ({})"#,
+            self.chain.0, self.chain.0
+        );
+        pgtx.execute(&stmt, &[]).await?;
+        pgtx.commit().await.map(|_| ()).wrap_err("committing tx")
     }
 
     #[tracing::instrument(level="info" skip_all fields(start, end, logs))]
