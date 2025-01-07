@@ -20,11 +20,6 @@ use tokio_postgres::{binary_copy::BinaryCopyInWriter, Transaction};
 
 use crate::api;
 
-/*
-    Manager will periodically load config from the database.
-    If a config is not running, it will run it.
-*/
-
 #[derive(Debug)]
 pub enum Error {
     Wait,
