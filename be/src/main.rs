@@ -1,4 +1,4 @@
-use std::{future::IntoFuture, net::SocketAddr, sync::Arc, time::Duration};
+use std::{future::IntoFuture, net::SocketAddr, time::Duration};
 
 use axum::{
     body::Body,
@@ -6,14 +6,10 @@ use axum::{
     extract::{connect_info::IntoMakeServiceWithConnectInfo, MatchedPath},
     routing::{get, post, Router},
 };
-use be::{
-    api, api_sql, pg,
-    sync::{Config, Downloader},
-};
+use be::{api, api_sql, pg, sync};
 use clap::Parser;
 use eyre::{eyre, Result};
 use futures::TryFutureExt;
-use itertools::Itertools;
 use tower::ServiceBuilder;
 use tower_http::{
     classify::ServerErrorsFailureClass, compression::CompressionLayer, cors::CorsLayer,
@@ -27,7 +23,11 @@ struct Args {
     #[arg(long, env = "START_BLOCK")]
     start_block: Option<u64>,
 
-    #[arg(long = "pg", env = "PG_URL", default_value = "postgres://localhost/be")]
+    #[arg(
+        long = "pg-be",
+        env = "PG_URL",
+        default_value = "postgres://localhost/be"
+    )]
     pg_url: String,
 
     #[arg(
@@ -37,8 +37,12 @@ struct Args {
     )]
     pg_url_ro: String,
 
-    #[arg(long = "pg-gafe", env = "PG_URL_GAFE")]
-    pg_url_gafe: Option<String>,
+    #[arg(
+        long = "pg-fe",
+        env = "PG_URL_FE",
+        default_value = "postgres://localhost/fe?application_name=be"
+    )]
+    pg_url_fe: String,
 
     #[arg(short = 'l', env = "LISTEN", default_value = "0.0.0.0:8000")]
     listen: String,
@@ -47,7 +51,7 @@ struct Args {
     no_sync: bool,
 }
 
-static SCHEMA: &str = include_str!("./sql/schema.sql");
+static SCHEMA_BE: &str = include_str!("./sql/schema.sql");
 
 #[tokio::main]
 async fn main() -> Result<(), api::Error> {
@@ -65,10 +69,17 @@ async fn main() -> Result<(), api::Error> {
     let args = Args::parse();
     let config = api::Config::new(
         pg::new_pool(&args.pg_url, 32)?,
-        args.pg_url_gafe
-            .as_ref()
-            .and_then(|url| pg::new_pool(url, 4).ok()),
+        pg::new_pool(&args.pg_url_fe, 4)?,
     );
+
+    config
+        .be_pool
+        .get()
+        .await
+        .expect("backend pool")
+        .batch_execute(SCHEMA_BE)
+        .await
+        .expect("updating backend schema");
 
     let listener = tokio::net::TcpListener::bind(&args.listen)
         .await
@@ -76,11 +87,7 @@ async fn main() -> Result<(), api::Error> {
 
     let res = tokio::try_join!(
         flatten(tokio::spawn(account_limits(config.clone()))),
-        flatten(tokio::spawn(sync(
-            args.clone(),
-            config.remote_broadcaster.clone(),
-            config.broadcaster.clone(),
-        ))),
+        flatten(tokio::spawn(sync::run(config.clone()))),
         flatten(tokio::spawn(
             axum::serve(listener, service(config.clone()))
                 .into_future()
@@ -91,41 +98,6 @@ async fn main() -> Result<(), api::Error> {
         Err(err) => panic!("{}", err),
         _ => Ok(()),
     }
-}
-
-async fn sync(
-    args: Args,
-    remote_broadcaster: Arc<api::Broadcaster2>,
-    broadcaster: Arc<api::Broadcaster>,
-) -> Result<()> {
-    if args.no_sync {
-        tracing::info!("no sync");
-        return Ok(());
-    }
-    let pg_pool = pg::new_pool(&args.pg_url, 16)?;
-    let pg = pg_pool.get().await?;
-    pg.batch_execute(SCHEMA).await.unwrap();
-    let tasks = Config::load(&pg)
-        .await?
-        .into_iter()
-        .filter(|c| c.enabled)
-        .map(|config| {
-            let ch = broadcaster.clone();
-            let rb = remote_broadcaster.clone();
-            let pg = pg_pool.clone();
-            tokio::spawn(async move {
-                Downloader::new(pg, rb, config, args.start_block)
-                    .run(ch)
-                    .await
-            })
-        })
-        .collect_vec();
-    for t in tasks {
-        if let Err(e) = t.await {
-            return Err(e.into());
-        }
-    }
-    Ok(())
 }
 
 async fn account_limits(config: api::Config) -> Result<()> {
@@ -213,9 +185,8 @@ mod tests {
     use axum_test::TestServer;
     use serde_json::json;
 
-    use crate::SCHEMA;
-
     use super::service;
+    use super::SCHEMA_BE;
     use be::{api, api_sql, sync};
     use pg::test;
 
@@ -263,22 +234,22 @@ mod tests {
 
     #[tokio::test]
     async fn test_index() {
-        let (_pg_server, pool) = test::pg(SCHEMA).await;
-        let config = api::Config::new(pool, None);
+        let (_pg_server, pool) = test::pg(SCHEMA_BE).await;
+        let config = api::Config::new(pool.clone(), pool);
         let server = TestServer::new(service(config)).unwrap();
         server.get("/").await.assert_text_contains("hello");
     }
 
     #[tokio::test]
     async fn test_query_post_with_params() {
-        let (_pg_server, pool) = test::pg(SCHEMA).await;
+        let (_pg_server, pool) = test::pg(SCHEMA_BE).await;
         sol! {
             #[sol(abi)]
             event Foo(uint a);
         };
         add_log!(pool, api::Chain(1), 1, Foo { a: U256::from(42) });
 
-        let config = api::Config::new(pool, None);
+        let config = api::Config::new(pool.clone(), pool);
         let server = TestServer::new(service(config)).unwrap();
         let request = vec![api_sql::Request {
             api_key: None,
@@ -301,13 +272,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_query_sse() {
-        let (_pg_server, pool) = test::pg(SCHEMA).await;
+        let (_pg_server, pool) = test::pg(SCHEMA_BE).await;
         sol! {
             #[sol(abi)]
             event Foo(uint a);
         };
 
-        let config = api::Config::new(pool.clone(), None);
+        let config = api::Config::new(pool.clone(), pool.clone());
         let server = TestServer::new(service(config.clone())).unwrap();
         let request = api_sql::Request {
             api_key: None,
@@ -318,7 +289,7 @@ mod tests {
         };
 
         tokio::spawn(async move {
-            let bcaster = config.broadcaster.clone();
+            let bcaster = config.api_updates.clone();
             for i in 1..=3 {
                 add_log!(pool, api::Chain(1), i, Foo { a: U256::from(42) });
                 bcaster.broadcast(api::Chain(1), i);

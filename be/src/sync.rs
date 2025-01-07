@@ -1,7 +1,7 @@
 use deadpool_postgres::Pool;
 use itertools::Itertools;
-use std::{cmp, ops::Range, sync::Arc, time::Duration};
-use tokio::task;
+use std::{cmp, collections::HashMap, fmt, ops::Range, sync::Arc, time::Duration};
+use tokio::task::{self, JoinHandle};
 use url::Url;
 
 use alloy::{
@@ -16,9 +16,14 @@ use alloy::{
 };
 use eyre::{eyre, Context, OptionExt, Result};
 use futures::pin_mut;
-use tokio_postgres::{binary_copy::BinaryCopyInWriter, Client, Transaction};
+use tokio_postgres::{binary_copy::BinaryCopyInWriter, Transaction};
 
 use crate::api;
+
+/*
+    Manager will periodically load config from the database.
+    If a config is not running, it will run it.
+*/
 
 #[derive(Debug)]
 pub enum Error {
@@ -39,8 +44,8 @@ impl From<tokio_postgres::Error> for Error {
     }
 }
 
-#[derive(Debug)]
-pub struct Config {
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct RemoteConfig {
     pub enabled: bool,
     pub chain: u64,
     pub url: Url,
@@ -48,16 +53,28 @@ pub struct Config {
     pub concurrency: u16,
 }
 
-impl Config {
-    pub async fn load(pg: &Client) -> Result<Vec<Config>> {
-        Ok(pg
+impl fmt::Display for RemoteConfig {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "RemoteConfig({}, {}, enabled={})",
+            self.chain, self.url, self.enabled
+        )
+    }
+}
+
+impl RemoteConfig {
+    pub async fn load(pool: &Pool) -> Result<Vec<RemoteConfig>> {
+        Ok(pool
+            .get()
+            .await?
             .query(
                 "select enabled, chain, url, batch_size, concurrency from config",
                 &[],
             )
             .await?
             .iter()
-            .map(|row| Config {
+            .map(|row| RemoteConfig {
                 enabled: row.get("enabled"),
                 chain: row.get::<&str, U64>("chain").to(),
                 url: row
@@ -71,22 +88,73 @@ impl Config {
     }
 }
 
+pub async fn run(config: api::Config) -> Result<()> {
+    let mut table: HashMap<RemoteConfig, JoinHandle<()>> = HashMap::new();
+    loop {
+        let remotes = RemoteConfig::load(&config.fe_pool)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::error!("loading remote config {}", e);
+                vec![]
+            })
+            .into_iter()
+            .filter(|rc| rc.enabled)
+            .collect_vec();
+        for remote in remotes.iter() {
+            if !table.contains_key(remote) {
+                let (conf, be_pool, api_updates, stat_updates) = (
+                    remote.clone(),
+                    config.be_pool.clone(),
+                    config.api_updates.clone(),
+                    config.stat_updates.clone(),
+                );
+                table.insert(
+                    conf.clone(),
+                    tokio::spawn(async move {
+                        Downloader::new(conf, be_pool, api_updates, stat_updates, None)
+                            .run()
+                            .await
+                    }),
+                );
+            }
+        }
+        for key in table.keys().cloned().collect_vec() {
+            if let Some(handle) = table.get_mut(&key) {
+                if !remotes.iter().any(|rc| rc.eq(&key)) {
+                    tracing::error!("aborting {}", key);
+                    handle.abort();
+                }
+                if handle.is_finished() {
+                    match handle.await {
+                        Ok(_) => tracing::info!("finished {}", key),
+                        Err(e) => tracing::error!("{} {:?}", key, e),
+                    }
+                    table.remove(&key);
+                }
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    }
+}
+
 pub struct Downloader {
     pub chain: api::Chain,
-    pub pg_pool: Pool,
+    pub be_pool: Pool,
     pub eth_client: ReqwestProvider,
     pub batch_size: u16,
     pub concurrency: u16,
     pub filter: Filter,
     pub start: BlockNumberOrTag,
-    remote_broadcaster: Arc<api::Broadcaster2>,
+    stat_updates: Arc<api::Broadcaster2>,
+    api_updates: Arc<api::Broadcaster>,
 }
 
 impl Downloader {
     pub fn new(
-        pg_pool: Pool,
-        remote_broadcaster: Arc<api::Broadcaster2>,
-        config: Config,
+        config: RemoteConfig,
+        be_pool: Pool,
+        api_updates: Arc<api::Broadcaster>,
+        stat_updates: Arc<api::Broadcaster2>,
         start: Option<u64>,
     ) -> Downloader {
         let http_client = reqwest::Client::builder()
@@ -101,9 +169,10 @@ impl Downloader {
             None => BlockNumberOrTag::Latest,
         };
         Downloader {
-            remote_broadcaster,
+            api_updates,
+            stat_updates,
             start,
-            pg_pool,
+            be_pool,
             chain: config.chain.into(),
             eth_client,
             batch_size: config.batch_size,
@@ -112,14 +181,56 @@ impl Downloader {
         }
     }
 
+    #[tracing::instrument(skip_all fields(event, chain = self.chain.0))]
+    pub async fn run(&self) {
+        self.init_blocks().await.unwrap();
+        let mut batch_size = self.batch_size;
+        loop {
+            match self.download(batch_size).await {
+                Err(Error::Wait) => {
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+                Err(Error::Retry(err)) => {
+                    tracing::error!("downloading error: {}", err);
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+                Err(Error::Fatal(err)) => {
+                    batch_size = std::cmp::max(1, batch_size / 10);
+                    tracing::error!("downloading error: {}", err);
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+                Ok(last) => {
+                    self.api_updates.broadcast(self.chain, last);
+                    self.stat_updates
+                        .update(api::ChainUpdateSource::Local, self.chain, last);
+                    batch_size = self.batch_size
+                }
+            }
+        }
+    }
+
     async fn init_blocks(&self) -> Result<()> {
+        if !self
+            .be_pool
+            .get()
+            .await?
+            .query(
+                "select true from blocks where chain = $1 limit 1",
+                &[&self.chain],
+            )
+            .await
+            .expect("unable to query for latest block")
+            .is_empty()
+        {
+            return Ok(());
+        }
         tracing::info!("initializing blocks table at: {}", self.start);
         let block = self
             .eth_client
             .get_block_by_number(self.start, alloy::rpc::types::BlockTransactionsKind::Hashes)
             .await?
             .ok_or_eyre(eyre!("missing block {}", self.start))?;
-        self.pg_pool
+        self.be_pool
             .get()
             .await
             .wrap_err("pg conn")?
@@ -139,54 +250,9 @@ impl Downloader {
             .wrap_err("unable to init blocks table")
     }
 
-    #[tracing::instrument(skip_all fields(event, chain = self.chain.0))]
-    pub async fn run(&self, broadcaster: Arc<api::Broadcaster>) {
-        {
-            let pg = self
-                .pg_pool
-                .get()
-                .await
-                .expect("unable to get pg from pool");
-            if pg
-                .query(
-                    "select true from blocks where chain = $1 limit 1",
-                    &[&self.chain],
-                )
-                .await
-                .expect("unable to query for latest block")
-                .is_empty()
-            {
-                self.init_blocks().await.unwrap()
-            }
-        }
-        let mut batch_size = self.batch_size;
-        loop {
-            match self.download(batch_size).await {
-                Err(Error::Wait) => {
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                }
-                Err(Error::Retry(err)) => {
-                    tracing::error!("downloading error: {}", err);
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                }
-                Err(Error::Fatal(err)) => {
-                    batch_size = std::cmp::max(1, batch_size / 10);
-                    tracing::error!("downloading error: {}", err);
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                }
-                Ok(last) => {
-                    broadcaster.broadcast(self.chain, last);
-                    self.remote_broadcaster
-                        .update(api::ChainUpdateSource::Local, self.chain, last);
-                    batch_size = self.batch_size
-                }
-            }
-        }
-    }
-
     #[tracing::instrument(level="info" skip_all fields(start, end, logs))]
     async fn download(&self, batch_size: u16) -> Result<u64, Error> {
-        let mut pg = self.pg_pool.get().await.wrap_err("pg pool")?;
+        let mut pg = self.be_pool.get().await.wrap_err("pg pool")?;
         let pgtx = pg.transaction().await?;
         let next = self.next(&pgtx, batch_size).await?;
 
@@ -235,7 +301,7 @@ impl Downloader {
             let (local_num, local_hash) = self.get_local_latest(pgtx).await?;
             let local_num: u64 = local_num.to();
 
-            self.remote_broadcaster
+            self.stat_updates
                 .update(api::ChainUpdateSource::Remote, self.chain, remote_num);
             tracing::Span::current()
                 .record("local", local_num)

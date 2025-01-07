@@ -1,7 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     num::NonZeroU32,
-    sync::Arc,
+    sync::{atomic::AtomicBool, Arc},
     time::Duration,
 };
 
@@ -45,44 +45,50 @@ impl AccountLimit {
 
 #[derive(Clone)]
 pub struct Connection {
-    pg: Option<Pool>,
+    fe_pool: Pool,
+    enabled: Arc<AtomicBool>,
 }
 
 impl Connection {
-    pub fn new(pool: Option<Pool>) -> Connection {
-        Connection { pg: pool }
+    pub fn new(fe_pool: Pool) -> Connection {
+        Connection {
+            fe_pool,
+            enabled: Arc::new(AtomicBool::new(true)),
+        }
+    }
+
+    fn disable(&self) {
+        self.enabled
+            .store(false, std::sync::atomic::Ordering::SeqCst);
     }
 
     pub fn enabled(&self) -> bool {
-        self.pg.is_none()
+        self.enabled.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     #[tracing::instrument(skip_all)]
     pub async fn load_account_limits(&self) -> Option<HashMap<String, Arc<AccountLimit>>> {
-        if self.pg.is_none() {
-            tracing::info!("gafe pg not configured");
-            return None;
-        }
-        let pg = self
-            .pg
-            .as_ref()
-            .unwrap()
+        let res = self
+            .fe_pool
             .get()
             .await
-            .expect("unable to get pg from pool");
-        let res = pg
+            .map_err(|err| {
+                self.disable();
+                tracing::error!("loading account limits: {}", err)
+            })
+            .ok()?
             .query(
                 "select secret, timeout, rate, origins from account_limits",
                 &[],
             )
-            .await;
-        if let Err(e) = res {
-            tracing::error!("loading account limits: {:?}", e);
-            return None;
-        }
+            .await
+            .map_err(|err| {
+                self.disable();
+                tracing::error!("loading account limits: {}", err)
+            })
+            .ok()?;
         Some(
-            res.unwrap()
-                .iter()
+            res.iter()
                 .map(|row| AccountLimit {
                     secret: row.get("secret"),
                     timeout: Duration::from_secs(row.get::<&str, i32>("timeout") as u64),
@@ -111,20 +117,13 @@ impl Connection {
         latency: u64,
         status: u16,
     ) {
-        if self.pg.is_none() {
-            tracing::info!("gafe pg not configured");
-            return;
-        }
-        let pg = self
-            .pg
-            .as_ref()
-            .unwrap()
-            .get()
-            .await
-            .expect("unable to get pg from pool");
+        let fe_pool = self.fe_pool.clone();
         tokio::spawn(async move {
             let timeout_res = tokio::time::timeout(Duration::from_secs(1), async {
-                let res = pg
+                let res = fe_pool
+                    .get()
+                    .await
+                    .expect("unable to get pg from pool")
                     .query(
                         "insert into user_queries (
                             api_key,

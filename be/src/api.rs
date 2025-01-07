@@ -58,7 +58,7 @@ pub async fn handle_status(
 async fn handle_sse(
     State(conf): State<Config>,
 ) -> axum::response::Sse<impl Stream<Item = Result<SSEvent, Infallible>>> {
-    let mut rx = conf.remote_broadcaster.wait();
+    let mut rx = conf.stat_updates.wait();
     let stream = async_stream::stream! {
         loop {
             let update = rx.recv().await.expect("unable to receive new block update");
@@ -70,9 +70,10 @@ async fn handle_sse(
 
 #[derive(Clone)]
 pub struct Config {
-    pub pool: Pool,
-    pub broadcaster: Arc<Broadcaster>,
-    pub remote_broadcaster: Arc<Broadcaster2>,
+    pub be_pool: Pool,
+    pub fe_pool: Pool,
+    pub api_updates: Arc<Broadcaster>,
+    pub stat_updates: Arc<Broadcaster2>,
     pub open_limit: Arc<gafe::AccountLimit>,
     pub free_limit: Arc<gafe::AccountLimit>,
     pub account_limits: Arc<Mutex<HashMap<String, Arc<gafe::AccountLimit>>>>,
@@ -80,15 +81,16 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn new(pool: Pool, gafe_pool: Option<Pool>) -> Config {
+    pub fn new(be_pool: Pool, fe_pool: Pool) -> Config {
         Config {
-            pool,
-            gafe: gafe::Connection::new(gafe_pool),
-            broadcaster: Arc::new(Broadcaster::default()),
-            remote_broadcaster: Arc::new(Broadcaster2::default()),
+            gafe: gafe::Connection::new(fe_pool.clone()),
+            api_updates: Arc::new(Broadcaster::default()),
+            stat_updates: Arc::new(Broadcaster2::default()),
             account_limits: Arc::new(Mutex::new(HashMap::new())),
             free_limit: Arc::new(gafe::AccountLimit::free()),
             open_limit: Arc::new(gafe::AccountLimit::open()),
+            be_pool,
+            fe_pool,
         }
     }
 }
@@ -111,6 +113,12 @@ impl From<eyre::Report> for Error {
 
 impl From<serde_json::Error> for Error {
     fn from(err: serde_json::Error) -> Self {
+        Error::Server(err.into())
+    }
+}
+
+impl From<deadpool_postgres::PoolError> for Error {
+    fn from(err: deadpool_postgres::PoolError) -> Self {
         Error::Server(err.into())
     }
 }

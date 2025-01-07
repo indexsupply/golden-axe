@@ -61,7 +61,7 @@ pub async fn handle_post(
         r.api_key.get_or_insert(api_key.clone());
     });
     log.add(req.clone());
-    let mut pg = config.pool.get().await.wrap_err("getting conn from pool")?;
+    let mut pg = config.be_pool.get().await?;
     Ok(Json(query(&mut pg, &req).await?))
 }
 
@@ -71,7 +71,7 @@ pub async fn handle_get(
     Form(req): Form<Request>,
 ) -> Result<Json<Response>, api::Error> {
     log.add(vec![req.clone()]);
-    let mut pg = config.pool.get().await.wrap_err("getting conn from pool")?;
+    let mut pg = config.be_pool.get().await?;
     Ok(Json(query(&mut pg, &vec![req]).await?))
 }
 
@@ -81,11 +81,11 @@ pub async fn handle_sse(
     Form(mut req): Form<Request>,
 ) -> axum::response::Sse<impl Stream<Item = Result<SSEvent, Infallible>>> {
     log.add(vec![req.clone()]);
-    let mut rx = config.broadcaster.wait(req.chain.expect("missing chain"));
+    let mut rx = config.api_updates.wait(req.chain.expect("missing chain"));
     let stream = async_stream::stream! {
         loop {
             {
-                let mut pg = config.pool.get().await.expect("unable to get pg from pool");
+                let mut pg = config.be_pool.get().await.expect("unable to get pg from pool");
                 let resp = query(&mut pg, &vec![req.clone()]).await.expect("unable to make request");
                 req.block_height = Some(resp.block_height + 1);
                 yield Ok(SSEvent::default().json_data(resp).expect("unable to serialize json"));
