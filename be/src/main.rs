@@ -198,6 +198,13 @@ mod tests {
                 .transaction()
                 .await
                 .expect("unable to start new pgtx from pg pool");
+            let partition_stmt = format!(
+                r#"create table if not exists "logs_{}" partition of logs for values in ({})"#,
+                $chain, $chain
+            );
+            pgtx.execute(&partition_stmt, &[])
+                .await
+                .expect("creating partition");
             sync::copy(&pgtx, $chain, vec![log.clone()])
                 .await
                 .expect("unable to copy new logs");
