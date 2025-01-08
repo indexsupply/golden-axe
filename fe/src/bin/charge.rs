@@ -6,7 +6,7 @@ use std::{
 use clap::Parser;
 use deadpool_postgres::Pool;
 use eyre::Result;
-use fe::{pg, postmark, stripe, web};
+use fe::{postmark, stripe, web};
 
 #[derive(Parser)]
 struct Args {
@@ -35,7 +35,7 @@ fn wait_for_yes() -> bool {
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
-    let pool = pg::new_pool(&args.pg_url, 1).expect("unable to create pg pool");
+    let pool = shared::pg::new_pool(&args.pg_url, 1).expect("unable to create pg pool");
     let stripe_client = stripe::Client::new(args.stripe_key);
     let postmark_client = postmark::Client::new(args.postmark_key);
     let customer_charges = query(&pool, args.year, args.month).await.expect("query");

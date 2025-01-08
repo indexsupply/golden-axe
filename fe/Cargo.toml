@@ -48,5 +48,5 @@ tracing-appender = "0.2.3"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 
 [dev-dependencies]
-pg = { path = "../pg", features = ["testhelper"] }
+shared = { path = "../shared", features = ["test"] }
 axum-test = "16.4.1"

@@ -9,7 +9,7 @@ use axum_extra::extract::cookie::Key;
 use clap::{command, Parser};
 use eyre::{Context, Result};
 use fe::{
-    account, api_docs, api_key, conduit_api, god_mode, pg, postmark, query, session, stripe, web,
+    account, api_docs, api_key, conduit_api, god_mode, postmark, query, session, stripe, web,
 };
 use rust_embed::Embed;
 use std::{collections::HashMap, net::SocketAddr};
@@ -88,7 +88,7 @@ async fn main() -> Result<()> {
         fe_url: args.fe_url,
         key: session_key,
         templates: templates()?,
-        pool: pg::new_pool(&args.pg_url, 16).expect("unable to create pg pool"),
+        pool: shared::pg::new_pool(&args.pg_url, 16).expect("unable to create pg pool"),
         flash: axum_flash::Config::new(Key::generate()).use_secure_cookies(false),
         postmark: postmark::Client::new(args.postmark_key),
         stripe: stripe::Client::new(args.stripe_key),
@@ -176,7 +176,6 @@ mod tests {
     use axum_test::TestServer;
     use deadpool_postgres::Pool;
     use fe::{conduit_api, postmark, stripe};
-    use pg::test;
 
     fn test_state(pool: Pool) -> web::State {
         web::State {
@@ -195,7 +194,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_index() {
-        let (_pg_server, pool) = test::pg(SCHEMA).await;
+        let (_pg_server, pool) = shared::pg::test::new(SCHEMA).await;
         let server = TestServer::new(service(test_state(pool.clone()))).unwrap();
         server
             .get("/")
@@ -205,7 +204,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_conduit_add() {
-        let (_pg_server, pool) = test::pg(SCHEMA).await;
+        let (_pg_server, pool) = shared::pg::test::new(SCHEMA).await;
         let request = conduit_api::CreateRequest {
             id: String::from("foo"),
             event: String::from("INSTALLED"),

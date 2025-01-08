@@ -1,13 +1,12 @@
 #[cfg(test)]
 mod pl_pgsql_test {
     use alloy::{hex, primitives::U256};
-    use pg::test;
 
     static SCHEMA: &str = include_str!("./sql/schema.sql");
 
     #[tokio::test]
     async fn test_abi_uint_array() {
-        let (_pg_server, pool) = test::pg(SCHEMA).await;
+        let (_pg_server, pool) = shared::pg::test::new(SCHEMA).await;
         let pg = pool.get().await.expect("getting pg from test pool");
         let data = hex!(
             r#"

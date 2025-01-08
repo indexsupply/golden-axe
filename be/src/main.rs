@@ -66,8 +66,8 @@ async fn main() {
 
     let args = Args::parse();
     let config = api::Config::new(
-        pg::new_pool(&args.pg_url, 32).expect("pg_be pool"),
-        pg::new_pool(&args.pg_url_fe, 4).expect("pg_fe pool"),
+        shared::pg::new_pool(&args.pg_url, 32).expect("pg_be pool"),
+        shared::pg::new_pool(&args.pg_url_fe, 4).expect("pg_fe pool"),
     );
 
     config
@@ -173,7 +173,6 @@ mod tests {
     use super::service;
     use super::SCHEMA_BE;
     use be::{api, api_sql, sync};
-    use pg::test;
 
     macro_rules! add_log {
         ($pool:expr, $chain:expr, $block_num:expr, $event:expr) => {{
@@ -226,7 +225,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_index() {
-        let (_pg_server, pool) = test::pg(SCHEMA_BE).await;
+        let (_pg_server, pool) = shared::pg::test::new(SCHEMA_BE).await;
         let config = api::Config::new(pool.clone(), pool);
         let server = TestServer::new(service(config)).unwrap();
         server.get("/").await.assert_text_contains("hello");
@@ -234,7 +233,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_query_post_with_params() {
-        let (_pg_server, pool) = test::pg(SCHEMA_BE).await;
+        let (_pg_server, pool) = shared::pg::test::new(SCHEMA_BE).await;
         sol! {
             #[sol(abi)]
             event Foo(uint a);
@@ -264,7 +263,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_query_sse() {
-        let (_pg_server, pool) = test::pg(SCHEMA_BE).await;
+        let (_pg_server, pool) = shared::pg::test::new(SCHEMA_BE).await;
         sol! {
             #[sol(abi)]
             event Foo(uint a);

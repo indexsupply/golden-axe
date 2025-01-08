@@ -145,7 +145,6 @@ fn abi_sql(pos: usize, name: &str, t: &DynSolType) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pg::test;
 
     const PG: &sqlparser::dialect::PostgreSqlDialect = &sqlparser::dialect::PostgreSqlDialect {};
     static SCHEMA: &str = include_str!("./sql/schema.sql");
@@ -169,7 +168,7 @@ mod tests {
         if got.to_lowercase().ne(&want.to_lowercase()) {
             panic!("got:\n{}\n\nwant:\n{}\n", got, want);
         }
-        let (_pg_server, pool) = test::pg(SCHEMA).await;
+        let (_pg_server, pool) = shared::pg::test::new(SCHEMA).await;
         let pg = pool.get().await.expect("getting pg from test pool");
         pg.query(&got, &[]).await.expect("issue with query");
     }
