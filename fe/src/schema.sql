@@ -79,7 +79,7 @@ create table if not exists config (
     url text not null,
     batch_size int2 not null default 2000,
     concurrency int2 not null default 10,
-    conduit_id text
+    conduit_id text unique
 );
 
 insert into

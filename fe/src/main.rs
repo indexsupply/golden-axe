@@ -175,7 +175,7 @@ mod tests {
     use axum_flash::Key;
     use axum_test::TestServer;
     use deadpool_postgres::Pool;
-    use fe::{postmark, stripe};
+    use fe::{conduit_api, postmark, stripe};
     use pg::test;
 
     fn test_state(pool: Pool) -> web::State {
@@ -194,12 +194,44 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_add() {
+    async fn test_index() {
         let (_pg_server, pool) = test::pg(SCHEMA).await;
         let server = TestServer::new(service(test_state(pool.clone()))).unwrap();
         server
             .get("/")
             .await
             .assert_text_contains("<title>Index Supply</title>");
+    }
+
+    #[tokio::test]
+    async fn test_conduit_add() {
+        let (_pg_server, pool) = test::pg(SCHEMA).await;
+        let request = conduit_api::CreateRequest {
+            id: String::from("foo"),
+            event: String::from("INSTALLED"),
+            chain_id: 42,
+            rpc: String::from("/foo"),
+        };
+        let server = TestServer::new(service(test_state(pool.clone()))).unwrap();
+        server
+            .post("/conduit/add-chain")
+            .json(&request)
+            .await
+            .assert_json(&serde_json::json!({"id": "foo", "status": "INSTALLED"}));
+
+        let resp = server.post("/conduit/add-chain").json(&request).await;
+        resp.assert_status_not_ok();
+        resp.assert_json(&serde_json::json!({"message": "duplicate for chain: 42"}));
+        let resp = server
+            .post("/conduit/add-chain")
+            .json(&conduit_api::CreateRequest {
+                id: String::from("foo"),
+                event: String::from("INSTALLED"),
+                chain_id: 43,
+                rpc: String::from("/foo"),
+            })
+            .await;
+        resp.assert_status_not_ok();
+        resp.assert_json(&serde_json::json!({"message": "duplicate for id: foo"}));
     }
 }
