@@ -223,8 +223,11 @@ fn handle_rows(rows: Vec<tokio_postgres::Row>) -> Result<Rows, api::Error> {
                     Value::Number(n.into())
                 }
                 Type::INT8 => {
-                    let n: i64 = row.get(idx);
-                    Value::Number(n.into())
+                    let n: Option<i64> = row.get(idx);
+                    match n {
+                        Some(n) => Value::Number(n.into()),
+                        None => Value::Null,
+                    }
                 }
                 Type::BYTEA => {
                     let b: &[u8] = row.get(idx);
