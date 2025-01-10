@@ -302,4 +302,40 @@ mod tests {
             r#"data: {"block_height":3,"result":[[["a","block_num"],["42",3]]]}"#,
         );
     }
+
+    #[tokio::test]
+    async fn test_query_sse_error() {
+        let (_pg_server, pool) = shared::pg::test::new(SCHEMA_BE).await;
+        sol! {
+            #[sol(abi)]
+            event Foo(uint a);
+        };
+
+        let config = api::Config::new(pool.clone(), pool.clone());
+        let server = TestServer::new(service(config.clone())).unwrap();
+        let request = api_sql::Request {
+            api_key: None,
+            chain: Some(api::Chain(1)),
+            block_height: None,
+            event_signatures: vec![Foo::abi().full_signature()],
+            query: String::from("select a, block_num from bar"),
+        };
+
+        tokio::spawn(async move {
+            let bcaster = config.api_updates.clone();
+            for i in 1..=3 {
+                add_log!(pool, api::Chain(1), i, Foo { a: U256::from(42) });
+                bcaster.broadcast(api::Chain(1), i);
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+            bcaster.close(api::Chain(1));
+        });
+        let resp = server
+            .get("/query-live")
+            .add_raw_query_param(&serde_html_form::to_string(&request).unwrap())
+            .await;
+        resp.assert_text_contains(
+            r#"You are attempting to query 'bar' but it isn't defined. Possible events to query are: 'foo'""#
+        );
+    }
 }

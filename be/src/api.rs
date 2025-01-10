@@ -20,6 +20,7 @@ use futures::Stream;
 use serde::{Deserialize, Serialize};
 
 use deadpool_postgres::Pool;
+use serde::ser::SerializeStruct;
 use serde_json::{json, Value};
 use tokio::sync::broadcast;
 use url::Url;
@@ -95,14 +96,54 @@ impl Config {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub enum Error {
     User(String),
     Timeout(Option<String>),
     TooManyRequests(Option<String>),
 
-    #[serde(skip)]
     Server(Box<dyn std::error::Error + Send + Sync>),
+}
+
+impl Serialize for Error {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("Error", 2)?;
+        match self {
+            Error::User(msg) => {
+                state.serialize_field("error", "user")?;
+                state.serialize_field("message", msg)?;
+            }
+            Error::Timeout(opt_msg) => {
+                state.serialize_field("error", "timeout")?;
+                state.serialize_field("message", &opt_msg)?;
+            }
+            Error::TooManyRequests(opt_msg) => {
+                state.serialize_field("error", "too_many_requests")?;
+                state.serialize_field("message", &opt_msg)?;
+            }
+            Error::Server(err) => {
+                state.serialize_field("error", "server")?;
+                state.serialize_field("message", &err.to_string())?;
+            }
+        }
+        state.end()
+    }
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::User(msg) => write!(f, "User error: {}", msg),
+            Error::Timeout(Some(msg)) => write!(f, "Operation timed out: {}", msg),
+            Error::Timeout(None) => write!(f, "Operation timed out"),
+            Error::TooManyRequests(Some(msg)) => write!(f, "Too many requests: {}", msg),
+            Error::TooManyRequests(None) => write!(f, "Too many requests"),
+            Error::Server(err) => write!(f, "Server error: {}", err),
+        }
+    }
 }
 
 impl From<eyre::Report> for Error {

@@ -17,12 +17,13 @@ use axum::{
     Extension, Json,
 };
 use axum_extra::extract::Form;
+use deadpool_postgres::Pool;
 use eyre::{Context, Result};
 use futures::Stream;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio_postgres::{types::Type, Client};
+use tokio_postgres::types::Type;
 
 use crate::{
     api::{self, ChainOptionExt},
@@ -61,8 +62,7 @@ pub async fn handle_post(
         r.api_key.get_or_insert(api_key.clone());
     });
     log.add(req.clone());
-    let mut pg = config.be_pool.get().await?;
-    Ok(Json(query(&mut pg, &req).await?))
+    Ok(Json(query(config.be_pool, &req).await?))
 }
 
 pub async fn handle_get(
@@ -71,8 +71,7 @@ pub async fn handle_get(
     Form(req): Form<Request>,
 ) -> Result<Json<Response>, api::Error> {
     log.add(vec![req.clone()]);
-    let mut pg = config.be_pool.get().await?;
-    Ok(Json(query(&mut pg, &vec![req]).await?))
+    Ok(Json(query(config.be_pool, &vec![req]).await?))
 }
 
 pub async fn handle_sse(
@@ -84,15 +83,20 @@ pub async fn handle_sse(
     let mut rx = config.api_updates.wait(req.chain.expect("missing chain"));
     let stream = async_stream::stream! {
         loop {
-            {
-                let mut pg = config.be_pool.get().await.expect("unable to get pg from pool");
-                let resp = query(&mut pg, &vec![req.clone()]).await.expect("unable to make request");
-                req.block_height = Some(resp.block_height + 1);
-                yield Ok(SSEvent::default().json_data(resp).expect("unable to serialize json"));
+            match query(config.be_pool.clone(), &vec![req.clone()]).await {
+                Ok(resp) =>  {
+                    req.block_height = Some(resp.block_height + 1);
+                    yield Ok(SSEvent::default().json_data(resp).expect("sse serialize query"));
+                },
+                Err(err) => {
+                    yield Ok(SSEvent::default().json_data(err).expect("sse serialize error"));
+                    return;
+                }
             }
             match rx.recv().await {
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                     tracing::error!("stream closed. closing sse connection");
+                    yield Ok(SSEvent::default().data(String::from("We're closed. Please come again!")));
                     return
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
@@ -154,7 +158,8 @@ pub async fn log_request(
     Ok(resp)
 }
 
-async fn query(pg: &mut Client, requests: &Vec<Request>) -> Result<Response, api::Error> {
+async fn query(be_pool: Pool, requests: &Vec<Request>) -> Result<Response, api::Error> {
+    let mut pg = be_pool.get().await?;
     let pgtx = pg
         .build_transaction()
         .isolation_level(tokio_postgres::IsolationLevel::RepeatableRead)

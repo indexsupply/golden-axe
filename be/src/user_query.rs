@@ -268,10 +268,7 @@ impl UserQuery {
             }
         }
         Err(api::Error::User(format!(
-            r#"
-            You are attempting to query '{}' but it isn't defined.
-            Possible events to query are: '{}'
-            "#,
+            r#"You are attempting to query '{}' but it isn't defined. Possible events to query are: '{}'"#,
             table_name, relations_debug_str,
         )))
     }
