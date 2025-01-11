@@ -552,7 +552,12 @@ pub async fn log_fields(
 ) -> Result<axum::response::Response, Error> {
     let span = tracing::Span::current();
     span.record("ip", ip.to_string());
-    ua.map(|v| span.record("ua", v.to_string()));
+    ua.map(|v| {
+        span.record(
+            "ua",
+            v.as_str().split_whitespace().next().unwrap_or(v.as_str()),
+        )
+    });
     origin.map(|v| span.record("origin", v.to_string()));
     key.map(|v| span.record("key", v.short()));
     chain.map(|v| span.record("chain", v.0));
