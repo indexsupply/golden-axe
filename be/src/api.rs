@@ -14,6 +14,7 @@ use axum::{
         Html, IntoResponse, Sse,
     },
 };
+use axum_extra::{headers::UserAgent, TypedHeader};
 use bytes::BufMut;
 use eyre::eyre;
 use futures::Stream;
@@ -541,6 +542,7 @@ pub async fn content_length_header(
 }
 
 pub async fn log_fields(
+    ua: Option<TypedHeader<UserAgent>>,
     ip: OriginIp,
     origin: Option<OriginDomain>,
     key: Option<Key>,
@@ -550,6 +552,7 @@ pub async fn log_fields(
 ) -> Result<axum::response::Response, Error> {
     let span = tracing::Span::current();
     span.record("ip", ip.to_string());
+    ua.map(|v| span.record("ua", v.to_string()));
     origin.map(|v| span.record("origin", v.to_string()));
     key.map(|v| span.record("key", v.short()));
     chain.map(|v| span.record("chain", v.0));
