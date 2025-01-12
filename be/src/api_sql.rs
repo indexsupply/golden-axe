@@ -62,7 +62,7 @@ pub async fn handle_post(
         r.api_key.get_or_insert(api_key.clone());
     });
     log.add(req.clone());
-    Ok(Json(query(config.be_pool, &req).await?))
+    Ok(Json(query(config.ro_pool, &req).await?))
 }
 
 pub async fn handle_get(
@@ -71,7 +71,7 @@ pub async fn handle_get(
     Form(req): Form<Request>,
 ) -> Result<Json<Response>, api::Error> {
     log.add(vec![req.clone()]);
-    Ok(Json(query(config.be_pool, &vec![req]).await?))
+    Ok(Json(query(config.ro_pool, &vec![req]).await?))
 }
 
 #[tracing::instrument(skip_all)]
@@ -84,7 +84,7 @@ pub async fn handle_sse(
     let mut rx = config.api_updates.wait(req.chain.expect("missing chain"));
     let stream = async_stream::stream! {
         loop {
-            match query(config.be_pool.clone(), &vec![req.clone()]).await {
+            match query(config.ro_pool.clone(), &vec![req.clone()]).await {
                 Ok(resp) =>  {
                     req.block_height = Some(resp.block_height + 1);
                     yield Ok(SSEvent::default().json_data(resp).expect("sse serialize query"));

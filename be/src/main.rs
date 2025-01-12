@@ -68,6 +68,7 @@ async fn main() {
     let config = api::Config::new(
         shared::pg::new_pool(&args.pg_url, 32).expect("pg_be pool"),
         shared::pg::new_pool(&args.pg_url_fe, 4).expect("pg_fe pool"),
+        shared::pg::new_pool(&args.pg_url_ro, 32).expect("pg_ro pool"),
     );
 
     config
@@ -227,7 +228,7 @@ mod tests {
     #[tokio::test]
     async fn test_index() {
         let (_pg_server, pool) = shared::pg::test::new(SCHEMA_BE).await;
-        let config = api::Config::new(pool.clone(), pool);
+        let config = api::Config::new(pool.clone(), pool.clone(), pool.clone());
         let server = TestServer::new(service(config)).unwrap();
         server.get("/").await.assert_text_contains("hello");
     }
@@ -241,7 +242,7 @@ mod tests {
         };
         add_log!(pool, api::Chain(1), 1, Foo { a: U256::from(42) });
 
-        let config = api::Config::new(pool.clone(), pool);
+        let config = api::Config::new(pool.clone(), pool.clone(), pool.clone());
         let server = TestServer::new(service(config)).unwrap();
         let request = vec![api_sql::Request {
             api_key: None,
@@ -270,7 +271,7 @@ mod tests {
             event Foo(uint a);
         };
 
-        let config = api::Config::new(pool.clone(), pool.clone());
+        let config = api::Config::new(pool.clone(), pool.clone(), pool.clone());
         let server = TestServer::new(service(config.clone())).unwrap();
         let request = api_sql::Request {
             api_key: None,
@@ -312,7 +313,7 @@ mod tests {
             event Foo(uint a);
         };
 
-        let config = api::Config::new(pool.clone(), pool.clone());
+        let config = api::Config::new(pool.clone(), pool.clone(), pool.clone());
         let server = TestServer::new(service(config.clone())).unwrap();
         let request = api_sql::Request {
             api_key: None,

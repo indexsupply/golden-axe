@@ -74,6 +74,7 @@ async fn handle_sse(
 pub struct Config {
     pub be_pool: Pool,
     pub fe_pool: Pool,
+    pub ro_pool: Pool,
     pub api_updates: Arc<Broadcaster>,
     pub stat_updates: Arc<Broadcaster2>,
     pub open_limit: Arc<gafe::AccountLimit>,
@@ -83,7 +84,7 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn new(be_pool: Pool, fe_pool: Pool) -> Config {
+    pub fn new(be_pool: Pool, fe_pool: Pool, ro_pool: Pool) -> Config {
         Config {
             gafe: gafe::Connection::new(fe_pool.clone()),
             api_updates: Arc::new(Broadcaster::default()),
@@ -93,6 +94,7 @@ impl Config {
             open_limit: Arc::new(gafe::AccountLimit::open()),
             be_pool,
             fe_pool,
+            ro_pool,
         }
     }
 }
