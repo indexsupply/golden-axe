@@ -74,6 +74,7 @@ pub async fn handle_get(
     Ok(Json(query(config.be_pool, &vec![req]).await?))
 }
 
+#[tracing::instrument(skip_all)]
 pub async fn handle_sse(
     Extension(log): Extension<RequestLog>,
     State(config): State<api::Config>,
