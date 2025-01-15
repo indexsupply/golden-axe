@@ -112,12 +112,39 @@ fn templates() -> Result<handlebars::Handlebars<'static>, handlebars::TemplateEr
     #[include = "*.md"]
     struct Assets;
 
+    fn get_snippet(snippet_name : String, file_name : String) -> String { 
+        let key = format!("!!!{}", snippet_name);
+        let file = Assets::get(&file_name).unwrap().data;
+        let contents = std::str::from_utf8(&file).unwrap();
+        let lines : Vec<&str> = contents.lines().collect();
+        
+        let mut indices = Vec::new();
+    
+        for (i, line) in lines.iter().enumerate() {
+            if line.contains(&key) {
+                indices.push(i);
+            }
+        }
+    
+        if let (Some(&start), Some(&end)) = (indices.get(0), indices.get(1)) {
+            let mut result = lines[start+1..end].to_vec();
+            if let Some(index) = lines[end].find(&key) {
+                result.push(&lines[end][..index]);
+            }
+            result.join("\n")
+        } else {
+            String::from("not found")
+        }
+    }
+
     handlebars::handlebars_helper!(trunc: |s: String, n: usize| s.chars().take(n).collect::<String>());
     handlebars::handlebars_helper!(join: |s: Vec<String>, sep: String| s.join(&sep));
+    handlebars::handlebars_helper!(snippet: |s: String, file: String| get_snippet(s, file));
 
     let mut reg = handlebars::Handlebars::new();
     reg.register_helper("trunc", Box::new(trunc));
     reg.register_helper("join", Box::new(join));
+    reg.register_helper("snippet", Box::new(snippet));
     reg.set_dev_mode(true);
     reg.register_embed_templates::<Assets>()?;
     Ok(reg)
