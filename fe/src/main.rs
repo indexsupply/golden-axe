@@ -133,7 +133,7 @@ fn templates() -> Result<handlebars::Handlebars<'static>, handlebars::TemplateEr
             }
             result.join("\n")
         } else {
-            String::from("not found")
+            String::from("")
         }
     }
 
