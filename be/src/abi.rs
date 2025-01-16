@@ -148,7 +148,9 @@ impl Param {
                             input.pop_front();
                             break;
                         }
-                        _ => return Err(eyre!("unhandled token: {:?}", token)),
+                        _ => {
+                            return Err(eyre!("expected '(', word, ',', or ')'. got: {:?}", token))
+                        }
                     }
                 }
                 Param::from_components("", components)
@@ -165,11 +167,11 @@ impl Param {
                         Param::new("", Kind::Bytes(Some(bytes.parse()?)))
                     }
                 } else {
-                    return Err(eyre!("not yet implemented"));
+                    return Err(eyre!("{} not yet implemented", type_desc));
                 }
             }
             None => return Err(eyre!("eof")),
-            _ => return Err(eyre!("parse error")),
+            _ => return Err(eyre!("expected '(' or word")),
         };
         while let Some(Token::Array(size)) = input.front() {
             param.kind = match size {
@@ -184,7 +186,7 @@ impl Param {
             input.pop_front();
             Ok(param)
         } else {
-            Err(eyre!("parse error"))
+            Err(eyre!("missing name for {:?}", param.kind))
         }
     }
 
