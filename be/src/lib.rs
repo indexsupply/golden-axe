@@ -1,3 +1,4 @@
+pub mod abi_param;
 pub mod api;
 pub mod api_sql;
 pub mod gafe;
