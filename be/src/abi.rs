@@ -133,7 +133,7 @@ impl Param {
     }
 
     fn parse(input: &mut VecDeque<Token>) -> Result<Param> {
-        let mut inner = match input.pop_front() {
+        let mut param = match input.pop_front() {
             Some(Token::OpenParen) => {
                 let mut components = Vec::new();
                 while let Some(token) = input.front() {
@@ -172,16 +172,16 @@ impl Param {
             _ => return Err(eyre!("parse error")),
         };
         while let Some(Token::Array(size)) = input.front() {
-            inner.kind = match size {
-                Some(s) => Kind::FixedArray(*s, Box::new(inner.kind.clone())),
-                None => Kind::Array(Box::new(inner.kind.clone())),
+            param.kind = match size {
+                Some(s) => Kind::FixedArray(*s, Box::new(param.kind.clone())),
+                None => Kind::Array(Box::new(param.kind.clone())),
             };
             input.pop_front();
         }
         if let Some(Token::Word(word)) = input.front() {
-            inner.name = word.clone();
+            param.name = word.clone();
             input.pop_front();
-            Ok(inner)
+            Ok(param)
         } else {
             Err(eyre!("parse error"))
         }
@@ -311,10 +311,13 @@ mod tests {
             Param::from_components("foo", vec![Param::new("bar", Kind::Int(256))])
         );
         assert_eq!(
-            Param::parse(&mut Token::lex("(int[] bar) foo").unwrap()).unwrap(),
+            Param::parse(&mut Token::lex("(int[][] bar) foo").unwrap()).unwrap(),
             Param::from_components(
                 "foo",
-                vec![Param::new("bar", Kind::Array(Box::new(Kind::Int(256))))]
+                vec![Param::new(
+                    "bar",
+                    Kind::Array(Box::new(Kind::Array(Box::new(Kind::Int(256)))))
+                )]
             )
         );
     }
