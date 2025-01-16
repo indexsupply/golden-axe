@@ -4,43 +4,8 @@ use std::collections::VecDeque;
 use eyre::{eyre, ContextCompat, Result};
 use itertools::Itertools;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum Kind {
-    Tuple(Vec<Kind>),
-    FixedArray(u16, Box<Kind>),
-    Array(Box<Kind>),
-
-    Bytes(Option<u16>),
-    Uint(u16),
-    Int(u16),
-}
-
-impl Kind {
-    fn is_static(&self) -> bool {
-        match &self {
-            Kind::Tuple(fields) => fields.iter().all(Self::is_static),
-            Kind::Array(_) => false,
-            Kind::FixedArray(_, kind) => kind.is_static(),
-            Kind::Bytes(Some(_)) => true,
-            Kind::Bytes(None) => false,
-            Kind::Uint(_) => true,
-            Kind::Int(_) => true,
-        }
-    }
-
-    fn size(&self) -> u16 {
-        match &self {
-            Kind::Tuple(fields) if self.is_static() => fields.iter().map(Self::size).sum(),
-            Kind::FixedArray(size, kind) if kind.is_static() => size * kind.size(),
-            Kind::FixedArray(_, _) => 32,
-            Kind::Array(_) => 32,
-            Kind::Tuple(_) => 32,
-            Kind::Bytes(Some(size)) => *size,
-            Kind::Bytes(None) => 32,
-            Kind::Uint(size) => size / 8,
-            Kind::Int(size) => size / 8,
-        }
-    }
+fn parse(input: &str) -> Result<Param> {
+    Param::parse(&mut Token::lex(input)?)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -111,7 +76,71 @@ impl Token {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum Kind {
+    Tuple(Vec<Kind>),
+    FixedArray(u16, Box<Kind>),
+    Array(Box<Kind>),
+
+    Bytes(Option<u16>),
+    Uint(u16),
+    Int(u16),
+}
+
+impl Kind {
+    fn is_static(&self) -> bool {
+        match &self {
+            Kind::Tuple(fields) => fields.iter().all(Self::is_static),
+            Kind::Array(_) => false,
+            Kind::FixedArray(_, kind) => kind.is_static(),
+            Kind::Bytes(Some(_)) => true,
+            Kind::Bytes(None) => false,
+            Kind::Uint(_) => true,
+            Kind::Int(_) => true,
+        }
+    }
+
+    fn size(&self) -> u16 {
+        match &self {
+            Kind::Tuple(fields) if self.is_static() => fields.iter().map(Self::size).sum(),
+            Kind::FixedArray(size, kind) if kind.is_static() => size * kind.size(),
+            Kind::FixedArray(_, _) => 32,
+            Kind::Array(_) => 32,
+            Kind::Tuple(_) => 32,
+            Kind::Bytes(Some(size)) => *size,
+            Kind::Bytes(None) => 32,
+            Kind::Uint(size) => size / 8,
+            Kind::Int(size) => size / 8,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct Param {
+    name: String,
+    kind: Kind,
+    components: Option<Vec<Param>>,
+    selected: Option<bool>,
+}
+
 impl Param {
+    fn new(name: &str, kind: Kind) -> Param {
+        Param {
+            kind,
+            name: name.to_owned(),
+            components: None,
+            selected: None,
+        }
+    }
+
+    fn from_components(name: &str, components: Vec<Param>) -> Param {
+        Param {
+            name: name.to_owned(),
+            kind: Kind::Tuple(components.iter().map(|c| c.kind.clone()).collect()),
+            components: Some(components),
+            selected: None,
+        }
+    }
     fn parse(input: &mut VecDeque<Token>) -> Result<Param> {
         if let Some(Token::Array(_)) = input.back() {
             let name: String = input
@@ -229,38 +258,6 @@ impl Param {
             Err(eyre!("must provide tuple"))
         }
     }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct Param {
-    name: String,
-    kind: Kind,
-    components: Option<Vec<Param>>,
-    selected: Option<bool>,
-}
-
-impl Param {
-    fn new(name: &str, kind: Kind) -> Param {
-        Param {
-            kind,
-            name: name.to_owned(),
-            components: None,
-            selected: None,
-        }
-    }
-
-    fn from_components(name: &str, components: Vec<Param>) -> Param {
-        Param {
-            name: name.to_owned(),
-            kind: Kind::Tuple(components.iter().map(|c| c.kind.clone()).collect()),
-            components: Some(components),
-            selected: None,
-        }
-    }
-}
-
-fn parse(input: &str) -> Result<Param> {
-    Param::parse(&mut Token::lex(input)?)
 }
 
 #[cfg(test)]
