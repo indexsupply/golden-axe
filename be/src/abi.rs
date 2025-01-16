@@ -176,6 +176,7 @@ impl Param {
                 Some(s) => Kind::FixedArray(*s, Box::new(param.kind.clone())),
                 None => Kind::Array(Box::new(param.kind.clone())),
             };
+            param.components = None;
             input.pop_front();
         }
         if let Some(Token::Word(word)) = input.front() {
@@ -311,14 +312,15 @@ mod tests {
             Param::from_components("foo", vec![Param::new("bar", Kind::Int(256))])
         );
         assert_eq!(
-            Param::parse(&mut Token::lex("(int[][] bar) foo").unwrap()).unwrap(),
-            Param::from_components(
-                "foo",
-                vec![Param::new(
-                    "bar",
-                    Kind::Array(Box::new(Kind::Array(Box::new(Kind::Int(256)))))
-                )]
-            )
+            Param::parse(&mut Token::lex("(int[][] bar)[] foo").unwrap()).unwrap(),
+            Param {
+                name: String::from("foo"),
+                kind: Kind::Array(Box::new(Kind::Tuple(vec![Kind::Array(Box::new(
+                    Kind::Array(Box::new(Kind::Int(256)))
+                ))]))),
+                components: None,
+                selected: None,
+            }
         );
     }
 
