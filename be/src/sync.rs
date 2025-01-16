@@ -44,6 +44,7 @@ pub struct RemoteConfig {
     pub enabled: bool,
     pub chain: u64,
     pub url: Url,
+    pub start_block: Option<i64>,
     pub batch_size: u16,
     pub concurrency: u16,
 }
@@ -64,7 +65,7 @@ impl RemoteConfig {
             .get()
             .await?
             .query(
-                "select enabled, chain, url, batch_size, concurrency from config",
+                "select enabled, chain, url, start_block, batch_size, concurrency from config",
                 &[],
             )
             .await?
@@ -76,6 +77,7 @@ impl RemoteConfig {
                     .get::<&str, String>("url")
                     .parse()
                     .expect("unable to parse url"),
+                start_block: row.get("start_block"),
                 batch_size: row.get::<&str, U16>("batch_size").to(),
                 concurrency: row.get::<&str, U16>("concurrency").to(),
             })
@@ -106,7 +108,7 @@ pub async fn run(config: api::Config) {
                 table.insert(
                     conf.clone(),
                     tokio::spawn(async move {
-                        Downloader::new(conf, be_pool, api_updates, stat_updates, None)
+                        Downloader::new(conf, be_pool, api_updates, stat_updates)
                             .run()
                             .await
                     }),
@@ -139,7 +141,7 @@ pub struct Downloader {
     pub batch_size: u16,
     pub concurrency: u16,
     pub filter: Filter,
-    pub start: BlockNumberOrTag,
+    pub start_block: BlockNumberOrTag,
     stat_updates: Arc<api::Broadcaster2>,
     api_updates: Arc<api::Broadcaster>,
 }
@@ -150,7 +152,6 @@ impl Downloader {
         be_pool: Pool,
         api_updates: Arc<api::Broadcaster>,
         stat_updates: Arc<api::Broadcaster2>,
-        start: Option<u64>,
     ) -> Downloader {
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
@@ -159,14 +160,14 @@ impl Downloader {
         let http_wrapper = Http::with_client(http_client, config.url);
         let rpc_client = RpcClient::new(http_wrapper, false);
         let eth_client = ProviderBuilder::new().on_client(rpc_client);
-        let start = match start {
-            Some(n) => BlockNumberOrTag::Number(n),
+        let start_block = match config.start_block {
+            Some(n) => BlockNumberOrTag::Number(n as u64),
             None => BlockNumberOrTag::Latest,
         };
         Downloader {
             api_updates,
             stat_updates,
-            start,
+            start_block,
             be_pool,
             chain: config.chain.into(),
             eth_client,
@@ -219,12 +220,15 @@ impl Downloader {
         {
             return Ok(());
         }
-        tracing::info!("initializing blocks table at: {}", self.start);
+        tracing::info!("initializing blocks table at: {}", self.start_block);
         let block = self
             .eth_client
-            .get_block_by_number(self.start, alloy::rpc::types::BlockTransactionsKind::Hashes)
+            .get_block_by_number(
+                self.start_block,
+                alloy::rpc::types::BlockTransactionsKind::Hashes,
+            )
             .await?
-            .ok_or_eyre(eyre!("missing block {}", self.start))?;
+            .ok_or_eyre(eyre!("missing block {}", self.start_block))?;
         let mut pg = self.be_pool.get().await?;
         let pgtx = pg.transaction().await?;
         pgtx.execute(

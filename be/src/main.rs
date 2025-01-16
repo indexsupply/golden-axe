@@ -18,9 +18,6 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Env
 
 #[derive(Clone, Debug, Parser)]
 struct Args {
-    #[arg(long, env = "START_BLOCK")]
-    start_block: Option<u64>,
-
     #[arg(
         long = "pg-be",
         env = "PG_URL",
