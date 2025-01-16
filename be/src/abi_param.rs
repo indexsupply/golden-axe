@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use std::collections::VecDeque;
 
-use eyre::{eyre, ContextCompat, Result};
+use eyre::{eyre, Result};
 use itertools::Itertools;
 
 fn parse(input: &str) -> Result<Param> {
@@ -15,16 +15,6 @@ enum Token {
     Word(String),
     Array(Option<u16>),
     Comma,
-}
-
-impl TryFrom<Token> for String {
-    type Error = eyre::Report;
-    fn try_from(token: Token) -> Result<Self> {
-        match token {
-            Token::Word(word) => Ok(word),
-            _ => Err(eyre!("unable to get string")),
-        }
-    }
 }
 
 impl Token {
@@ -141,76 +131,59 @@ impl Param {
             selected: None,
         }
     }
+
     fn parse(input: &mut VecDeque<Token>) -> Result<Param> {
-        if let Some(Token::Array(_)) = input.back() {
-            let name: String = input
-                .pop_front()
-                .wrap_err("missing name for array")?
-                .try_into()?;
-            match input.pop_back() {
-                Some(Token::Array(Some(size))) => Ok(Param::new(
-                    &name,
-                    Kind::FixedArray(size, Box::new(Param::parse(input)?.kind)),
-                )),
-                Some(Token::Array(None)) => Ok(Param::new(
-                    &name,
-                    Kind::Array(Box::new(Param::parse(input)?.kind)),
-                )),
-                _ => Err(eyre!("unable to parse array")),
-            }
-        } else if matches!(input.front(), Some(Token::OpenParen)) {
-            input.pop_front(); //consume '('
-            let mut components = Vec::new();
-            let mut kinds = Vec::new();
-            while let Some(token) = input.front() {
-                match token {
-                    Token::OpenParen | Token::Word(_) => {
-                        let param = Param::parse(input)?;
-                        kinds.push(param.kind.clone());
-                        components.push(param);
+        let mut inner = match input.pop_front() {
+            Some(Token::OpenParen) => {
+                let mut components = Vec::new();
+                while let Some(token) = input.front() {
+                    match token {
+                        Token::OpenParen | Token::Word(_) => {
+                            components.push(Param::parse(input)?);
+                        }
+                        Token::Comma => {
+                            input.pop_front();
+                        }
+                        Token::CloseParen => {
+                            input.pop_front();
+                            break;
+                        }
+                        _ => return Err(eyre!("unhandled token: {:?}", token)),
                     }
-                    Token::Comma => {
-                        input.pop_front();
-                    }
-                    Token::CloseParen => {
-                        input.pop_front(); //consume ')'
-                        break;
-                    }
-                    _ => return Err(eyre!("unhandled token: {:?}", token)),
                 }
+                Param::from_components("", components)
             }
-            let name: String = input
-                .pop_front()
-                .ok_or(eyre!("missing name for tuple"))?
-                .try_into()?;
-            Ok(Param {
-                name,
-                kind: Kind::Tuple(kinds),
-                components: Some(components),
-                selected: None,
-            })
-        } else {
-            let type_desc: String = input
-                .pop_front()
-                .ok_or(eyre!("missing type desc"))?
-                .try_into()?;
-            let name: String = input
-                .pop_front()
-                .ok_or(eyre!("missing name for {}", type_desc))?
-                .try_into()?;
-            if let Some(bits) = type_desc.strip_prefix("int") {
-                Ok(Param::new(&name, Kind::Int(bits.parse().unwrap_or(256))))
-            } else if let Some(bits) = type_desc.strip_prefix("uint") {
-                Ok(Param::new(&name, Kind::Uint(bits.parse().unwrap_or(256))))
-            } else if let Some(bytes) = type_desc.strip_prefix("bytes") {
-                if bytes.is_empty() {
-                    Ok(Param::new(&name, Kind::Bytes(None)))
+            Some(Token::Word(type_desc)) => {
+                if let Some(bits) = type_desc.strip_prefix("int") {
+                    Param::new("", Kind::Int(bits.parse().unwrap_or(256)))
+                } else if let Some(bits) = type_desc.strip_prefix("uint") {
+                    Param::new("", Kind::Uint(bits.parse().unwrap_or(256)))
+                } else if let Some(bytes) = type_desc.strip_prefix("bytes") {
+                    if bytes.is_empty() {
+                        Param::new("", Kind::Bytes(None))
+                    } else {
+                        Param::new("", Kind::Bytes(Some(bytes.parse()?)))
+                    }
                 } else {
-                    Ok(Param::new(&name, Kind::Bytes(Some(bytes.parse()?))))
+                    return Err(eyre!("not yet implemented"));
                 }
-            } else {
-                Err(eyre!("not yet implemented"))
             }
+            None => return Err(eyre!("eof")),
+            _ => return Err(eyre!("parse error")),
+        };
+        while let Some(Token::Array(size)) = input.front() {
+            inner.kind = match size {
+                Some(s) => Kind::FixedArray(*s, Box::new(inner.kind.clone())),
+                None => Kind::Array(Box::new(inner.kind.clone())),
+            };
+            input.pop_front();
+        }
+        if let Some(Token::Word(word)) = input.front() {
+            inner.name = word.clone();
+            input.pop_front();
+            Ok(inner)
+        } else {
+            Err(eyre!("parse error"))
         }
     }
 
@@ -283,6 +256,13 @@ mod tests {
     }
 
     #[test]
+    fn test_static() {
+        assert!(Kind::Int(256).is_static());
+        assert!(Kind::FixedArray(1, Box::new(Kind::Int(256))).is_static());
+        assert!(!Kind::Array(Box::new(Kind::Int(256))).is_static());
+    }
+
+    #[test]
     fn test_lex() {
         assert_eq!(
             Token::lex("(foo bar, baz qux)").unwrap(),
@@ -297,10 +277,11 @@ mod tests {
             ]
         );
         assert_eq!(
-            Token::lex("(hello[] world)[42]").unwrap(),
+            Token::lex("(hello[][] world)[42]").unwrap(),
             vec![
                 Token::OpenParen,
                 Token::Word(String::from("hello")),
+                Token::Array(None),
                 Token::Array(None),
                 Token::Word(String::from("world")),
                 Token::CloseParen,
@@ -336,13 +317,6 @@ mod tests {
                 vec![Param::new("bar", Kind::Array(Box::new(Kind::Int(256))))]
             )
         );
-    }
-
-    #[test]
-    fn test_static() {
-        assert!(Kind::Int(256).is_static());
-        assert!(Kind::FixedArray(1, Box::new(Kind::Int(256))).is_static());
-        assert!(!Kind::Array(Box::new(Kind::Int(256))).is_static());
     }
 
     #[test]
