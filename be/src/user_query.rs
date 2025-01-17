@@ -44,54 +44,7 @@ pub struct RewrittenQuery {
     pub relations: Vec<Relation>,
 }
 
-#[derive(Debug)]
-pub struct Relation {
-    pub event: Option<Event>,
-    // A single event can be referenced
-    // multiple times eg multiple joins
-    // on single table.
-    pub table_alias: HashSet<String>,
-    pub table_name: String,
-    pub fields: HashSet<String>,
-    field_aliases: HashMap<String, String>,
-}
-
-impl Relation {
-    pub fn selected_field(&self, field_name: &str) -> bool {
-        self.fields
-            .iter()
-            .any(|field| clean_ident(field).eq(&clean_ident(field_name)))
-    }
-
-    pub fn quoted_field_name(&self, field_name: &str) -> Result<String, api::Error> {
-        Ok(self
-            .fields
-            .iter()
-            .find(|field| clean_ident(field) == clean_ident(field_name))
-            .ok_or_else(|| api::Error::User(format!("unable to find field: {}", field_name)))?
-            .to_string())
-    }
-
-    fn event_param(&self, field_name: &str) -> Option<EventParam> {
-        let field_name = if let Some(name) = self.field_aliases.get(&clean_ident(field_name)) {
-            name
-        } else {
-            field_name
-        };
-        self.event
-            .as_ref()?
-            .inputs
-            .iter()
-            .find(|inp| clean_ident(&inp.name) == clean_ident(field_name))
-            .cloned()
-    }
-}
-
-#[derive(Debug)]
-struct UserQuery {
-    relations: HashMap<String, Relation>,
-}
-
+// makes lower case, removes "
 fn clean_ident(ident: &str) -> String {
     let uncased = ident.to_lowercase();
     uncased.replace('"', "")
@@ -193,6 +146,54 @@ impl ExprExt for ast::Expr {
             _ => None,
         }
     }
+}
+
+#[derive(Debug)]
+pub struct Relation {
+    pub event: Option<Event>,
+    // A single event can be referenced
+    // multiple times eg multiple joins
+    // on single table.
+    pub table_alias: HashSet<String>,
+    pub table_name: String,
+    pub fields: HashSet<String>,
+    field_aliases: HashMap<String, String>,
+}
+
+impl Relation {
+    pub fn selected_field(&self, field_name: &str) -> bool {
+        self.fields
+            .iter()
+            .any(|field| clean_ident(field).eq(&clean_ident(field_name)))
+    }
+
+    pub fn quoted_field_name(&self, field_name: &str) -> Result<String, api::Error> {
+        Ok(self
+            .fields
+            .iter()
+            .find(|field| clean_ident(field) == clean_ident(field_name))
+            .ok_or_else(|| api::Error::User(format!("unable to find field: {}", field_name)))?
+            .to_string())
+    }
+
+    fn event_param(&self, field_name: &str) -> Option<EventParam> {
+        let field_name = if let Some(name) = self.field_aliases.get(&clean_ident(field_name)) {
+            name
+        } else {
+            field_name
+        };
+        self.event
+            .as_ref()?
+            .inputs
+            .iter()
+            .find(|inp| clean_ident(&inp.name) == clean_ident(field_name))
+            .cloned()
+    }
+}
+
+#[derive(Debug)]
+struct UserQuery {
+    relations: HashMap<String, Relation>,
 }
 
 impl UserQuery {
