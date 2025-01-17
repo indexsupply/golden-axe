@@ -458,7 +458,7 @@ mod tests {
             Param::new("foo", Kind::Int(256)),
         );
         assert_eq!(
-            Param::parse(&mut Token::lex("(int indexed foo)").unwrap()).unwrap(),
+            Param::parse(&mut Token::lex("int indexed foo").unwrap()).unwrap(),
             Param::indexed("foo", Kind::Int(256)),
         );
         assert_eq!(
