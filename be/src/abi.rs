@@ -1,11 +1,18 @@
 #![allow(dead_code)]
 use std::collections::VecDeque;
 
+use alloy::primitives::{keccak256, FixedBytes};
 use eyre::{eyre, Result};
 use itertools::Itertools;
 
 fn parse(input: &str) -> Result<Param> {
-    Param::parse(&mut Token::lex(input)?)
+    let input = input.trim();
+    let input = input.strip_prefix("event").unwrap_or(input);
+    let rewritten = input
+        .split_once('(')
+        .map(|(name, tuple)| format!("({} {}", tuple, name))
+        .ok_or_else(|| eyre!("missing tuple for event signature"))?;
+    Param::parse(&mut Token::lex(&rewritten)?)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -69,38 +76,46 @@ impl Token {
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Kind {
     Tuple(Vec<Kind>),
-    FixedArray(u16, Box<Kind>),
-    Array(Box<Kind>),
+    Array(Option<u16>, Box<Kind>),
 
+    Address,
+    Bool,
     Bytes(Option<u16>),
-    Uint(u16),
     Int(u16),
+    Uint(u16),
+    String,
 }
 
 impl Kind {
     fn is_static(&self) -> bool {
         match &self {
             Kind::Tuple(fields) => fields.iter().all(Self::is_static),
-            Kind::Array(_) => false,
-            Kind::FixedArray(_, kind) => kind.is_static(),
+            Kind::Array(Some(_), kind) => kind.is_static(),
+            Kind::Array(None, _) => false,
+            Kind::Address => true,
+            Kind::Bool => true,
             Kind::Bytes(Some(_)) => true,
             Kind::Bytes(None) => false,
-            Kind::Uint(_) => true,
             Kind::Int(_) => true,
+            Kind::Uint(_) => true,
+            Kind::String => false,
         }
     }
 
     fn size(&self) -> u16 {
         match &self {
             Kind::Tuple(fields) if self.is_static() => fields.iter().map(Self::size).sum(),
-            Kind::FixedArray(size, kind) if kind.is_static() => size * kind.size(),
-            Kind::FixedArray(_, _) => 32,
-            Kind::Array(_) => 32,
             Kind::Tuple(_) => 32,
+            Kind::Array(Some(size), kind) if kind.is_static() => 32 + size * kind.size(),
+            Kind::Array(Some(_), _) => 32,
+            Kind::Array(None, _) => 32,
+            Kind::Address => 20,
+            Kind::Bool => 32,
             Kind::Bytes(Some(size)) => *size,
             Kind::Bytes(None) => 32,
-            Kind::Uint(size) => size / 8,
             Kind::Int(size) => size / 8,
+            Kind::Uint(size) => size / 8,
+            Kind::String => 32,
         }
     }
 }
@@ -109,8 +124,41 @@ impl Kind {
 struct Param {
     name: String,
     kind: Kind,
+    indexed: bool,
     components: Option<Vec<Param>>,
     selected: Option<bool>,
+}
+
+impl std::fmt::Display for Kind {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Kind::Tuple(kinds) => {
+                write!(f, "(")?;
+                for (i, k) in kinds.iter().enumerate() {
+                    k.fmt(f)?;
+                    if i != kinds.len() - 1 {
+                        write!(f, ",")?;
+                    }
+                }
+                write!(f, ")")
+            }
+            Kind::Array(None, kind) => {
+                kind.fmt(f)?;
+                write!(f, "[]")
+            }
+            Kind::Array(Some(size), kind) => {
+                kind.fmt(f)?;
+                write!(f, "[{}]", size)
+            }
+            Kind::Address => write!(f, "address"),
+            Kind::Bool => write!(f, "bool"),
+            Kind::Bytes(Some(size)) => write!(f, "bytes{}", size),
+            Kind::Bytes(None) => write!(f, "bytes"),
+            Kind::Int(bits) => write!(f, "int{}", bits),
+            Kind::Uint(bits) => write!(f, "uint{}", bits),
+            Kind::String => write!(f, "string"),
+        }
+    }
 }
 
 impl Param {
@@ -118,15 +166,23 @@ impl Param {
         Param {
             kind,
             name: name.to_owned(),
+            indexed: false,
             components: None,
             selected: None,
         }
+    }
+
+    fn indexed(name: &str, kind: Kind) -> Param {
+        let mut param = Param::new(name, kind);
+        param.indexed = true;
+        param
     }
 
     fn from_components(name: &str, components: Vec<Param>) -> Param {
         Param {
             name: name.to_owned(),
             kind: Kind::Tuple(components.iter().map(|c| c.kind.clone()).collect()),
+            indexed: false,
             components: Some(components),
             selected: None,
         }
@@ -166,6 +222,10 @@ impl Param {
                     } else {
                         Param::new("", Kind::Bytes(Some(bytes.parse()?)))
                     }
+                } else if type_desc == "address" {
+                    Param::new("", Kind::Address)
+                } else if type_desc == "bool" {
+                    Param::new("", Kind::Bool)
                 } else {
                     return Err(eyre!("{} not yet implemented", type_desc));
                 }
@@ -174,20 +234,33 @@ impl Param {
             _ => return Err(eyre!("expected '(' or word")),
         };
         while let Some(Token::Array(size)) = input.front() {
-            param.kind = match size {
-                Some(s) => Kind::FixedArray(*s, Box::new(param.kind.clone())),
-                None => Kind::Array(Box::new(param.kind.clone())),
-            };
+            param.kind = Kind::Array(*size, Box::new(param.kind.clone()));
             param.components = None;
             input.pop_front();
         }
-        if let Some(Token::Word(word)) = input.front() {
-            param.name = word.clone();
-            input.pop_front();
-            Ok(param)
-        } else {
-            Err(eyre!("missing name for {:?}", param.kind))
+        match input.front() {
+            Some(Token::Word(word)) if word == "indexed" => {
+                input.pop_front();
+                param.indexed = true;
+                match input.pop_front() {
+                    Some(Token::Word(name)) => {
+                        param.name = name.clone();
+                        Ok(param)
+                    }
+                    Some(_) | None => Err(eyre!("missing name for {:?}", param.kind)),
+                }
+            }
+            Some(Token::Word(word)) => {
+                param.name = word.clone();
+                input.pop_front();
+                Ok(param)
+            }
+            Some(_) | None => Err(eyre!("missing name for {:?}", param.kind)),
         }
+    }
+
+    fn sighash(&self) -> FixedBytes<32> {
+        keccak256(format!("{}{}", self.name, self.kind))
     }
 
     fn has_select(&self) -> bool {
@@ -212,12 +285,25 @@ impl Param {
                 if param.has_select() {
                     match &param.kind {
                         Kind::Tuple(_) => result.extend(param.to_sql(inner.clone())?),
-                        Kind::Array(_) => todo!(),
-                        Kind::FixedArray(_, _) => todo!(),
-                        Kind::Bytes(None) => {
+                        Kind::Array(Some(_), kind) if kind.is_static() => {
+                            result.push(format!(
+                                "abi_fixed_bytes({}, {}, {})",
+                                inner,
+                                size_counter,
+                                param.kind.size()
+                            ));
+                        }
+                        Kind::Array(_, _) => {
+                            result.push(format!("abi_dynamic({}, {})", inner, pos));
+                        }
+                        Kind::Bytes(None) | Kind::String => {
                             result.push(format!("abi_bytes(abi_dynamic({}, {}))", inner, pos));
                         }
-                        Kind::Bytes(Some(_)) | Kind::Uint(_) | Kind::Int(_) => {
+                        Kind::Address
+                        | Kind::Bool
+                        | Kind::Bytes(Some(_))
+                        | Kind::Uint(_)
+                        | Kind::Int(_) => {
                             result.push(format!(
                                 "abi_fixed_bytes({}, {}, {})",
                                 inner,
@@ -238,6 +324,11 @@ impl Param {
 
 #[cfg(test)]
 mod tests {
+    use alloy::{
+        hex::ToHexExt,
+        primitives::{hex, U256},
+    };
+
     use super::{parse, Kind, Param, Token};
 
     // test helper that will simulate a user
@@ -259,10 +350,67 @@ mod tests {
     }
 
     #[test]
+    fn test_sighash() {
+        assert_eq!(
+            "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+            parse("Transfer(address from, address to, uint256 value)")
+                .unwrap()
+                .sighash()
+                .encode_hex()
+        );
+
+        assert_eq!(
+            "30ebccc1ba352c4539c811df296809a7ae8446c4965445b6ee359b7a47f1bc8f",
+            parse(
+                r#"
+                    IntentFinished(
+                        address indexed intentAddr,
+                        address indexed destinationAddr,
+                        bool indexed success,
+                        (
+                            uint256 toChainId,
+                            (address token, uint256 amount)[] bridgeTokenOutOptions,
+                            (address token, uint256 amount) finalCallToken,
+                            (address to, uint256 value, bytes data) finalCall,
+                            address escrow,
+                            address refundAddress,
+                            uint256 nonce
+                        ) intent
+                    )
+                "#
+            )
+            .unwrap()
+            .sighash()
+            .encode_hex()
+        )
+    }
+
+    #[test]
+    fn test_kind_display() {
+        assert_eq!("int256", Kind::Int(256).to_string());
+        assert_eq!(
+            "int256[1]",
+            Kind::Array(Some(1), Box::new(Kind::Int(256))).to_string()
+        );
+        assert_eq!(
+            "int256[]",
+            Kind::Array(None, Box::new(Kind::Int(256))).to_string()
+        );
+        assert_eq!(
+            "(int256[],bytes)",
+            Kind::Tuple(vec![
+                Kind::Array(None, Box::new(Kind::Int(256))),
+                Kind::Bytes(None)
+            ])
+            .to_string()
+        );
+    }
+
+    #[test]
     fn test_static() {
         assert!(Kind::Int(256).is_static());
-        assert!(Kind::FixedArray(1, Box::new(Kind::Int(256))).is_static());
-        assert!(!Kind::Array(Box::new(Kind::Int(256))).is_static());
+        assert!(Kind::Array(Some(1), Box::new(Kind::Int(256))).is_static());
+        assert!(!Kind::Array(None, Box::new(Kind::Int(256))).is_static());
     }
 
     #[test]
@@ -310,6 +458,10 @@ mod tests {
             Param::new("foo", Kind::Int(256)),
         );
         assert_eq!(
+            Param::parse(&mut Token::lex("(int indexed foo)").unwrap()).unwrap(),
+            Param::indexed("foo", Kind::Int(256)),
+        );
+        assert_eq!(
             Param::parse(&mut Token::lex("(int bar) foo").unwrap()).unwrap(),
             Param::from_components("foo", vec![Param::new("bar", Kind::Int(256))])
         );
@@ -317,9 +469,14 @@ mod tests {
             Param::parse(&mut Token::lex("(int[][] bar)[] foo").unwrap()).unwrap(),
             Param {
                 name: String::from("foo"),
-                kind: Kind::Array(Box::new(Kind::Tuple(vec![Kind::Array(Box::new(
-                    Kind::Array(Box::new(Kind::Int(256)))
-                ))]))),
+                kind: Kind::Array(
+                    None,
+                    Box::new(Kind::Tuple(vec![Kind::Array(
+                        None,
+                        Box::new(Kind::Array(None, Box::new(Kind::Int(256))))
+                    )]))
+                ),
+                indexed: false,
                 components: None,
                 selected: None,
             }
@@ -352,5 +509,91 @@ mod tests {
             .to_sql(String::from("data"))
             .unwrap(),
         );
+    }
+
+    static SCHEMA: &str = include_str!("./sql/schema.sql");
+
+    #[tokio::test]
+    async fn test_static_array() {
+        let (_pg_server, pool) = shared::pg::test::new(SCHEMA).await;
+        let pg = pool.get().await.expect("getting pg from test pool");
+        let data = hex!(
+            r#"
+            0000000000000000000000000000000000000000000000000000000000000005
+            0000000000000000000000000000000000000000000000000000000000000001
+            0000000000000000000000000000000000000000000000000000000000000002
+            0000000000000000000000000000000000000000000000000000000000000003
+            0000000000000000000000000000000000000000000000000000000000000004
+            0000000000000000000000000000000000000000000000000000000000000005
+            "#
+        );
+        let param = select(
+            parse("(uint[5] b) a").expect("unable to parse abi sig"),
+            &["a", "b"],
+        );
+        let row = pg
+            .query_one(
+                &format!(
+                    "select abi_uint_array({})",
+                    param.to_sql(String::from("$1")).unwrap().first().unwrap()
+                ),
+                &[&data],
+            )
+            .await
+            .expect("issue with query");
+        let res: Vec<U256> = row.get(0);
+        assert_eq!(
+            vec![
+                U256::from(1),
+                U256::from(2),
+                U256::from(3),
+                U256::from(4),
+                U256::from(5)
+            ],
+            res
+        )
+    }
+
+    #[tokio::test]
+    async fn test_abi_uint_array() {
+        let (_pg_server, pool) = shared::pg::test::new(SCHEMA).await;
+        let pg = pool.get().await.expect("getting pg from test pool");
+        let data = hex!(
+            r#"
+            0000000000000000000000000000000000000000000000000000000000000020
+            0000000000000000000000000000000000000000000000000000000000000020
+            0000000000000000000000000000000000000000000000000000000000000005
+            0000000000000000000000000000000000000000000000000000000000000001
+            0000000000000000000000000000000000000000000000000000000000000002
+            0000000000000000000000000000000000000000000000000000000000000003
+            0000000000000000000000000000000000000000000000000000000000000004
+            0000000000000000000000000000000000000000000000000000000000000005
+            "#
+        );
+        let param = select(
+            parse("(uint[] b) a").expect("unable to parse abi sig"),
+            &["a", "b"],
+        );
+        let row = pg
+            .query_one(
+                &format!(
+                    "select abi_uint_array({})",
+                    param.to_sql(String::from("$1")).unwrap().first().unwrap()
+                ),
+                &[&data],
+            )
+            .await
+            .expect("issue with query");
+        let res: Vec<U256> = row.get(0);
+        assert_eq!(
+            vec![
+                U256::from(1),
+                U256::from(2),
+                U256::from(3),
+                U256::from(4),
+                U256::from(5)
+            ],
+            res
+        )
     }
 }
