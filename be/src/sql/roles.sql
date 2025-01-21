@@ -15,4 +15,4 @@ grant select on blocks TO uapi;
 alter role uapi set statement_timeout = '30s';
 alter role uapi set work_mem = '1GB';
 alter role uapi set temp_file_limit = '1GB';
-alter role uapi connection limit 32;
+alter role uapi connection limit 64;
