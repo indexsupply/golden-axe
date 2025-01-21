@@ -508,6 +508,7 @@
 
       let sseHandler = {};
       let blockHeight = 0;
+      let testFlag = false;
 
       function apiKey() {
         const select = document.getElementById("api-key-selection");
@@ -522,6 +523,9 @@
         let key = apiKey();
         if (key) {
           params.set("api-key", key);
+        }
+        if (testFlag) {
+          params.set("test", 1);
         }
         return `{{ api_url }}${path}?${params}`;
       }
@@ -714,7 +718,13 @@
 
       function url2form() {
         const params = new URLSearchParams(window.location.search);
-        if (params.size == 0) {
+        if (params.get("test")) {
+          testFlag = true;
+        } else {
+          testFlag = false;
+        }
+
+        if (!params.has("query")) {
           showExamples();
           return;
         }
@@ -731,6 +741,7 @@
         if (chain) {
             setOrAddChain(chain);
         }
+
         /*
           When History is clicked, ?history=true is added to the
           url and the page is redirected. As we are loading the page
