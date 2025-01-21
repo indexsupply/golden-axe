@@ -11,12 +11,9 @@ path = "src/main.rs"
 
 [dependencies]
 alloy = { version = "0.8.3", features = [
-    "dyn-abi",
-    "json-abi",
     "postgres",
     "providers",
     "rpc-types-eth",
-    "sol-types",
 ] }
 axum = { version = "0.7.5" }
 axum-extra = { version = "0.9", features = ["form", "typed-header"] }
@@ -60,5 +57,6 @@ bytes = "1.9.0"
 serde_html_form = "0.2.7"
 
 [dev-dependencies]
+alloy = { version = "0.8.3", features = ["dyn-abi", "json-abi", "sol-types"] }
 shared = { path = "../shared", features = ["test"] }
 axum-test = "16.4.1"
