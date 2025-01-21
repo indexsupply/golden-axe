@@ -106,21 +106,22 @@ impl Kind {
         }
     }
 
+    /// number of evm words occupied by the kind
+    /// will always be a multiple of 32
+    /// most of the time it _is_ 32 unless there
+    /// is a static array or static tuple
     fn size(&self) -> u16 {
         match &self {
             Kind::Tuple(fields) if self.is_static() => fields.iter().map(Self::size).sum(),
             Kind::Array(Some(size), kind) if kind.is_static() => 32 + size * kind.size(),
-            _ => 32,
-            // Kind::Tuple(_) => 32,
-            // Kind::Array(Some(_), _) => 32,
-            // Kind::Array(None, _) => 32,
-            // Kind::Address => 20,
-            // Kind::Bool => 32,
-            // Kind::Bytes(Some(_)) => 32,
-            // Kind::Bytes(None) => 32,
-            // Kind::Int(size) => size / 8,
-            // Kind::Uint(size) => size / 8,
-            // Kind::String => 32,
+            Kind::Tuple(_)
+            | Kind::Array(_, _)
+            | Kind::Address
+            | Kind::Bool
+            | Kind::Bytes(_)
+            | Kind::Int(_)
+            | Kind::Uint(_)
+            | Kind::String => 32,
         }
     }
 }
