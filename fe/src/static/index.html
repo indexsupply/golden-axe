@@ -55,6 +55,12 @@
                 color: #000000;
                 text-decoration: none;
             }
+            .header h1 a.test {
+                color: blue;
+            }
+            .header h1 a.test::after {
+              content: " Testing!";
+            }
             #request {
                 width: 100%;
             }
@@ -506,9 +512,18 @@
         response.appendChild(p);
       }
 
+      let testFlag = false;
+      function updateTestFlag(val) {
+        testFlag = val;
+        if (testFlag) {
+          document.querySelector(".header h1 a").classList.add("test");
+        } else {
+          document.querySelector(".header h1 a").classList.remove("test");
+        }
+      }
+
       let sseHandler = {};
       let blockHeight = 0;
-      let testFlag = false;
 
       function apiKey() {
         const select = document.getElementById("api-key-selection");
@@ -653,6 +668,23 @@
         }
       }
 
+      let lastKey = '';
+      let ttCounter = 0;
+      function tt(event) {
+        if (document.activeElement.tagName.toLowerCase() === "textarea") {
+          return;
+        }
+        const key = event.key.toLowerCase();
+          if (key === 't') {
+            ttCounter++;
+          }
+          if (ttCounter >= 2) {
+            ttCounter = 0;
+            updateTestFlag(!testFlag);
+          }
+          lastKey = key;
+        }
+
       function jk(event) {
         if (document.activeElement.tagName.toLowerCase() === "textarea") {
           return;
@@ -719,8 +751,7 @@
       function url2form() {
         const params = new URLSearchParams(window.location.search);
         if (params.get("test")) {
-          testFlag = true;
-        } else {
+          updateTestFlag(true);
           testFlag = false;
         }
 
@@ -767,6 +798,7 @@
       });
 
       document.addEventListener("DOMContentLoaded", function () {
+        document.addEventListener("keydown", tt);
         document.addEventListener("keydown", jk);
         document.addEventListener("keydown", cmdEnter);
         document
