@@ -38,16 +38,12 @@ pub fn unique_violations(err: tokio_postgres::Error, map: &[(&str, &str)]) -> Er
 
 #[cfg(feature = "test")]
 pub mod test {
-    use std::path::PathBuf;
-
     use deadpool_postgres::Pool;
     use postgresql_embedded::{PostgreSQL, Settings, Version};
     use tokio_postgres::NoTls;
 
     pub async fn new(schema: &str) -> (PostgreSQL, Pool) {
         let pg_settings = Settings {
-            data_dir: PathBuf::from("/tmp/gatest"),
-            temporary: true,
             version: Version::new(17, Some(2), Some(0)),
             ..Default::default()
         };

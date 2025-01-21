@@ -536,7 +536,6 @@ impl UserQuery {
         match expr {
             ast::Expr::Identifier(_) | ast::Expr::CompoundIdentifier(_) => {
                 self.touch_metadata(expr);
-                println!("rel: {:?} expr: {:?}", self.relations, expr);
                 if let Some(param) = self.touch_param(expr) {
                     param.selected = Some(true)
                 }
