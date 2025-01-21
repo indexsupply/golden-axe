@@ -752,7 +752,6 @@
         const params = new URLSearchParams(window.location.search);
         if (params.get("test")) {
           updateTestFlag(true);
-          testFlag = false;
         }
 
         if (!params.has("query")) {
@@ -816,6 +815,7 @@
           document
             .querySelectorAll("div.query")
             .forEach((div) => div.addEventListener("click", querySelected));
+
           url2form();
       });
     </script>
