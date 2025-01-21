@@ -389,7 +389,7 @@ impl UserQuery {
             ast::Expr::Value(ast::Value::Boolean(b)) => {
                 let mut res = FixedBytes::<32>::ZERO;
                 if *b {
-                    res[32] = 1;
+                    res[31] = 1;
                 }
                 res.to_vec()
             }
