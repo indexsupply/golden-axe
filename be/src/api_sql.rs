@@ -27,7 +27,7 @@ use tokio_postgres::types::Type;
 
 use crate::{
     api::{self, ChainOptionExt},
-    gafe, s256, sql_generate,
+    gafe, query, s256,
 };
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
@@ -169,7 +169,7 @@ async fn query(be_pool: Pool, requests: &Vec<Request>) -> Result<Response, api::
         .wrap_err("starting sql api read tx")?;
     let mut result: Vec<Rows> = Vec::new();
     for r in requests {
-        let query = sql_generate::query(
+        let query = query::sql(
             r.chain.unwrap_chain()?,
             r.block_height,
             &r.query,

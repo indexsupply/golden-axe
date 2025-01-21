@@ -1,11 +1,11 @@
-#![allow(dead_code)]
 use std::collections::VecDeque;
 
 use alloy::primitives::{keccak256, FixedBytes};
 use eyre::{eyre, Result};
 use itertools::Itertools;
+use sqlparser::ast::{self, Ident};
 
-fn parse(input: &str) -> Result<Param> {
+pub fn parse(input: &str) -> Result<Param> {
     let input = input.trim();
     let input = input.strip_prefix("event").unwrap_or(input);
     let rewritten = input
@@ -26,6 +26,10 @@ enum Token {
 
 impl Token {
     fn lex(input: &str) -> Result<VecDeque<Token>> {
+        fn valid_char(c: char) -> bool {
+            c.is_ascii_digit() || c.is_ascii_lowercase() || c.is_ascii_uppercase() || c == '_'
+        }
+
         let mut tokens = Vec::new();
         let mut chars = input.chars().peekable();
         while let Some(&c) = chars.peek() {
@@ -59,10 +63,10 @@ impl Token {
                     chars.next();
                     Token::Comma
                 }
-                c if c.is_ascii_alphanumeric() => {
+                c if valid_char(c) => {
                     let word: String = chars
                         .by_ref()
-                        .peeking_take_while(|&c| c.is_ascii_alphanumeric())
+                        .peeking_take_while(|&c| valid_char(c))
                         .collect();
                     Token::Word(word)
                 }
@@ -74,7 +78,7 @@ impl Token {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum Kind {
+pub enum Kind {
     Tuple(Vec<Kind>),
     Array(Option<u16>, Box<Kind>),
 
@@ -105,28 +109,29 @@ impl Kind {
     fn size(&self) -> u16 {
         match &self {
             Kind::Tuple(fields) if self.is_static() => fields.iter().map(Self::size).sum(),
-            Kind::Tuple(_) => 32,
             Kind::Array(Some(size), kind) if kind.is_static() => 32 + size * kind.size(),
-            Kind::Array(Some(_), _) => 32,
-            Kind::Array(None, _) => 32,
-            Kind::Address => 20,
-            Kind::Bool => 32,
-            Kind::Bytes(Some(size)) => *size,
-            Kind::Bytes(None) => 32,
-            Kind::Int(size) => size / 8,
-            Kind::Uint(size) => size / 8,
-            Kind::String => 32,
+            _ => 32,
+            // Kind::Tuple(_) => 32,
+            // Kind::Array(Some(_), _) => 32,
+            // Kind::Array(None, _) => 32,
+            // Kind::Address => 20,
+            // Kind::Bool => 32,
+            // Kind::Bytes(Some(_)) => 32,
+            // Kind::Bytes(None) => 32,
+            // Kind::Int(size) => size / 8,
+            // Kind::Uint(size) => size / 8,
+            // Kind::String => 32,
         }
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct Param {
-    name: String,
-    kind: Kind,
-    indexed: bool,
-    components: Option<Vec<Param>>,
-    selected: Option<bool>,
+pub struct Param {
+    pub name: ast::Ident,
+    pub kind: Kind,
+    pub indexed: bool,
+    pub components: Option<Vec<Param>>,
+    pub selected: Option<bool>,
 }
 
 impl std::fmt::Display for Kind {
@@ -165,7 +170,7 @@ impl Param {
     fn new(name: &str, kind: Kind) -> Param {
         Param {
             kind,
-            name: name.to_owned(),
+            name: Ident::new(name),
             indexed: false,
             components: None,
             selected: None,
@@ -180,7 +185,7 @@ impl Param {
 
     fn from_components(name: &str, components: Vec<Param>) -> Param {
         Param {
-            name: name.to_owned(),
+            name: Ident::new(name),
             kind: Kind::Tuple(components.iter().map(|c| c.kind.clone()).collect()),
             indexed: false,
             components: Some(components),
@@ -226,6 +231,8 @@ impl Param {
                     Param::new("", Kind::Address)
                 } else if type_desc == "bool" {
                     Param::new("", Kind::Bool)
+                } else if type_desc == "string" {
+                    Param::new("", Kind::String)
                 } else {
                     return Err(eyre!("{} not yet implemented", type_desc));
                 }
@@ -244,14 +251,14 @@ impl Param {
                 param.indexed = true;
                 match input.pop_front() {
                     Some(Token::Word(name)) => {
-                        param.name = name.clone();
+                        param.name = Ident::new(name);
                         Ok(param)
                     }
                     Some(_) | None => Err(eyre!("missing name for {:?}", param.kind)),
                 }
             }
             Some(Token::Word(word)) => {
-                param.name = word.clone();
+                param.name = Ident::new(word);
                 input.pop_front();
                 Ok(param)
             }
@@ -259,66 +266,117 @@ impl Param {
         }
     }
 
-    fn sighash(&self) -> FixedBytes<32> {
+    pub fn sighash(&self) -> FixedBytes<32> {
         keccak256(format!("{}{}", self.name, self.kind))
     }
 
-    fn has_select(&self) -> bool {
+    /// Query must start with outermost param's name.
+    /// If found returns the param that was selected
+    /// and may not be the outermost param.
+    pub fn find(&mut self, query: Vec<Ident>) -> Option<&mut Self> {
+        if query.is_empty() {
+            return None;
+        }
+        if self.name.value != query[0].value {
+            return None;
+        }
+        if query.len() == 1 {
+            self.name.quote_style = query[0].quote_style;
+            return Some(self);
+        }
+        self.components
+            .iter_mut()
+            .flatten()
+            .find_map(|c| c.find(query.iter().skip(1).cloned().collect()))
+    }
+
+    pub fn select(&mut self) {
+        self.selected = Some(true);
+    }
+
+    /// true when this param, or any of its components, are selected = Some(True)
+    pub fn selected(&self) -> bool {
         self.selected.unwrap_or(
             self.components
                 .as_ref()
-                .map(|components| components.iter().any(Param::has_select))
+                .map(|components| components.iter().any(Param::selected))
                 .unwrap_or(false),
         )
     }
 
-    fn to_sql(&self, inner: String) -> Result<Vec<String>> {
-        if let Some(components) = &self.components {
-            let inner = if self.kind.is_static() {
-                format!("abi_fixed_bytes({}, 0, {})", inner, self.kind.size())
-            } else {
-                format!("abi_dynamic({}, 0)", inner)
-            };
-            let mut result = Vec::new();
-            let mut size_counter = 0;
-            for (pos, param) in components.iter().enumerate() {
-                if param.has_select() {
-                    match &param.kind {
-                        Kind::Tuple(_) => result.extend(param.to_sql(inner.clone())?),
-                        Kind::Array(Some(_), kind) if kind.is_static() => {
-                            result.push(format!(
-                                "abi_fixed_bytes({}, {}, {})",
-                                inner,
-                                size_counter,
-                                param.kind.size()
-                            ));
-                        }
-                        Kind::Array(_, _) => {
-                            result.push(format!("abi_dynamic({}, {})", inner, pos));
-                        }
-                        Kind::Bytes(None) | Kind::String => {
-                            result.push(format!("abi_bytes(abi_dynamic({}, {}))", inner, pos));
-                        }
-                        Kind::Address
-                        | Kind::Bool
-                        | Kind::Bytes(Some(_))
-                        | Kind::Uint(_)
-                        | Kind::Int(_) => {
-                            result.push(format!(
-                                "abi_fixed_bytes({}, {}, {})",
-                                inner,
-                                size_counter,
-                                param.kind.size()
-                            ));
-                        }
-                    };
-                }
-                size_counter += param.kind.size();
-            }
-            Ok(result)
-        } else {
-            Err(eyre!("must provide tuple"))
+    pub fn to_sql(&self, inner: &str) -> Vec<String> {
+        let mut result = Vec::new();
+        let indexed = self
+            .components
+            .iter()
+            .flat_map(|v| v.iter())
+            .enumerate()
+            .filter(|(_, param)| param.indexed && param.selected());
+        for (pos, param) in indexed {
+            // PG indexes by 1. First topic is sighash
+            result.push(format!("topics[{}] as {}", pos + 2, param.name));
         }
+        let abi_encoded = self
+            .components
+            .iter()
+            .flat_map(|v| v.iter())
+            .filter(|p| !p.indexed)
+            .scan(0, |size_counter, param| {
+                let size = *size_counter;
+                *size_counter += param.kind.size();
+                Some((size, param))
+            })
+            .filter(|(_, param)| param.selected());
+        for (size_counter, param) in abi_encoded {
+            match &param.kind {
+                Kind::Tuple(_) if param.kind.is_static() => {
+                    result.extend(param.to_sql(&format!(
+                        "abi_fixed_bytes({}, 0, {})",
+                        inner,
+                        self.kind.size()
+                    )));
+                }
+                Kind::Tuple(_) => {
+                    result
+                        .extend(param.to_sql(&format!("abi_dynamic({}, {})", inner, size_counter)));
+                }
+                Kind::Array(Some(_), kind) if kind.is_static() => {
+                    result.push(format!(
+                        "abi_fixed_bytes({}, {}, {}) as {}",
+                        inner,
+                        size_counter,
+                        param.kind.size(),
+                        param.name
+                    ));
+                }
+                Kind::Array(_, _) => {
+                    result.push(format!(
+                        "abi_dynamic({}, {}) as {}",
+                        inner, size_counter, param.name
+                    ));
+                }
+                Kind::Bytes(None) | Kind::String => {
+                    result.push(format!(
+                        "abi_bytes(abi_dynamic({}, {})) as {}",
+                        inner, size_counter, param.name
+                    ));
+                }
+                Kind::Address
+                | Kind::Bool
+                | Kind::Bytes(Some(_))
+                | Kind::Uint(_)
+                | Kind::Int(_) => {
+                    result.push(format!(
+                        "abi_fixed_bytes({}, {}, {}) as {}",
+                        inner,
+                        size_counter,
+                        param.kind.size(),
+                        param.name
+                    ));
+                }
+            };
+        }
+        result
     }
 }
 
@@ -330,23 +388,51 @@ mod tests {
     };
 
     use super::{parse, Kind, Param, Token};
+    use sqlparser::ast::Ident;
 
-    // test helper that will simulate a user
-    // selecting certain fields in their query
-    fn select(mut param: Param, query: &[&str]) -> Param {
-        if param.name == query[0] {
-            if query[1..].is_empty() {
-                param.selected = Some(true);
-            }
-            if let Some(components) = param.components.clone() {
-                let mut new = Vec::new();
-                for c in components {
-                    new.push(select(c.clone(), &query[1..]));
-                }
-                param.components = Some(new);
-            }
-        }
-        param
+    macro_rules! ident {
+        ($id:expr) => {{
+            Ident::new($id)
+        }};
+        ($id:expr, $($rest:expr),+) => {{
+            let mut v = vec![Ident::new($id)];
+            $(v.push(Ident::new($rest));)*
+            v
+        }};
+    }
+
+    #[test]
+    fn test_find() {
+        assert!(parse("Foo(uint a, uint b)")
+            .unwrap()
+            .find(ident!("Foo", "a"))
+            .is_some());
+        assert!(parse("Foo(uint a, uint b, (uint c) d)")
+            .unwrap()
+            .find(ident!("Foo", "d", "c"))
+            .is_some());
+        assert!(parse("Foo(uint a, uint b)")
+            .unwrap()
+            .find(ident!("Foo", "c"))
+            .is_none());
+    }
+
+    #[test]
+    fn test_select_has_select() {
+        assert!({
+            let mut param = parse("Foo(uint a, uint b)").unwrap();
+            param.find(ident!("Foo", "a")).unwrap().select();
+            param.selected()
+        });
+        assert!({
+            let mut param = parse("Foo(uint a, uint b, (uint c) d)").unwrap();
+            param.find(ident!("Foo", "d", "c")).unwrap().select();
+            param.selected()
+        });
+        assert!({
+            let mut param = parse("Foo(uint a, uint b)").unwrap();
+            param.find(ident!("Foo", "c")).is_none() && !param.selected()
+        });
     }
 
     #[test]
@@ -358,7 +444,24 @@ mod tests {
                 .sighash()
                 .encode_hex()
         );
-
+        assert_eq!(
+            "8dbb3a9672eebfd3773e72dd9c102393436816d832c7ba9e1e1ac8fcadcac7a9",
+            parse(
+                //underscores
+                r#"
+                Store_SetRecord(
+                    bytes32 indexed tableId,
+                    bytes32[] keyTuple,
+                    bytes staticData,
+                    bytes32 encodedLengths,
+                    bytes dynamicData
+                )
+            "#
+            )
+            .unwrap()
+            .sighash()
+            .encode_hex()
+        );
         assert_eq!(
             "30ebccc1ba352c4539c811df296809a7ae8446c4965445b6ee359b7a47f1bc8f",
             parse(
@@ -466,9 +569,25 @@ mod tests {
             Param::from_components("foo", vec![Param::new("bar", Kind::Int(256))])
         );
         assert_eq!(
+            parse("Foo(string a, bytes16 b, bytes c, int256 d, int256[] e, string[] f, bool g)")
+                .unwrap(),
+            Param::from_components(
+                "Foo",
+                vec![
+                    Param::new("a", Kind::String),
+                    Param::new("b", Kind::Bytes(Some(16))),
+                    Param::new("c", Kind::Bytes(None)),
+                    Param::new("d", Kind::Int(256)),
+                    Param::new("e", Kind::Array(None, Box::new(Kind::Int(256)))),
+                    Param::new("f", Kind::Array(None, Box::new(Kind::String))),
+                    Param::new("g", Kind::Bool),
+                ]
+            )
+        );
+        assert_eq!(
             Param::parse(&mut Token::lex("(int[][] bar)[] foo").unwrap()).unwrap(),
             Param {
-                name: String::from("foo"),
+                name: ident!("foo"),
                 kind: Kind::Array(
                     None,
                     Box::new(Kind::Tuple(vec![Kind::Array(
@@ -484,30 +603,36 @@ mod tests {
     }
 
     #[test]
-    fn test_sql() {
+    fn test_to_sql() {
         assert_eq!(
-            vec!["abi_fixed_bytes(abi_fixed_bytes(data, 0, 32), 0, 32)"],
-            select(parse("(int a) foo").unwrap(), &["foo", "a"])
-                .to_sql(String::from("data"))
-                .unwrap(),
+            vec!["topics[2] as a", "abi_bytes(abi_dynamic(data, 0)) as b"],
+            {
+                let mut param = parse("foo(int indexed a, bytes b)").unwrap();
+                param.find(ident!("foo", "a")).unwrap().select();
+                param.find(ident!("foo", "b")).unwrap().select();
+                param.to_sql("data")
+            }
+        );
+        assert_eq!(vec!["abi_fixed_bytes(data, 0, 32) as a"], {
+            let mut param = parse("(int a ) foo").unwrap();
+            param.find(ident!("foo", "a")).unwrap().select();
+            param.to_sql("data")
+        });
+        assert_eq!(
+            vec!["abi_fixed_bytes(abi_dynamic(data, 0), 32, 32) as c"],
+            {
+                let mut param = parse("((bytes b, int c) a) foo").unwrap();
+                param.find(ident!("foo", "a", "c")).unwrap().select();
+                param.to_sql("data")
+            }
         );
         assert_eq!(
-            vec!["abi_fixed_bytes(abi_dynamic(abi_dynamic(data, 0), 0), 32, 32)"],
-            select(
-                parse("((bytes b, int c) a) foo").unwrap(),
-                &["foo", "a", "c"]
-            )
-            .to_sql(String::from("data"))
-            .unwrap(),
-        );
-        assert_eq!(
-            vec!["abi_fixed_bytes(abi_fixed_bytes(abi_dynamic(data, 0), 0, 32), 0, 32)"],
-            select(
-                parse("((bytes b) a, (uint d) c) foo").unwrap(),
-                &["foo", "c", "d"]
-            )
-            .to_sql(String::from("data"))
-            .unwrap(),
+            vec!["abi_fixed_bytes(abi_fixed_bytes(data, 0, 32), 0, 32) as d"],
+            {
+                let mut param = parse("((bytes b) a, (uint d) c) foo").unwrap();
+                param.find(ident!("foo", "c", "d")).unwrap().select();
+                param.to_sql("data")
+            }
         );
     }
 
@@ -527,15 +652,13 @@ mod tests {
             0000000000000000000000000000000000000000000000000000000000000005
             "#
         );
-        let param = select(
-            parse("(uint[5] b) a").expect("unable to parse abi sig"),
-            &["a", "b"],
-        );
+        let mut param = parse("(uint[5] b) a").unwrap();
+        param.find(ident!("a", "b")).unwrap().select();
         let row = pg
             .query_one(
                 &format!(
-                    "select abi_uint_array({})",
-                    param.to_sql(String::from("$1")).unwrap().first().unwrap()
+                    "with data as (select {}) select abi_uint_array(b) from data",
+                    param.to_sql("$1")[0]
                 ),
                 &[&data],
             )
@@ -561,7 +684,6 @@ mod tests {
         let data = hex!(
             r#"
             0000000000000000000000000000000000000000000000000000000000000020
-            0000000000000000000000000000000000000000000000000000000000000020
             0000000000000000000000000000000000000000000000000000000000000005
             0000000000000000000000000000000000000000000000000000000000000001
             0000000000000000000000000000000000000000000000000000000000000002
@@ -570,15 +692,13 @@ mod tests {
             0000000000000000000000000000000000000000000000000000000000000005
             "#
         );
-        let param = select(
-            parse("(uint[] b) a").expect("unable to parse abi sig"),
-            &["a", "b"],
-        );
+        let mut param = parse("(uint[] b) a").unwrap();
+        param.find(ident!("a", "b")).unwrap().select();
         let row = pg
             .query_one(
                 &format!(
-                    "select abi_uint_array({})",
-                    param.to_sql(String::from("$1")).unwrap().first().unwrap()
+                    "with data as (select {}) select abi_uint_array(b) from data",
+                    param.to_sql("$1")[0]
                 ),
                 &[&data],
             )
