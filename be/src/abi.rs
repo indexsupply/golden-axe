@@ -177,12 +177,6 @@ impl Param {
         }
     }
 
-    fn indexed(name: &str, kind: Kind) -> Param {
-        let mut param = Param::new(name, kind);
-        param.indexed = true;
-        param
-    }
-
     fn from_components(name: &str, components: Vec<Param>) -> Param {
         Param {
             name: Ident::new(name),
@@ -401,6 +395,12 @@ mod tests {
         }};
     }
 
+    fn indexed(name: &str, kind: Kind) -> Param {
+        let mut param = Param::new(name, kind);
+        param.indexed = true;
+        param
+    }
+
     #[test]
     fn test_find() {
         assert!(parse("Foo(uint a, uint b)")
@@ -562,7 +562,7 @@ mod tests {
         );
         assert_eq!(
             Param::parse(&mut Token::lex("int indexed foo").unwrap()).unwrap(),
-            Param::indexed("foo", Kind::Int(256)),
+            indexed("foo", Kind::Int(256)),
         );
         assert_eq!(
             Param::parse(&mut Token::lex("(int bar) foo").unwrap()).unwrap(),

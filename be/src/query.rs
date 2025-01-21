@@ -1,4 +1,7 @@
-use alloy::{dyn_abi::DynSolValue, hex, primitives::U256, sol_types::SolValue};
+use alloy::{
+    hex,
+    primitives::{FixedBytes, U256},
+};
 use eyre::{Context, Result};
 use itertools::Itertools;
 use sqlparser::{
@@ -381,9 +384,15 @@ impl UserQuery {
             }
             ast::Expr::Value(ast::Value::Number(str, _)) => {
                 let n = U256::from_str(str).wrap_err("unable to decode number")?;
-                n.abi_encode()
+                n.to_be_bytes_vec()
             }
-            ast::Expr::Value(ast::Value::Boolean(b)) => DynSolValue::Bool(*b).abi_encode(),
+            ast::Expr::Value(ast::Value::Boolean(b)) => {
+                let mut res = FixedBytes::<32>::ZERO;
+                if *b {
+                    res[32] = 1;
+                }
+                res.to_vec()
+            }
             _ => return Ok(()),
         };
         match kind {
