@@ -721,6 +721,9 @@
         let chain = document.getElementById("chain-selection").value;
         params.set("chain", chain);
         params.set("block_height", blockHeight);
+        if(testFlag) {
+          params.set("test", 1);
+        }
         return params;
       }
 
