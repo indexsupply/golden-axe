@@ -39,6 +39,9 @@ struct Args {
     )]
     pg_url_fe: String,
 
+    #[arg(env = "MAX_PG_CONNS")]
+    max_pg_conns: Option<usize>,
+
     #[arg(short = 'l', env = "LISTEN", default_value = "0.0.0.0:8000")]
     listen: String,
 
@@ -63,9 +66,9 @@ async fn main() {
 
     let args = Args::parse();
     let config = api::Config::new(
-        shared::pg::new_pool(&args.pg_url, 32).expect("pg_be pool"),
-        shared::pg::new_pool(&args.pg_url_fe, 4).expect("pg_fe pool"),
-        shared::pg::new_pool(&args.pg_url_ro, 32).expect("pg_ro pool"),
+        shared::pg::new_pool(&args.pg_url, args.max_pg_conns.unwrap_or(32)).expect("pg_be pool"),
+        shared::pg::new_pool(&args.pg_url_fe, args.max_pg_conns.unwrap_or(4)).expect("pg_fe pool"),
+        shared::pg::new_pool(&args.pg_url_ro, args.max_pg_conns.unwrap_or(32)).expect("pg_ro pool"),
     );
 
     config
