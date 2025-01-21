@@ -42,7 +42,7 @@ struct Args {
     #[arg(short = 'l', env = "LISTEN", default_value = "0.0.0.0:8000")]
     listen: String,
 
-    #[clap(long, action = clap::ArgAction::SetTrue)]
+    #[clap(long, env = "NO_SYNC", action = clap::ArgAction::SetTrue)]
     no_sync: bool,
 }
 
@@ -81,13 +81,23 @@ async fn main() {
         .await
         .expect("binding to tcp for http server");
 
-    match tokio::try_join!(
-        tokio::spawn(account_limits(config.clone())),
-        tokio::spawn(sync::run(config.clone())),
-        tokio::spawn(axum::serve(listener, service(config.clone())).into_future()),
-    ) {
-        Ok(_) => tracing::error!("task died too soon"),
-        Err(e) => panic!("task failed {}", e),
+    if args.no_sync {
+        match tokio::try_join!(
+            tokio::spawn(account_limits(config.clone())),
+            tokio::spawn(axum::serve(listener, service(config.clone())).into_future()),
+        ) {
+            Ok(_) => tracing::error!("task died too soon"),
+            Err(e) => panic!("task failed {}", e),
+        }
+    } else {
+        match tokio::try_join!(
+            tokio::spawn(account_limits(config.clone())),
+            tokio::spawn(sync::run(config.clone())),
+            tokio::spawn(axum::serve(listener, service(config.clone())).into_future()),
+        ) {
+            Ok(_) => tracing::error!("task died too soon"),
+            Err(e) => panic!("task failed {}", e),
+        }
     }
 }
 
