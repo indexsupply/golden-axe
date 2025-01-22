@@ -140,7 +140,7 @@ impl Kind {
 
     fn sql_decode_function(&self) -> String {
         match &self {
-            Kind::Address => String::from("abi_string"),
+            Kind::Address => String::from("abi_address"),
             Kind::Bool => String::from("abi_bool"),
             Kind::Int(_) => String::from("abi_int"),
             Kind::Uint(_) => String::from("abi_uint"),
