@@ -10,7 +10,10 @@ use sqlparser::{
 };
 use std::{collections::HashSet, ops::Deref, str::FromStr};
 
-use crate::{abi, api};
+use crate::{
+    abi::{self, Decode},
+    api,
+};
 
 macro_rules! no {
     ($e:expr) => {
@@ -95,7 +98,9 @@ impl Relation {
             select_list.push(f.to_string());
         });
         if let Some(param) = &self.event {
-            select_list.extend(param.to_sql("data"));
+            for (ident, sql) in param.to_sql("data", Decode::No) {
+                select_list.push(format!("{} as {}", sql, ident));
+            }
         }
         res.push(select_list.join(","));
         res.push(format!("from logs where chain = {}", chain,));
@@ -537,7 +542,7 @@ impl UserQuery {
             ast::Expr::Identifier(_) | ast::Expr::CompoundIdentifier(_) => {
                 self.touch_metadata(expr);
                 if let Some(param) = self.touch_param(expr) {
-                    param.selected = Some(true)
+                    param.select();
                 }
                 Ok(())
             }
@@ -554,6 +559,15 @@ impl UserQuery {
             ast::Expr::Subquery(subquery) => self.validate_query(subquery),
             ast::Expr::Tuple(exprs) => self.validate_expressions(exprs),
             ast::Expr::UnaryOp { expr, .. } => self.validate_expression(expr),
+            ast::Expr::BinaryOp {
+                left,
+                right,
+                op: ast::BinaryOperator::LongArrow | ast::BinaryOperator::Arrow,
+                ..
+            } => {
+                self.validate_expression(left)?;
+                self.validate_expression(right)
+            }
             ast::Expr::BinaryOp { left, right, .. } => {
                 self.rewrite_binary_expr(left, right)?;
                 self.validate_expression(left)?;
@@ -1292,6 +1306,28 @@ mod tests {
                     and topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
                 )
                 select abi_uint(foo.b) as b from foo
+            "#,
+        ).await;
+    }
+
+    #[tokio::test]
+    async fn test_nested_tuples() {
+        check_sql(
+            vec!["Foo(uint a, uint b, (uint d, bytes e) c)"],
+            r#"select c->>'d' from foo"#,
+            r#"
+                with foo as not materialized (
+                    select json_build_object(
+                      'd',
+                      abi_uint(abi_fixed_bytes(abi_dynamic(data, 64), 0, 32)),
+                      'e',
+                      (abi_dynamic(abi_dynamic(data, 64), 32))
+                    ) AS c
+                    from logs
+                    where chain = 1
+                    and topics [1] = '\x851f2bcfcac86844a44298d8354312295b246183022d51c76398d898d87014fc'
+                )
+                select c->>'d' from foo
             "#,
         ).await;
     }

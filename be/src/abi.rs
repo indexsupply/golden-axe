@@ -90,6 +90,19 @@ pub enum Kind {
     String,
 }
 
+/// Instructs to_sql on if it should decode to the final type
+/// You may not want to do this for performancen reasons. Since
+/// there are BTREE indexes on columns like topics[ i ] and address
+/// you do not want to convert that data to the final type,
+/// instead you want to leave it in raw bytes form, rewrite the
+/// predicates to be in raw bytes form as well, and then once
+/// the data set has been properly filtered, we can do the final
+/// decoding as the last step.
+pub enum Decode {
+    Yes,
+    No,
+}
+
 impl Kind {
     fn is_static(&self) -> bool {
         match &self {
@@ -124,15 +137,26 @@ impl Kind {
             | Kind::String => 32,
         }
     }
+
+    fn sql_decode_function(&self) -> String {
+        match &self {
+            Kind::Address => String::from("abi_string"),
+            Kind::Bool => String::from("abi_bool"),
+            Kind::Int(_) => String::from("abi_int"),
+            Kind::Uint(_) => String::from("abi_uint"),
+            Kind::String => String::from("abi_string"),
+            _ => String::new(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Param {
     pub name: ast::Ident,
     pub kind: Kind,
-    pub indexed: bool,
-    pub components: Option<Vec<Param>>,
-    pub selected: Option<bool>,
+    indexed: bool,
+    components: Option<Vec<Param>>,
+    selected: Option<bool>,
 }
 
 impl std::fmt::Display for Kind {
@@ -287,6 +311,10 @@ impl Param {
 
     pub fn select(&mut self) {
         self.selected = Some(true);
+        self.components
+            .iter_mut()
+            .flatten()
+            .for_each(|c| c.select());
     }
 
     /// true when this param, or any of its components, are selected = Some(True)
@@ -299,8 +327,8 @@ impl Param {
         )
     }
 
-    pub fn to_sql(&self, inner: &str) -> Vec<String> {
-        let mut result = Vec::new();
+    pub fn to_sql(&self, inner: &str, decode: Decode) -> Vec<(Ident, String)> {
+        let mut res = Vec::new();
         let indexed = self
             .components
             .iter()
@@ -309,7 +337,7 @@ impl Param {
             .filter(|(_, param)| param.indexed && param.selected());
         for (pos, param) in indexed {
             // PG indexes by 1. First topic is sighash
-            result.push(format!("topics[{}] as {}", pos + 2, param.name));
+            res.push((param.name.clone(), format!("topics[{}]", pos + 2)));
         }
         let abi_encoded = self
             .components
@@ -322,56 +350,86 @@ impl Param {
                 Some((size, param))
             })
             .filter(|(_, param)| param.selected());
-        for (size_counter, param) in abi_encoded {
+        for (pos, param) in abi_encoded {
             match &param.kind {
-                Kind::Tuple(_) if param.kind.is_static() => {
-                    result.extend(param.to_sql(&format!(
-                        "abi_fixed_bytes({}, 0, {})",
-                        inner,
-                        self.kind.size()
-                    )));
-                }
                 Kind::Tuple(_) => {
-                    result
-                        .extend(param.to_sql(&format!("abi_dynamic({}, {})", inner, size_counter)));
+                    let inner = if param.kind.is_static() {
+                        format!("abi_fixed_bytes({}, 0, {})", inner, self.kind.size())
+                    } else {
+                        format!("abi_dynamic({}, {})", inner, pos)
+                    };
+                    let fields = param
+                        .to_sql(&inner, Decode::Yes)
+                        .iter()
+                        .flat_map(|(k, v)| {
+                            let mut quoted = k.clone();
+                            quoted.quote_style = Some('\'');
+                            [quoted.to_string(), v.clone()]
+                        })
+                        .collect_vec();
+                    res.push((
+                        param.name.clone(),
+                        format!("json_build_object({})", fields.join(",")),
+                    ));
                 }
                 Kind::Array(Some(_), kind) if kind.is_static() => {
-                    result.push(format!(
-                        "abi_fixed_bytes({}, {}, {}) as {}",
-                        inner,
-                        size_counter,
-                        param.kind.size(),
-                        param.name
+                    res.push((
+                        param.name.clone(),
+                        format!("abi_fixed_bytes({}, {}, {})", inner, pos, param.kind.size(),),
                     ));
                 }
                 Kind::Array(_, _) => {
-                    result.push(format!(
-                        "abi_dynamic({}, {}) as {}",
-                        inner, size_counter, param.name
+                    res.push((
+                        param.name.clone(),
+                        format!("abi_dynamic({}, {})", inner, pos),
                     ));
                 }
-                Kind::Bytes(None) | Kind::String => {
-                    result.push(format!(
-                        "abi_bytes(abi_dynamic({}, {})) as {}",
-                        inner, size_counter, param.name
-                    ));
-                }
+                Kind::Bytes(None) | Kind::String => match decode {
+                    Decode::Yes => {
+                        res.push((
+                            param.name.clone(),
+                            format!(
+                                "{}(abi_dynamic({}, {}))",
+                                self.kind.sql_decode_function(),
+                                inner,
+                                pos
+                            ),
+                        ));
+                    }
+                    Decode::No => {
+                        res.push((
+                            param.name.clone(),
+                            format!("abi_bytes(abi_dynamic({}, {}))", inner, pos),
+                        ));
+                    }
+                },
                 Kind::Address
                 | Kind::Bool
                 | Kind::Bytes(Some(_))
-                | Kind::Uint(_)
-                | Kind::Int(_) => {
-                    result.push(format!(
-                        "abi_fixed_bytes({}, {}, {}) as {}",
-                        inner,
-                        size_counter,
-                        param.kind.size(),
-                        param.name
-                    ));
-                }
+                | Kind::Int(_)
+                | Kind::Uint(_) => match decode {
+                    Decode::Yes => {
+                        res.push((
+                            param.name.clone(),
+                            format!(
+                                "{}(abi_fixed_bytes({}, {}, {}))",
+                                param.kind.sql_decode_function(),
+                                inner,
+                                pos,
+                                param.kind.size()
+                            ),
+                        ));
+                    }
+                    Decode::No => {
+                        res.push((
+                            param.name.clone(),
+                            format!("abi_fixed_bytes({}, {}, {})", inner, pos, param.kind.size()),
+                        ));
+                    }
+                },
             };
         }
-        result
+        res
     }
 }
 
@@ -381,6 +439,8 @@ mod tests {
         hex::ToHexExt,
         primitives::{hex, U256},
     };
+
+    use crate::abi::Decode;
 
     use super::{parse, Kind, Param, Token};
     use sqlparser::ast::Ident;
@@ -606,33 +666,47 @@ mod tests {
     #[test]
     fn test_to_sql() {
         assert_eq!(
-            vec!["topics[2] as a", "abi_bytes(abi_dynamic(data, 0)) as b"],
+            vec![
+                (ident!("a"), String::from("topics[2]")),
+                (ident!("b"), String::from("abi_bytes(abi_dynamic(data, 0))"))
+            ],
             {
                 let mut param = parse("foo(int indexed a, bytes b)").unwrap();
                 param.find(ident!("foo", "a")).unwrap().select();
                 param.find(ident!("foo", "b")).unwrap().select();
-                param.to_sql("data")
+                param.to_sql("data", Decode::No)
             }
         );
-        assert_eq!(vec!["abi_fixed_bytes(data, 0, 32) as a"], {
-            let mut param = parse("(int a ) foo").unwrap();
-            param.find(ident!("foo", "a")).unwrap().select();
-            param.to_sql("data")
-        });
         assert_eq!(
-            vec!["abi_fixed_bytes(abi_dynamic(data, 0), 32, 32) as c"],
+            vec![(ident!("a"), String::from("abi_fixed_bytes(data, 0, 32)"))],
+            {
+                let mut param = parse("(int a ) foo").unwrap();
+                param.find(ident!("foo", "a")).unwrap().select();
+                param.to_sql("data", Decode::No)
+            }
+        );
+        assert_eq!(
+            vec![(
+                ident!("a"),
+                String::from(
+                    "json_build_object('b',(abi_dynamic(abi_dynamic(data, 0), 0)),'c',abi_int(abi_fixed_bytes(abi_dynamic(data, 0), 32, 32)))"
+                )
+            )],
             {
                 let mut param = parse("((bytes b, int c) a) foo").unwrap();
-                param.find(ident!("foo", "a", "c")).unwrap().select();
-                param.to_sql("data")
+                param.find(ident!("foo", "a")).unwrap().select();
+                param.to_sql("data", Decode::No)
             }
         );
         assert_eq!(
-            vec!["abi_fixed_bytes(abi_fixed_bytes(data, 0, 32), 0, 32) as d"],
+            vec![(
+                ident!("c"),
+                String::from("json_build_object('d',abi_uint(abi_fixed_bytes(abi_fixed_bytes(data, 0, 32), 0, 32)))")
+            )],
             {
                 let mut param = parse("((bytes b) a, (uint d) c) foo").unwrap();
-                param.find(ident!("foo", "c", "d")).unwrap().select();
-                param.to_sql("data")
+                param.find(ident!("foo", "c")).unwrap().select();
+                param.to_sql("data", Decode::No)
             }
         );
     }
@@ -658,8 +732,8 @@ mod tests {
         let row = pg
             .query_one(
                 &format!(
-                    "with data as (select {}) select abi_uint_array(b) from data",
-                    param.to_sql("$1")[0]
+                    "with data as (select {} as b) select abi_uint_array(b) from data",
+                    param.to_sql("$1", Decode::No)[0].1
                 ),
                 &[&data],
             )
@@ -698,8 +772,8 @@ mod tests {
         let row = pg
             .query_one(
                 &format!(
-                    "with data as (select {}) select abi_uint_array(b) from data",
-                    param.to_sql("$1")[0]
+                    "with data as (select {} as b) select abi_uint_array(b) from data",
+                    param.to_sql("$1", Decode::No)[0].1
                 ),
                 &[&data],
             )
