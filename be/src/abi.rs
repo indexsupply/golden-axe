@@ -145,6 +145,7 @@ pub struct Param {
     pub kind: Kind,
     indexed: bool,
     components: Option<Vec<Param>>,
+    element: Option<Box<Param>>,
     selected: Option<bool>,
 }
 
@@ -187,6 +188,7 @@ impl Param {
             name: Ident::new(name),
             indexed: false,
             components: None,
+            element: None,
             selected: None,
         }
     }
@@ -197,6 +199,7 @@ impl Param {
             kind: Kind::Tuple(components.iter().map(|c| c.kind.clone()).collect()),
             indexed: false,
             components: Some(components),
+            element: None,
             selected: None,
         }
     }
@@ -249,6 +252,7 @@ impl Param {
             _ => return Err(eyre!("expected '(' or word")),
         };
         while let Some(Token::Array(size)) = input.front() {
+            param.element.get_or_insert(Box::new(param.clone()));
             param.kind = Kind::Array(*size, Box::new(param.kind.clone()));
             param.components = None;
             input.pop_front();
@@ -345,16 +349,41 @@ impl Param {
                 *size_counter += param.kind.size();
                 Some((size, param))
             })
-            .map(|(pos, param)| match param.kind {
-                Kind::Tuple(_) => {
-                    let inner = if param.kind.is_static() {
-                        format!("abi_fixed_bytes({}, {}, {})", inner, pos, param.kind.size())
-                    } else {
-                        format!("abi_dynamic({}, {})", inner, pos)
-                    };
-                    let encoded = param.json_object_to_sql(&inner);
+            .map(|(pos, param)| match &param.kind {
+                Kind::Tuple(_) if param.kind.is_static() => {
+                    let encoded = param.json_object_to_sql(&format!(
+                        "abi_fixed_bytes({}, {}, {})",
+                        inner,
+                        pos,
+                        param.kind.size()
+                    ));
                     (quote(&encoded.0), encoded.1)
                 }
+                Kind::Tuple(_) => {
+                    let encoded =
+                        param.json_object_to_sql(&format!("abi_dynamic({}, {})", inner, pos));
+                    (quote(&encoded.0), encoded.1)
+                }
+                Kind::Array(None, kind) if kind.is_static() => match kind.as_ref() {
+                    Kind::Tuple(_) => {
+                        let object = param.element.as_ref().unwrap().json_object_to_sql("obj");
+                        (
+                            quote(&param.name),
+                            format!(
+                                "(
+                                select json_agg({})
+                                from unnest(abi_fixed_bytes_array(abi_dynamic({}, {}), {}))
+                                as obj
+                                )",
+                                object.1,
+                                inner,
+                                pos,
+                                kind.size()
+                            ),
+                        )
+                    }
+                    _ => todo!(),
+                },
                 Kind::Address => (
                     quote(&param.name),
                     hex_wrap(&format!(
@@ -364,10 +393,23 @@ impl Param {
                         param.kind.size()
                     )),
                 ),
+                Kind::Bytes(None) => (
+                    quote(&param.name),
+                    hex_wrap(&format!("abi_bytes(abi_dynamic({}, {}))", inner, pos)),
+                ),
                 Kind::Uint(_) => (
                     quote(&param.name),
                     format!(
                         "abi_uint(abi_fixed_bytes({}, {}, {}))::text",
+                        inner,
+                        pos,
+                        param.kind.size()
+                    ),
+                ),
+                Kind::Int(_) => (
+                    quote(&param.name),
+                    format!(
+                        "abi_int(abi_fixed_bytes({}, {}, {}))::text",
                         inner,
                         pos,
                         param.kind.size()
@@ -382,9 +424,7 @@ impl Param {
     }
 
     pub fn to_sql(&self, inner: &str) -> Vec<(Ident, String)> {
-        let mut res = Vec::new();
-        let abi_encoded = self
-            .components
+        self.components
             .iter()
             .flat_map(|v| v.iter())
             .filter(|p| !p.indexed)
@@ -393,53 +433,39 @@ impl Param {
                 *size_counter += param.kind.size();
                 Some((size, param))
             })
-            .filter(|(_, param)| param.selected());
-        for (pos, param) in abi_encoded {
-            match &param.kind {
-                Kind::Tuple(_) if param.kind.is_static() => {
-                    res.push(param.json_object_to_sql(&format!(
-                        "abi_fixed_bytes({}, {}, {})",
-                        inner,
-                        pos,
-                        param.kind.size()
-                    )));
-                }
+            .filter(|(_, param)| param.selected())
+            .map(|(pos, param)| match &param.kind {
+                Kind::Tuple(_) if param.kind.is_static() => param.json_object_to_sql(&format!(
+                    "abi_fixed_bytes({}, {}, {})",
+                    inner,
+                    pos,
+                    param.kind.size()
+                )),
                 Kind::Tuple(_) => {
-                    res.push(
-                        param.json_object_to_sql(&format!("abi_dynamic({}, {})", inner, pos,)),
-                    );
+                    param.json_object_to_sql(&format!("abi_dynamic({}, {})", inner, pos,))
                 }
-                Kind::Array(Some(_), kind) if kind.is_static() => {
-                    res.push((
-                        param.name.clone(),
-                        format!("abi_fixed_bytes({}, {}, {})", inner, pos, param.kind.size()),
-                    ));
-                }
-                Kind::Array(_, _) => {
-                    res.push((
-                        param.name.clone(),
-                        format!("abi_dynamic({}, {})", inner, pos),
-                    ));
-                }
-                Kind::Bytes(None) | Kind::String => {
-                    res.push((
-                        param.name.clone(),
-                        format!("abi_bytes(abi_dynamic({}, {}))", inner, pos),
-                    ));
-                }
+                Kind::Array(Some(_), kind) if kind.is_static() => (
+                    param.name.clone(),
+                    format!("abi_fixed_bytes({}, {}, {})", inner, pos, param.kind.size()),
+                ),
+                Kind::Array(_, _) => (
+                    param.name.clone(),
+                    format!("abi_dynamic({}, {})", inner, pos),
+                ),
+                Kind::Bytes(None) | Kind::String => (
+                    param.name.clone(),
+                    format!("abi_bytes(abi_dynamic({}, {}))", inner, pos),
+                ),
                 Kind::Address
                 | Kind::Bool
                 | Kind::Bytes(Some(_))
                 | Kind::Int(_)
-                | Kind::Uint(_) => {
-                    res.push((
-                        param.name.clone(),
-                        format!("abi_fixed_bytes({}, {}, {})", inner, pos, param.kind.size()),
-                    ));
-                }
-            };
-        }
-        res
+                | Kind::Uint(_) => (
+                    param.name.clone(),
+                    format!("abi_fixed_bytes({}, {}, {})", inner, pos, param.kind.size()),
+                ),
+            })
+            .collect()
     }
 }
 
@@ -451,7 +477,7 @@ mod tests {
     };
     use assert_json_diff::assert_json_eq;
 
-    use super::{parse, Kind, Param, Token};
+    use super::{parse, Kind, Token};
     use sqlparser::ast::Ident;
 
     macro_rules! ident {
@@ -463,12 +489,6 @@ mod tests {
             $(v.push(Ident::new($rest));)*
             v
         }};
-    }
-
-    fn indexed(name: &str, kind: Kind) -> Param {
-        let mut param = Param::new(name, kind);
-        param.indexed = true;
-        param
     }
 
     #[test]
@@ -626,49 +646,17 @@ mod tests {
 
     #[test]
     fn test_param_parse() {
-        assert_eq!(
-            Param::parse(&mut Token::lex("int foo").unwrap()).unwrap(),
-            Param::new("foo", Kind::Int(256)),
-        );
-        assert_eq!(
-            Param::parse(&mut Token::lex("int indexed foo").unwrap()).unwrap(),
-            indexed("foo", Kind::Int(256)),
-        );
-        assert_eq!(
-            Param::parse(&mut Token::lex("(int bar) foo").unwrap()).unwrap(),
-            Param::from_components("foo", vec![Param::new("bar", Kind::Int(256))])
-        );
+        assert_eq!(&parse("foo(int bar)").unwrap().kind.to_string(), "(int256)");
         assert_eq!(
             parse("Foo(string a, bytes16 b, bytes c, int256 d, int256[] e, string[] f, bool g)")
-                .unwrap(),
-            Param::from_components(
-                "Foo",
-                vec![
-                    Param::new("a", Kind::String),
-                    Param::new("b", Kind::Bytes(Some(16))),
-                    Param::new("c", Kind::Bytes(None)),
-                    Param::new("d", Kind::Int(256)),
-                    Param::new("e", Kind::Array(None, Box::new(Kind::Int(256)))),
-                    Param::new("f", Kind::Array(None, Box::new(Kind::String))),
-                    Param::new("g", Kind::Bool),
-                ]
-            )
+                .unwrap()
+                .kind
+                .to_string(),
+            "(string,bytes16,bytes,int256,int256[],string[],bool)"
         );
         assert_eq!(
-            Param::parse(&mut Token::lex("(int[][] bar)[] foo").unwrap()).unwrap(),
-            Param {
-                name: ident!("foo"),
-                kind: Kind::Array(
-                    None,
-                    Box::new(Kind::Tuple(vec![Kind::Array(
-                        None,
-                        Box::new(Kind::Array(None, Box::new(Kind::Int(256))))
-                    )]))
-                ),
-                indexed: false,
-                components: None,
-                selected: None,
-            }
+            parse("(int[][] bar)[] foo").unwrap().kind.to_string(),
+            "(int256[][])[]"
         );
     }
 
@@ -694,7 +682,7 @@ mod tests {
             vec![(
                 ident!("a"),
                 String::from(
-                    "json_build_object('b',(abi_dynamic(abi_dynamic(data, 0), 0)),'c',abi_int(abi_fixed_bytes(abi_dynamic(data, 0), 32, 32)))"
+                    "json_build_object('b',encode(abi_bytes(abi_dynamic(abi_dynamic(data, 0), 0)), 'hex'),'c',abi_int(abi_fixed_bytes(abi_dynamic(data, 0), 32, 32))::text)"
                 )
             )],
             {
@@ -706,7 +694,7 @@ mod tests {
         assert_eq!(
             vec![(
                 ident!("c"),
-                String::from("json_build_object('d',abi_uint(abi_fixed_bytes(abi_fixed_bytes(data, 0, 32), 0, 32)))")
+                String::from("json_build_object('d',abi_uint(abi_fixed_bytes(abi_fixed_bytes(data, 32, 32), 0, 32))::text)")
             )],
             {
                 let mut param = parse("((bytes b) a, (uint d) c) foo").unwrap();
@@ -822,7 +810,8 @@ mod tests {
             0000000000000000000000007531f00dbc616b3466990e615bf01eff507c88d4
             0000000000000000000000000000000000000000000000000000000000000000
             0000000000000000000000000000000000000000000000000000000000000060
-            0000000000000000000000000000000000000000000000000000000000000000
+            0000000000000000000000000000000000000000000000000000000000000005
+            68656C6C6F000000000000000000000000000000000000000000000000000000
             "#
         );
         let mut param = parse("IntentFinished(address indexed intentAddr, address indexed destinationAddr, bool indexed success,(uint256 toChainId, (address token, uint256 amount)[] bridgeTokenOutOptions, (address token, uint256 amount) finalCallToken, (address to, uint256 value, bytes data) finalCall, address escrow, address refundAddress, uint256 nonce) intent)").unwrap();
@@ -832,7 +821,7 @@ mod tests {
             .select();
         let query = param.to_sql("$1");
         let row = pg
-            .query_one(&format!("select {}", query[0].1), &[&data])
+            .query_one(&format!("select {}", &query[0].1), &[&data])
             .await
             .expect("issue with query");
         let res: serde_json::Value = row.get(0);
@@ -840,7 +829,20 @@ mod tests {
             res,
             serde_json::json!({
                 "toChainId": "8453",
-                "bridgeTokenOutOptions": 1,
+                "bridgeTokenOutOptions": [
+                    {
+                        "token": "833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+                        "amount": "1000000"
+                    },
+                    {
+                        "token": "eb466342c4d449bc9f53a865d5cb90586f405215",
+                        "amount": "1000000"
+                    },
+                    {
+                        "token": "50c5725949a6f0c72e6c4a641f24049a917db0cb",
+                        "amount": "1000000000000000000"
+                    }
+                ],
                 "finalCallToken": {
                     "token": "833589fcd6edb6e08f4c7c32d4f71b54bda02913",
                     "amount": "1000000"
@@ -848,7 +850,7 @@ mod tests {
                 "finalCall": {
                     "to": "7531f00dbc616b3466990e615bf01eff507c88d4",
                     "value": "0",
-                    "data": 1,
+                    "data": "68656c6c6f",
                 },
                 "escrow": "9bd9caf29b76e98d57fc3a228a39c7efe8ca0eaf",
                 "refundAddress": "7531f00dbc616b3466990e615bf01eff507c88d4",

@@ -1323,9 +1323,9 @@ mod tests {
                 with foo as not materialized (
                     select json_build_object(
                       'd',
-                      abi_uint(abi_fixed_bytes(abi_dynamic(data, 64), 0, 32)),
+                      abi_uint(abi_fixed_bytes(abi_dynamic(data, 64), 0, 32))::text,
                       'e',
-                      (abi_dynamic(abi_dynamic(data, 64), 32))
+                      encode(abi_bytes(abi_dynamic(abi_dynamic(data, 64), 32)), 'hex')
                     ) AS c
                     from logs
                     where chain = 1
