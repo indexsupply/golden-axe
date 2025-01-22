@@ -254,7 +254,7 @@ fn handle_rows(rows: Vec<tokio_postgres::Row>) -> Result<Rows, api::Error> {
                         .map(|array| Bytes::copy_from_slice(array))
                         .collect_vec())
                 }
-                Type::JSONB => row.get::<usize, serde_json::Value>(idx),
+                Type::JSON => row.get::<usize, serde_json::Value>(idx),
                 _ => Value::Null,
             };
             json_row.push(value);

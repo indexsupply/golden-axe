@@ -60,6 +60,7 @@ bytes = "1.9.0"
 serde_html_form = "0.2.7"
 
 [dev-dependencies]
+assert-json-diff = "2"
 alloy = { version = "0.8.3", features = ["dyn-abi", "json-abi", "sol-types"] }
 shared = { path = "../shared", features = ["test"] }
 axum-test = "16.4.1"

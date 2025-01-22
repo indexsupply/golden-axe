@@ -11,7 +11,7 @@ use sqlparser::{
 use std::{collections::HashSet, ops::Deref, str::FromStr};
 
 use crate::{
-    abi::{self, Decode},
+    abi::{self},
     api,
 };
 
@@ -98,7 +98,10 @@ impl Relation {
             select_list.push(f.to_string());
         });
         if let Some(param) = &self.event {
-            for (ident, sql) in param.to_sql("data", Decode::No) {
+            for (ident, sql) in param.topics_to_sql() {
+                select_list.push(format!("{} as {}", sql, ident));
+            }
+            for (ident, sql) in param.to_sql("data") {
                 select_list.push(format!("{} as {}", sql, ident));
             }
         }
@@ -598,6 +601,7 @@ impl UserQuery {
                 self.validate_expressions(conditions)?;
                 self.validate_expressions(results)
             }
+            ast::Expr::Cast { .. } => Ok(()),
             _ => no!(expr),
         }
     }

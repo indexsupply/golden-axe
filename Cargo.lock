@@ -1065,6 +1065,7 @@ name = "be"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "assert-json-diff",
  "async-stream",
  "axum",
  "axum-extra",
