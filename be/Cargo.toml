@@ -34,7 +34,10 @@ tokio = { version = "1", features = [
     "signal",
     "fs",
 ] }
-tokio-postgres = { version = "0.7.10", features = ["array-impls"] }
+tokio-postgres = { version = "0.7.10", features = [
+    "array-impls",
+    "with-serde_json-1",
+] }
 tracing = { version = "0.1", features = ["attributes"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2.5"
