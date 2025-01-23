@@ -351,6 +351,7 @@ impl Param {
             })
             .map(|(pos, param)| match &param.kind {
                 Kind::Tuple(_) if param.kind.is_static() => {
+                    println!("stat tuple of {:?} {} {}", param.kind, pos, inner);
                     let encoded = param.json_object_to_sql(&format!(
                         "abi_fixed_bytes({}, {}, {})",
                         inner,
@@ -360,30 +361,35 @@ impl Param {
                     (quote(&encoded.0), encoded.1)
                 }
                 Kind::Tuple(_) => {
+                    println!("dyn tuple of {:?} {} {}", param.kind, pos, inner);
                     let encoded =
                         param.json_object_to_sql(&format!("abi_dynamic({}, {})", inner, pos));
                     (quote(&encoded.0), encoded.1)
                 }
-                Kind::Array(None, kind) if kind.is_static() => match kind.as_ref() {
-                    Kind::Tuple(_) => {
-                        let object = param.element.as_ref().unwrap().json_object_to_sql("obj");
-                        (
-                            quote(&param.name),
-                            format!(
-                                "(
+                Kind::Array(None, kind) => {
+                    println!(
+                        "array of {:?} {} {} {}",
+                        param.element.as_ref().unwrap().kind,
+                        pos,
+                        kind.size(),
+                        inner
+                    );
+                    let object = param.element.as_ref().unwrap().json_object_to_sql("obj");
+                    (
+                        quote(&param.name),
+                        format!(
+                            "(
                                 select json_agg({})
                                 from unnest(abi_fixed_bytes_array(abi_dynamic({}, {}), {}))
                                 as obj
-                                )",
-                                object.1,
-                                inner,
-                                pos,
-                                kind.size()
-                            ),
-                        )
-                    }
-                    _ => todo!(),
-                },
+                            )",
+                            object.1,
+                            inner,
+                            pos,
+                            kind.size()
+                        ),
+                    )
+                }
                 Kind::Address => (
                     quote(&param.name),
                     hex_wrap(&format!(
@@ -396,6 +402,10 @@ impl Param {
                 Kind::Bytes(None) => (
                     quote(&param.name),
                     hex_wrap(&format!("abi_bytes(abi_dynamic({}, {}))", inner, pos)),
+                ),
+                Kind::String => (
+                    quote(&param.name),
+                    format!("abi_string(abi_dynamic({}, {}))", inner, pos),
                 ),
                 Kind::Uint(_) => (
                     quote(&param.name),
@@ -444,14 +454,14 @@ impl Param {
                 Kind::Tuple(_) => {
                     param.json_object_to_sql(&format!("abi_dynamic({}, {})", inner, pos,))
                 }
-                Kind::Array(Some(_), kind) if kind.is_static() => (
+                Kind::Array(Some(_), kind) => (
                     param.name.clone(),
                     format!("abi_fixed_bytes({}, {}, {})", inner, pos, param.kind.size()),
                 ),
-                Kind::Array(_, _) => (
-                    param.name.clone(),
-                    format!("abi_dynamic({}, {})", inner, pos),
-                ),
+                Kind::Array(None, kind) => match kind.as_ref() {
+                    Kind::Tuple(_) => self.json_object_to_sql(inner),
+                    _ => todo!(),
+                },
                 Kind::Bytes(None) | Kind::String => (
                     param.name.clone(),
                     format!("abi_bytes(abi_dynamic({}, {}))", inner, pos),
@@ -474,8 +484,10 @@ mod tests {
     use alloy::{
         hex::ToHexExt,
         primitives::{hex, U256},
+        sol_types::SolEvent,
     };
     use assert_json_diff::assert_json_eq;
+    use eyre::Result;
 
     use super::{parse, Kind, Token};
     use sqlparser::ast::Ident;
@@ -857,5 +869,92 @@ mod tests {
                 "nonce": "35797683442637942692858199402223327241210246169636214527328521135655386880184"
             })
         )
+    }
+
+    fn print_hex(s: &str) {
+        let out = s
+            .chars()
+            .collect::<Vec<_>>()
+            .chunks(64)
+            .map(|c| c.iter().collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n");
+        println!("{}", out);
+    }
+
+    #[test]
+    fn test_gen_data() {
+        alloy::sol! {
+            #[sol(abi)]
+            event Foo((string, string[], string[])[] a);
+        };
+        let foo = Foo {
+            a: vec![(
+                String::from("BB"),
+                vec![String::from("BB")],
+                vec![String::from("BB")],
+            )],
+        };
+        print_hex(&foo.encode_data().encode_hex());
+    }
+
+    #[tokio::test]
+    async fn test_complex_event_dynamic_array() {
+        let (_pg_server, pool) = shared::pg::test::new(SCHEMA).await;
+        let pg = pool.get().await.expect("getting pg from test pool");
+        let data = hex!(
+            r#"
+            0000000000000000000000000000000000000000000000000000000000000020
+            0000000000000000000000000000000000000000000000000000000000000001
+            0000000000000000000000000000000000000000000000000000000000000020
+            0000000000000000000000000000000000000000000000000000000000000060
+            00000000000000000000000000000000000000000000000000000000000000a0
+            0000000000000000000000000000000000000000000000000000000000000120
+            0000000000000000000000000000000000000000000000000000000000000002
+            4242000000000000000000000000000000000000000000000000000000000000
+            0000000000000000000000000000000000000000000000000000000000000001
+            0000000000000000000000000000000000000000000000000000000000000020
+            0000000000000000000000000000000000000000000000000000000000000002
+            4242000000000000000000000000000000000000000000000000000000000000
+            0000000000000000000000000000000000000000000000000000000000000001
+            0000000000000000000000000000000000000000000000000000000000000020
+            0000000000000000000000000000000000000000000000000000000000000002
+            4242000000000000000000000000000000000000000000000000000000000000
+            "#
+        );
+        let mut param = parse("Foo((string b, string[] c, string[] d)[] a)").unwrap();
+        param.find(ident!("Foo", "a")).unwrap().select();
+        println!("{:?}", param);
+        let query = param.to_sql("$1");
+        println!("query: {}", fmt_sql(&query[0].1));
+        let row = pg
+            .query_one(&format!("select {}", &query[0].1), &[&data])
+            .await
+            .expect("issue with query");
+        let res: serde_json::Value = row.get(0);
+        assert_json_eq!(
+            res,
+            serde_json::json!({
+                "a": [
+                    {
+                        "b": "BB",
+                        "c": ["BB"],
+                        "d": ["BB"]
+                    }
+                ]
+            })
+        )
+    }
+
+    const PG: &sqlparser::dialect::PostgreSqlDialect = &sqlparser::dialect::PostgreSqlDialect {};
+    fn fmt_sql(sql: &str) -> String {
+        match sqlparser::parser::Parser::parse_sql(PG, sql) {
+            Ok(ast) => sqlformat::format(
+                &ast[0].to_string(),
+                &sqlformat::QueryParams::None,
+                sqlformat::FormatOptions::default(),
+            ),
+            Err(_) => sql.to_string(),
+        }
     }
 }
