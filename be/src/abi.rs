@@ -181,6 +181,16 @@ impl std::fmt::Display for Kind {
     }
 }
 
+fn hex_wrap(input: &str) -> String {
+    format!("encode({}, 'hex')", input)
+}
+fn quote(input: &Ident) -> Ident {
+    Ident {
+        quote_style: Some('\''),
+        value: input.value.clone(),
+    }
+}
+
 impl Param {
     fn new(name: &str, kind: Kind) -> Param {
         Param {
@@ -330,107 +340,92 @@ impl Param {
             .collect()
     }
 
-    pub fn json_object_to_sql(&self, inner: &str) -> (Ident, String) {
-        fn hex_wrap(input: &str) -> String {
-            format!("encode({}, 'hex')", input)
-        }
-        fn quote(input: &Ident) -> Ident {
-            Ident {
-                quote_style: Some('\''),
-                value: input.value.clone(),
+    pub fn json_object_to_sql(&self, inner: &str, pos: u16) -> (Ident, String) {
+        match &self.kind {
+            Kind::Tuple(_) => {
+                println!(
+                    "tuple of {:?} {} {} {}",
+                    self.kind,
+                    pos,
+                    self.kind.size(),
+                    inner
+                );
+                let inner = if self.kind.is_static() {
+                    format!("abi_fixed_bytes({}, {}, {})", inner, pos, self.kind.size())
+                } else {
+                    format!("abi_dynamic({}, {})", inner, pos)
+                };
+                let fields = self
+                    .components
+                    .iter()
+                    .flat_map(|v| v.iter())
+                    .scan(0, |size_counter, param| {
+                        let size = *size_counter;
+                        *size_counter += param.kind.size();
+                        Some((size, param))
+                    })
+                    .map(|(pos, param)| param.json_object_to_sql(&inner, pos))
+                    .flat_map(|(k, v)| [k.to_string(), v.clone()])
+                    .collect_vec()
+                    .join(",");
+                (self.name.clone(), format!("json_build_object({})", fields))
             }
+            Kind::Array(None, kind) => {
+                println!(
+                    "array of {:?} {} {} {}",
+                    self.element.as_ref().unwrap().kind,
+                    pos,
+                    kind.size(),
+                    inner
+                );
+                let object = self.element.as_ref().unwrap().json_object_to_sql("obj", 0);
+                (
+                    quote(&self.name),
+                    format!(
+                        "(select json_agg({}) from unnest(abi_fixed_bytes_array({}, {})) as obj)",
+                        object.1,
+                        inner,
+                        kind.size()
+                    ),
+                )
+            }
+            Kind::Address => (
+                quote(&self.name),
+                hex_wrap(&format!(
+                    "abi_address(abi_fixed_bytes({}, {}, {}))",
+                    inner,
+                    pos,
+                    self.kind.size()
+                )),
+            ),
+            Kind::Bytes(None) => (
+                quote(&self.name),
+                hex_wrap(&format!("abi_bytes(abi_dynamic({}, {}))", inner, pos)),
+            ),
+            Kind::String => (
+                quote(&self.name),
+                format!("abi_string(abi_bytes(abi_dynamic({}, {})))", inner, pos),
+            ),
+            Kind::Uint(_) => (
+                quote(&self.name),
+                format!(
+                    "abi_uint(abi_fixed_bytes({}, {}, {}))::text",
+                    inner,
+                    pos,
+                    self.kind.size()
+                ),
+            ),
+            Kind::Int(_) => (
+                quote(&self.name),
+                format!(
+                    "abi_int(abi_fixed_bytes({}, {}, {}))::text",
+                    inner,
+                    pos,
+                    self.kind.size()
+                ),
+            ),
+            _ => (quote(&self.name), String::from("1")),
         }
-        let fields = self
-            .components
-            .iter()
-            .flat_map(|v| v.iter())
-            .scan(0, |size_counter, param| {
-                let size = *size_counter;
-                *size_counter += param.kind.size();
-                Some((size, param))
-            })
-            .map(|(pos, param)| match &param.kind {
-                Kind::Tuple(_) if param.kind.is_static() => {
-                    println!("stat tuple of {:?} {} {}", param.kind, pos, inner);
-                    let encoded = param.json_object_to_sql(&format!(
-                        "abi_fixed_bytes({}, {}, {})",
-                        inner,
-                        pos,
-                        param.kind.size()
-                    ));
-                    (quote(&encoded.0), encoded.1)
-                }
-                Kind::Tuple(_) => {
-                    println!("dyn tuple of {:?} {} {}", param.kind, pos, inner);
-                    let encoded =
-                        param.json_object_to_sql(&format!("abi_dynamic({}, {})", inner, pos));
-                    (quote(&encoded.0), encoded.1)
-                }
-                Kind::Array(None, kind) => {
-                    println!(
-                        "array of {:?} {} {} {}",
-                        param.element.as_ref().unwrap().kind,
-                        pos,
-                        kind.size(),
-                        inner
-                    );
-                    let object = param.element.as_ref().unwrap().json_object_to_sql("obj");
-                    (
-                        quote(&param.name),
-                        format!(
-                            "(
-                                select json_agg({})
-                                from unnest(abi_fixed_bytes_array(abi_dynamic({}, {}), {}))
-                                as obj
-                            )",
-                            object.1,
-                            inner,
-                            pos,
-                            kind.size()
-                        ),
-                    )
-                }
-                Kind::Address => (
-                    quote(&param.name),
-                    hex_wrap(&format!(
-                        "abi_address(abi_fixed_bytes({}, {}, {}))",
-                        inner,
-                        pos,
-                        param.kind.size()
-                    )),
-                ),
-                Kind::Bytes(None) => (
-                    quote(&param.name),
-                    hex_wrap(&format!("abi_bytes(abi_dynamic({}, {}))", inner, pos)),
-                ),
-                Kind::String => (
-                    quote(&param.name),
-                    format!("abi_string(abi_dynamic({}, {}))", inner, pos),
-                ),
-                Kind::Uint(_) => (
-                    quote(&param.name),
-                    format!(
-                        "abi_uint(abi_fixed_bytes({}, {}, {}))::text",
-                        inner,
-                        pos,
-                        param.kind.size()
-                    ),
-                ),
-                Kind::Int(_) => (
-                    quote(&param.name),
-                    format!(
-                        "abi_int(abi_fixed_bytes({}, {}, {}))::text",
-                        inner,
-                        pos,
-                        param.kind.size()
-                    ),
-                ),
-                _ => (quote(&param.name), String::from("1")),
-            })
-            .flat_map(|(k, v)| [k.to_string(), v.clone()])
-            .collect_vec()
-            .join(",");
-        (self.name.clone(), format!("json_build_object({})", fields))
     }
 
     pub fn to_sql(&self, inner: &str) -> Vec<(Ident, String)> {
@@ -445,21 +440,19 @@ impl Param {
             })
             .filter(|(_, param)| param.selected())
             .map(|(pos, param)| match &param.kind {
-                Kind::Tuple(_) if param.kind.is_static() => param.json_object_to_sql(&format!(
-                    "abi_fixed_bytes({}, {}, {})",
-                    inner,
-                    pos,
-                    param.kind.size()
-                )),
+                Kind::Tuple(_) if param.kind.is_static() => param.json_object_to_sql(
+                    &format!("abi_fixed_bytes({}, {}, {})", inner, pos, param.kind.size()),
+                    0,
+                ),
                 Kind::Tuple(_) => {
-                    param.json_object_to_sql(&format!("abi_dynamic({}, {})", inner, pos,))
+                    param.json_object_to_sql(&format!("abi_dynamic({}, {})", inner, pos,), 0)
                 }
                 Kind::Array(Some(_), kind) => (
                     param.name.clone(),
                     format!("abi_fixed_bytes({}, {}, {})", inner, pos, param.kind.size()),
                 ),
                 Kind::Array(None, kind) => match kind.as_ref() {
-                    Kind::Tuple(_) => self.json_object_to_sql(inner),
+                    Kind::Tuple(_) => self.json_object_to_sql(inner, 0),
                     _ => todo!(),
                 },
                 Kind::Bytes(None) | Kind::String => (
