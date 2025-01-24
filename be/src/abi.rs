@@ -1,9 +1,14 @@
 use std::collections::VecDeque;
 
-use alloy::primitives::{keccak256, FixedBytes};
-use eyre::{eyre, Result};
+use alloy::{
+    hex::ToHexExt,
+    primitives::{keccak256, FixedBytes, U256, U64},
+};
+use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
 use sqlparser::ast::{self, Ident};
+
+use crate::s256;
 
 pub fn parse(input: &str) -> Result<Param> {
     let input = input.trim();
@@ -20,7 +25,7 @@ enum Token {
     OpenParen,
     CloseParen,
     Word(String),
-    Array(Option<u16>),
+    Array(Option<usize>),
     Comma,
 }
 
@@ -80,11 +85,11 @@ impl Token {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Kind {
     Tuple(Vec<Kind>),
-    Array(Option<u16>, Box<Kind>),
+    Array(Option<usize>, Box<Kind>),
 
     Address,
     Bool,
-    Bytes(Option<u16>),
+    Bytes(Option<usize>),
     Int(u16),
     Uint(u16),
     String,
@@ -123,7 +128,7 @@ impl Kind {
     /// will always be a multiple of 32
     /// most of the time it _is_ 32 unless there
     /// is a static array or static tuple
-    fn size(&self) -> u16 {
+    fn size(&self) -> usize {
         match &self {
             Kind::Tuple(fields) if self.is_static() => fields.iter().map(Self::size).sum(),
             Kind::Array(Some(size), kind) if kind.is_static() => 32 + size * kind.size(),
@@ -178,16 +183,6 @@ impl std::fmt::Display for Kind {
             Kind::Uint(bits) => write!(f, "uint{}", bits),
             Kind::String => write!(f, "string"),
         }
-    }
-}
-
-fn hex_wrap(input: &str) -> String {
-    format!("encode({}, 'hex')", input)
-}
-fn quote(input: &Ident) -> Ident {
-    Ident {
-        quote_style: Some('\''),
-        value: input.value.clone(),
     }
 }
 
@@ -340,98 +335,10 @@ impl Param {
             .collect()
     }
 
-    pub fn json_object_to_sql(&self, inner: &str, pos: u16) -> (Ident, String) {
-        match &self.kind {
-            Kind::Tuple(_) => {
-                println!(
-                    "tuple of {:?} {} {} {}",
-                    self.kind,
-                    pos,
-                    self.kind.size(),
-                    inner
-                );
-                let inner = if self.kind.is_static() {
-                    format!("abi_fixed_bytes({}, {}, {})", inner, pos, self.kind.size())
-                } else {
-                    format!("abi_dynamic({}, {})", inner, pos)
-                };
-                let fields = self
-                    .components
-                    .iter()
-                    .flat_map(|v| v.iter())
-                    .scan(0, |size_counter, param| {
-                        let size = *size_counter;
-                        *size_counter += param.kind.size();
-                        Some((size, param))
-                    })
-                    .map(|(pos, param)| param.json_object_to_sql(&inner, pos))
-                    .flat_map(|(k, v)| [k.to_string(), v.clone()])
-                    .collect_vec()
-                    .join(",");
-                (self.name.clone(), format!("json_build_object({})", fields))
-            }
-            Kind::Array(None, kind) => {
-                println!(
-                    "array of {:?} {} {} {}",
-                    self.element.as_ref().unwrap().kind,
-                    pos,
-                    kind.size(),
-                    inner
-                );
-                let object = self.element.as_ref().unwrap().json_object_to_sql("obj", 0);
-                (
-                    quote(&self.name),
-                    format!(
-                        "(select json_agg({}) from unnest(abi_fixed_bytes_array({}, {})) as obj)",
-                        object.1,
-                        inner,
-                        kind.size()
-                    ),
-                )
-            }
-            Kind::Address => (
-                quote(&self.name),
-                hex_wrap(&format!(
-                    "abi_address(abi_fixed_bytes({}, {}, {}))",
-                    inner,
-                    pos,
-                    self.kind.size()
-                )),
-            ),
-            Kind::Bytes(None) => (
-                quote(&self.name),
-                hex_wrap(&format!("abi_bytes(abi_dynamic({}, {}))", inner, pos)),
-            ),
-            Kind::String => (
-                quote(&self.name),
-                format!("abi_string(abi_bytes(abi_dynamic({}, {})))", inner, pos),
-            ),
-            Kind::Uint(_) => (
-                quote(&self.name),
-                format!(
-                    "abi_uint(abi_fixed_bytes({}, {}, {}))::text",
-                    inner,
-                    pos,
-                    self.kind.size()
-                ),
-            ),
-            Kind::Int(_) => (
-                quote(&self.name),
-                format!(
-                    "abi_int(abi_fixed_bytes({}, {}, {}))::text",
-                    inner,
-                    pos,
-                    self.kind.size()
-                ),
-            ),
-            _ => (quote(&self.name), String::from("1")),
-        }
-    }
-
     pub fn to_sql(&self, inner: &str) -> Vec<(Ident, String)> {
         self.components
             .iter()
-            .flat_map(|v| v.iter())
+            .flatten()
             .filter(|p| !p.indexed)
             .scan(0, |size_counter, param| {
                 let size = *size_counter;
@@ -440,21 +347,8 @@ impl Param {
             })
             .filter(|(_, param)| param.selected())
             .map(|(pos, param)| match &param.kind {
-                Kind::Tuple(_) if param.kind.is_static() => param.json_object_to_sql(
-                    &format!("abi_fixed_bytes({}, {}, {})", inner, pos, param.kind.size()),
-                    0,
-                ),
-                Kind::Tuple(_) => {
-                    param.json_object_to_sql(&format!("abi_dynamic({}, {})", inner, pos,), 0)
-                }
-                Kind::Array(Some(_), kind) => (
-                    param.name.clone(),
-                    format!("abi_fixed_bytes({}, {}, {})", inner, pos, param.kind.size()),
-                ),
-                Kind::Array(None, kind) => match kind.as_ref() {
-                    Kind::Tuple(_) => self.json_object_to_sql(inner, 0),
-                    _ => todo!(),
-                },
+                Kind::Tuple(_) => todo!(),
+                Kind::Array(_, _) => todo!(),
                 Kind::Bytes(None) | Kind::String => (
                     param.name.clone(),
                     format!("abi_bytes(abi_dynamic({}, {}))", inner, pos),
@@ -472,6 +366,140 @@ impl Param {
     }
 }
 
+trait AbiBytes {
+    fn next_usize(&self, offset: usize) -> Result<usize>;
+    fn skip_to(&self, offset: usize) -> Result<&[u8]>;
+    fn get_static(&self, offset: usize, length: usize) -> Result<&[u8]>;
+    fn get_dynamic(&self, offset: usize) -> Result<&[u8]>;
+}
+
+impl AbiBytes for &[u8] {
+    fn next_usize(&self, i: usize) -> Result<usize> {
+        Ok(U64::from_be_slice(&self.get_static(i, 32)?[24..32]).to())
+    }
+
+    fn get_static(&self, i: usize, length: usize) -> Result<&[u8]> {
+        self.get(i..i + length).ok_or_eyre("eof")
+    }
+
+    fn get_dynamic(&self, i: usize) -> Result<&[u8]> {
+        self.get(32..32 + self.next_usize(i)?).ok_or_eyre("eof")
+    }
+
+    fn skip_to(&self, i: usize) -> Result<&[u8]> {
+        self.get(self.next_usize(i)?..).ok_or_eyre("eof")
+    }
+}
+
+pub fn to_json(input: &[u8], param: &Param) -> Result<serde_json::Value> {
+    match &param.kind {
+        Kind::Array(length, kind) => Ok(serde_json::Value::Array(
+            (0..length.unwrap_or(input.next_usize(0)?))
+                .map(|i| {
+                    if kind.is_static() {
+                        Ok(to_json(
+                            input.get_static(i * kind.size(), kind.size())?,
+                            param.element.as_ref().unwrap(),
+                        )?)
+                    } else {
+                        Ok(to_json(
+                            (&input[32..]).skip_to(32 * i)?,
+                            param.element.as_ref().unwrap(),
+                        )?)
+                    }
+                })
+                .collect::<Result<_>>()?,
+        )),
+        Kind::Tuple(_) => Ok(serde_json::Value::Object(
+            param
+                .components
+                .iter()
+                .flatten()
+                .filter(|p| !p.indexed)
+                .scan(0, |offset, c| {
+                    let i = *offset;
+                    *offset += param.kind.size();
+                    Some((i, c))
+                })
+                .map(|(i, c)| {
+                    let field = if c.kind.is_static() {
+                        to_json(input.get_static(i, c.kind.size())?, c)?
+                    } else {
+                        to_json(input.skip_to(i)?, c)?
+                    };
+                    Ok((c.name.to_string(), field))
+                })
+                .collect::<Result<_>>()?,
+        )),
+        Kind::Address => Ok(input.get_static(12, 20)?.encode_hex().into()),
+        Kind::Bool => Ok((input.get_static(31, 1)?[0] == 1).into()),
+        Kind::Bytes(None) => Ok(input.get_dynamic(0)?.encode_hex().into()),
+        Kind::Bytes(Some(size)) => Ok(input.get_static(0, *size)?.encode_hex().into()),
+        Kind::String => Ok(String::from_utf8(input.get_dynamic(0)?.to_vec())?.into()),
+        Kind::Int(_) => Ok(s256::Int::try_from_be_slice(input.get_static(0, 32)?)
+            .ok_or_eyre("decoding i256")?
+            .to_string()
+            .into()),
+        Kind::Uint(_) => Ok(U256::try_from_be_slice(input.get_static(0, 32)?)
+            .ok_or_eyre("decoding u256")?
+            .to_string()
+            .into()),
+    }
+}
+
+#[cfg(test)]
+mod json_tests {
+    use super::{parse, to_json};
+    use alloy::{hex, primitives::U256, sol, sol_types::SolEvent};
+    use assert_json_diff::assert_json_eq;
+
+    #[test]
+    fn test_basic() {
+        sol! {
+            #[sol(abi)]
+            event Foo(uint a, string[] b);
+        };
+        let data = Foo {
+            a: U256::from(42),
+            b: vec![String::from("hello"), String::from("world")],
+        };
+        let param = parse("Foo(uint256 a, string[] b)").unwrap();
+        assert_json_eq!(
+            to_json(&data.encode_log_data().data, &param).unwrap(),
+            serde_json::json!({"a": "42", "b": ["hello", "world"]})
+        )
+    }
+
+    #[test]
+    fn test_advanced() {
+        let data = hex!(
+            r#"
+            0000000000000000000000000000000000000000000000000000000000000020
+            0000000000000000000000000000000000000000000000000000000000000001
+            0000000000000000000000000000000000000000000000000000000000000020
+            0000000000000000000000000000000000000000000000000000000000000060
+            00000000000000000000000000000000000000000000000000000000000000a0
+            0000000000000000000000000000000000000000000000000000000000000120
+            0000000000000000000000000000000000000000000000000000000000000002
+            4242000000000000000000000000000000000000000000000000000000000000
+            0000000000000000000000000000000000000000000000000000000000000001
+            0000000000000000000000000000000000000000000000000000000000000020
+            0000000000000000000000000000000000000000000000000000000000000002
+            4242000000000000000000000000000000000000000000000000000000000000
+            0000000000000000000000000000000000000000000000000000000000000001
+            0000000000000000000000000000000000000000000000000000000000000020
+            0000000000000000000000000000000000000000000000000000000000000002
+            4242000000000000000000000000000000000000000000000000000000000000
+            "#
+        );
+        let param = parse("Foo((string b, string[] c, string[] d)[] a)").unwrap();
+        assert_json_eq!(
+            to_json(&data, &param).unwrap(),
+            serde_json::json!({"a": [{"b": "BB", "c": ["BB"], "d": ["BB"]}]})
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use alloy::{
@@ -480,7 +508,6 @@ mod tests {
         sol_types::SolEvent,
     };
     use assert_json_diff::assert_json_eq;
-    use eyre::Result;
 
     use super::{parse, Kind, Token};
     use sqlparser::ast::Ident;
