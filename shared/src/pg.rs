@@ -39,30 +39,36 @@ pub fn unique_violations(err: tokio_postgres::Error, map: &[(&str, &str)]) -> Er
 #[cfg(feature = "test")]
 pub mod test {
     use deadpool_postgres::Pool;
-    use postgresql_embedded::{PostgreSQL, Settings, Version};
-    use tokio_postgres::NoTls;
+    use rand::{distributions::Alphanumeric, thread_rng, Rng};
 
-    pub async fn new(schema: &str) -> (PostgreSQL, Pool) {
-        let pg_settings = Settings {
-            version: Version::new(17, Some(2), Some(0)),
-            ..Default::default()
-        };
-        let mut db = PostgreSQL::new(pg_settings);
-        db.setup().await.expect("setting up pg");
-        db.start().await.expect("starting pg");
-        db.create_database("ga-test")
+    pub async fn new(schema: &str) -> Pool {
+        let db_name = random_db_name();
+        let pool = super::new_pool("postgres://postgres:postgres@localhost/postgres", 2).unwrap();
+        pool.get()
             .await
-            .expect("creating test db");
-        let mut pool_config = deadpool_postgres::Config::new();
-        pool_config.url = Some(db.settings().url("ga-test"));
-        let pool = pool_config
-            .create_pool(Some(deadpool_postgres::Runtime::Tokio1), NoTls)
-            .expect("creating pool");
-        let pg = pool
-            .get()
+            .expect("getting local postgres")
+            .execute(&format!("create database {}", db_name), &[])
             .await
-            .expect("unable to get test client from test pool");
-        pg.batch_execute(schema).await.expect("resetting schema");
-        (db, pool)
+            .expect("creating database");
+        let db_url = format!("postgres://postgres:postgres@localhost:5432/{}", db_name);
+        drop(pool);
+
+        let pool = super::new_pool(&db_url, 2).unwrap();
+        pool.get()
+            .await
+            .expect("getting conn from pool")
+            .batch_execute(schema)
+            .await
+            .expect("setting up schema");
+        pool
+    }
+
+    fn random_db_name() -> String {
+        let random_str: String = thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(6)
+            .map(char::from)
+            .collect();
+        format!("be_test_{}", random_str.to_lowercase())
     }
 }

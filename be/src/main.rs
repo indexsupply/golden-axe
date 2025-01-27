@@ -237,7 +237,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_index() {
-        let (_pg_server, pool) = shared::pg::test::new(SCHEMA_BE).await;
+        let pool = shared::pg::test::new(SCHEMA_BE).await;
         let config = api::Config::new(pool.clone(), pool.clone(), pool.clone());
         let server = TestServer::new(service(config)).unwrap();
         server.get("/").await.assert_text_contains("hello");
@@ -245,7 +245,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_query_post_with_params() {
-        let (_pg_server, pool) = shared::pg::test::new(SCHEMA_BE).await;
+        let pool = shared::pg::test::new(SCHEMA_BE).await;
         sol! {
             #[sol(abi)]
             event Foo(uint a);
@@ -275,7 +275,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_query_sse() {
-        let (_pg_server, pool) = shared::pg::test::new(SCHEMA_BE).await;
+        let pool = shared::pg::test::new(SCHEMA_BE).await;
         sol! {
             #[sol(abi)]
             event Foo(uint a);
@@ -317,7 +317,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_query_sse_error() {
-        let (_pg_server, pool) = shared::pg::test::new(SCHEMA_BE).await;
+        let pool = shared::pg::test::new(SCHEMA_BE).await;
         sol! {
             #[sol(abi)]
             event Foo(uint a);
