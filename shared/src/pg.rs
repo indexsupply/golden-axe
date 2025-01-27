@@ -43,14 +43,14 @@ pub mod test {
 
     pub async fn new(schema: &str) -> Pool {
         let db_name = random_db_name();
-        let pool = super::new_pool("postgres://postgres:@localhost/postgres", 2).unwrap();
+        let pool = super::new_pool("postgres://postgres:postgres@localhost/postgres", 2).unwrap();
         pool.get()
             .await
             .expect("getting local postgres")
             .execute(&format!("create database {}", db_name), &[])
             .await
             .expect("creating database");
-        let db_url = format!("postgres://postgres:@localhost:5432/{}", db_name);
+        let db_url = format!("postgres://postgres:postgres@localhost:5432/{}", db_name);
         drop(pool);
 
         let pool = super::new_pool(&db_url, 2).unwrap();
