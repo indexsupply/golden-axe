@@ -549,13 +549,13 @@ impl UserQuery {
         if let Some(param) = self.event_param(left) {
             self.rewrite_literal(right, param.resolve().unwrap(), false)?;
         }
-        if left.last().map_or(false, |v| v.to_string() == "address") {
+        if left.last().is_none_or(|v| v.to_string() == "address") {
             self.rewrite_literal(right, DynSolType::Address, true)?;
         }
-        if left.last().map_or(false, |v| v.to_string() == "tx_hash") {
+        if left.last().is_none_or(|v| v.to_string() == "tx_hash") {
             self.rewrite_literal(right, DynSolType::FixedBytes(32), false)?;
         }
-        if left.last().map_or(false, |v| v.to_string() == "topics") {
+        if left.last().is_none_or(|v| v.to_string() == "topics") {
             self.rewrite_literal(right, DynSolType::FixedBytes(32), false)?;
         }
         Ok(())

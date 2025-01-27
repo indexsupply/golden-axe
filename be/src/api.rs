@@ -49,7 +49,7 @@ pub async fn handle_status(
     if headers
         .get("accept")
         .and_then(|a| a.to_str().ok())
-        .map_or(false, |v| v.contains("html"))
+        .is_none_or(|v| v.contains("html"))
     {
         Html(include_str!("html/status.html")).into_response()
     } else {
