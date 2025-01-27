@@ -194,7 +194,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_index() {
-        let (_pg_server, pool) = shared::pg::test::new(SCHEMA).await;
+        let pool = shared::pg::test::new(SCHEMA).await;
         let server = TestServer::new(service(test_state(pool.clone()))).unwrap();
         server
             .get("/")
@@ -204,7 +204,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_conduit_add() {
-        let (_pg_server, pool) = shared::pg::test::new(SCHEMA).await;
+        let pool = shared::pg::test::new(SCHEMA).await;
         let request = conduit_api::CreateRequest {
             id: String::from("foo"),
             event: String::from("INSTALLED"),

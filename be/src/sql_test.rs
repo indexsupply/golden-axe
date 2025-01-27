@@ -6,7 +6,7 @@ mod pl_pgsql_test {
 
     #[tokio::test]
     async fn test_abi_uint_array() {
-        let (_pg_server, pool) = shared::pg::test::new(SCHEMA).await;
+        let pool = shared::pg::test::new(SCHEMA).await;
         let pg = pool.get().await.expect("getting pg from test pool");
         let data = hex!(
             r#"
