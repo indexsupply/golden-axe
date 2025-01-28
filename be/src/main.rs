@@ -180,7 +180,6 @@ mod tests {
         sol_types::{JsonAbiExt, SolEvent},
     };
     use axum_test::TestServer;
-    use deadpool_postgres::GenericClient;
     use serde_json::json;
 
     use super::service;
