@@ -19,6 +19,10 @@ jobs:
           toolchain: 1.83.0
       - name: Run initial test to setup PG
         run: cargo test -p shared --features test
+      - name: Install pgrx system dependencies
+        run: sudo apt install -y build-essential pkg-config libssl-dev postgresql-server-dev-17
+      - name: Install pgrx
+        run: cargo install --locked cargo-pgrx && cargo pgrx init --pg17 /tmp/golden-axe-pg-test/install/postgresql-17.2.0-x86_64-unknown-linux-gnu/bin/pg_config
       - name: Install PG extension
         run: >
           cd pg_golden_axe && cargo pgrx install
