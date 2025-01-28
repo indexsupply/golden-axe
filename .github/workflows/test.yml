@@ -17,18 +17,15 @@ jobs:
         name: Install rust
         with:
           toolchain: 1.83.0
+      - uses: Swatinem/rust-cache@v2
       - name: Run initial test to setup PG
         run: cargo test -p shared --features test
-      - name: Check pg_config
-        run: /tmp/golden-axe-pg-test/install/postgresql-17.2.0-x86_64-unknown-linux-gnu/bin/pg_config --sharedir
       - name: Install pgrx system dependencies
         run: >
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list' &&
           curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg &&
           sudo apt update -y &&
           sudo apt install -y build-essential pkg-config libssl-dev postgresql-server-dev-17
-      - name: echo pg_config
-        run: echo $PG_CONFIG
       - name: Install pgrx
         run: >
           cargo install --locked cargo-pgrx &&
@@ -36,6 +33,6 @@ jobs:
       - name: Install PG extension
         run: >
           cd pg_golden_axe &&
-          cargo pgrx install -p pg_golden_axe --release --pg-config /tmp/golden-axe-pg-test/install/postgresql-17.2.0-x86_64-unknown-linux-gnu/bin/pg_config
+          cargo pgrx install -p pg_golden_axe --pg-config /tmp/golden-axe-pg-test/install/postgresql-17.2.0-x86_64-unknown-linux-gnu/bin/pg_config
       - name: Run tests
         run: cargo test
