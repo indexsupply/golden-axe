@@ -1,12 +1,18 @@
 use std::fmt;
 
 use alloy::primitives::U256;
-use eyre::eyre;
+use eyre::{eyre, Result};
 use tokio_postgres::types::{FromSql, Type};
 
 pub enum Int {
     Pos(U256),
     Neg(U256),
+}
+
+impl Int {
+    pub fn try_from_be_slice(_input: &[u8]) -> Option<Int> {
+        Some(Int::Pos(U256::from(42)))
+    }
 }
 
 impl fmt::Display for Int {
