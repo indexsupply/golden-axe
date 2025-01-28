@@ -1,4 +1,4 @@
 [workspace]
 
 resolver = "2"
-members = ["be", "shared", "fe"]
+members = ["be", "fe", "pg_golden_axe", "shared"]

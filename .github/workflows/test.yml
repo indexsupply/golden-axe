@@ -12,10 +12,18 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: dtolnay/rust-toolchain@master
-      name: Install rust
-      with:
-        toolchain: 1.83.0
-    - name: Run tests
-      run: cargo test
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        name: Install rust
+        with:
+          toolchain: 1.83.0
+      - name: Run initial test to setup PG
+        run: cargo test -p shared --features test
+      - name: Install PG extension
+        run: >
+          cd pg_golden_axe && cargo pgrx install
+            -p pg_golden_axe
+            -c /tmp/golden-axe-pg-test/install/postgresql-17.2.0-x86_64-unknown-linux-gnu/bin/pg_config
+            -r
+      - name: Run tests
+        run: cargo test

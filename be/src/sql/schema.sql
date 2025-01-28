@@ -1,3 +1,5 @@
+create extension pg_golden_axe;
+
 create table if not exists blocks(
     chain int8 not null,
     num int8,
