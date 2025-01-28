@@ -35,8 +35,7 @@ jobs:
           cargo pgrx init --pg17 /tmp/golden-axe-pg-test/install/postgresql-17.2.0-x86_64-unknown-linux-gnu/bin/pg_config
       - name: Install PG extension
         run: >
-          PG_CONFIG=/tmp/golden-axe-pg-test/install/postgresql-17.2.0-x86_64-unknown-linux-gnu/bin/pg_config
           cd pg_golden_axe &&
-          cargo pgrx install -p pg_golden_axe -r
+          cargo pgrx install -p pg_golden_axe -r --config /tmp/golden-axe-pg-test/install/postgresql-17.2.0-x86_64-unknown-linux-gnu/bin/pg_config
       - name: Run tests
         run: cargo test
