@@ -25,16 +25,16 @@ jobs:
           curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg &&
           sudo apt update -y &&
           sudo apt install -y build-essential pkg-config libssl-dev postgresql-server-dev-17
+      - name: echo pg_config
+        run: echo $PG_CONFIG
       - name: Install pgrx
         run: >
           cargo install --locked cargo-pgrx &&
           cargo pgrx init --pg17 /tmp/golden-axe-pg-test/install/postgresql-17.2.0-x86_64-unknown-linux-gnu/bin/pg_config
       - name: Install PG extension
         run: >
+          PG_CONFIG=/tmp/golden-axe-pg-test/install/postgresql-17.2.0-x86_64-unknown-linux-gnu/bin/pg_config
           cd pg_golden_axe &&
-          cargo pgrx install
-            -p pg_golden_axe
-            -r
-            -c /tmp/golden-axe-pg-test/install/postgresql-17.2.0-x86_64-unknown-linux-gnu/bin/pg_config
+          cargo pgrx install -p pg_golden_axe -r
       - name: Run tests
         run: cargo test
