@@ -10,7 +10,7 @@ env:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: large
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
