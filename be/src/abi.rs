@@ -6,18 +6,48 @@ use alloy::{
 };
 use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
-use sqlparser::ast::{self, Ident};
+use sqlparser::ast::Ident;
 
 use crate::s256;
 
-pub fn parse(input: &str) -> Result<Param> {
-    let input = input.trim();
-    let input = input.strip_prefix("event").unwrap_or(input);
-    let rewritten = input
-        .split_once('(')
-        .map(|(name, tuple)| format!("({} {}", tuple, name))
-        .ok_or_else(|| eyre!("missing tuple for event signature"))?;
-    Param::parse(&mut Token::lex(&rewritten)?)
+#[derive(Debug)]
+pub struct Event {
+    pub name: Ident,
+    pub fields: Parameter,
+}
+
+impl Event {
+    pub fn parse(input: &str) -> Result<Event> {
+        let input = input.trim();
+        let input = input.strip_prefix("event").unwrap_or(input);
+        let (name, tuple_desc) = match input.find('(') {
+            Some(index) => (&input[..index], &input[index..]),
+            None => (input, ""),
+        };
+        Ok(Event {
+            name: Ident::new(name),
+            fields: Token::parse(&mut Token::lex(tuple_desc)?)?,
+        })
+    }
+
+    pub fn has_field(&self, id: &Ident) -> bool {
+        match &self.fields {
+            Parameter::Tuple { components, .. } => components.iter().any(|c| c.name() == *id),
+            _ => false,
+        }
+    }
+
+    pub fn topics_sql(&self) -> Vec<(Ident, String)> {
+        todo!()
+    }
+
+    pub fn data_sql(&self) -> Vec<(Ident, String)> {
+        todo!()
+    }
+
+    pub fn sighash(&self) -> FixedBytes<32> {
+        todo!()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -80,143 +110,15 @@ impl Token {
         }
         Ok(VecDeque::from(tokens))
     }
-}
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Kind {
-    Tuple(Vec<Kind>),
-    Array(Option<usize>, Box<Kind>),
-
-    Address,
-    Bool,
-    Bytes(Option<usize>),
-    Int(u16),
-    Uint(u16),
-    String,
-}
-
-/// Instructs to_sql on if it should decode to the final type
-/// You may not want to do this for performancen reasons. Since
-/// there are BTREE indexes on columns like topics[ i ] and address
-/// you do not want to convert that data to the final type,
-/// instead you want to leave it in raw bytes form, rewrite the
-/// predicates to be in raw bytes form as well, and then once
-/// the data set has been properly filtered, we can do the final
-/// decoding as the last step.
-pub enum Decode {
-    Yes,
-    No,
-}
-
-impl Kind {
-    fn is_static(&self) -> bool {
-        match &self {
-            Kind::Tuple(fields) => fields.iter().all(Self::is_static),
-            Kind::Array(Some(_), kind) => kind.is_static(),
-            Kind::Array(None, _) => false,
-            Kind::Address => true,
-            Kind::Bool => true,
-            Kind::Bytes(Some(_)) => true,
-            Kind::Bytes(None) => false,
-            Kind::Int(_) => true,
-            Kind::Uint(_) => true,
-            Kind::String => false,
-        }
-    }
-
-    /// number of evm words occupied by the kind
-    /// will always be a multiple of 32
-    /// most of the time it _is_ 32 unless there
-    /// is a static array or static tuple
-    fn size(&self) -> usize {
-        match &self {
-            Kind::Tuple(fields) if self.is_static() => fields.iter().map(Self::size).sum(),
-            Kind::Array(Some(size), kind) if kind.is_static() => 32 + size * kind.size(),
-            Kind::Tuple(_)
-            | Kind::Array(_, _)
-            | Kind::Address
-            | Kind::Bool
-            | Kind::Bytes(_)
-            | Kind::Int(_)
-            | Kind::Uint(_)
-            | Kind::String => 32,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Param {
-    pub name: ast::Ident,
-    pub kind: Kind,
-    indexed: bool,
-    components: Option<Vec<Param>>,
-    element: Option<Box<Param>>,
-    selected: Option<bool>,
-}
-
-impl std::fmt::Display for Kind {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Kind::Tuple(kinds) => {
-                write!(f, "(")?;
-                for (i, k) in kinds.iter().enumerate() {
-                    k.fmt(f)?;
-                    if i != kinds.len() - 1 {
-                        write!(f, ",")?;
-                    }
-                }
-                write!(f, ")")
-            }
-            Kind::Array(None, kind) => {
-                kind.fmt(f)?;
-                write!(f, "[]")
-            }
-            Kind::Array(Some(size), kind) => {
-                kind.fmt(f)?;
-                write!(f, "[{}]", size)
-            }
-            Kind::Address => write!(f, "address"),
-            Kind::Bool => write!(f, "bool"),
-            Kind::Bytes(Some(size)) => write!(f, "bytes{}", size),
-            Kind::Bytes(None) => write!(f, "bytes"),
-            Kind::Int(bits) => write!(f, "int{}", bits),
-            Kind::Uint(bits) => write!(f, "uint{}", bits),
-            Kind::String => write!(f, "string"),
-        }
-    }
-}
-
-impl Param {
-    fn new(name: &str, kind: Kind) -> Param {
-        Param {
-            kind,
-            name: Ident::new(name),
-            indexed: false,
-            components: None,
-            element: None,
-            selected: None,
-        }
-    }
-
-    fn from_components(name: &str, components: Vec<Param>) -> Param {
-        Param {
-            name: Ident::new(name),
-            kind: Kind::Tuple(components.iter().map(|c| c.kind.clone()).collect()),
-            indexed: false,
-            components: Some(components),
-            element: None,
-            selected: None,
-        }
-    }
-
-    fn parse(input: &mut VecDeque<Token>) -> Result<Param> {
-        let mut param = match input.pop_front() {
+    fn parse(input: &mut VecDeque<Token>) -> Result<Parameter> {
+        let mut parameter = match input.pop_front() {
             Some(Token::OpenParen) => {
                 let mut components = Vec::new();
                 while let Some(token) = input.front() {
                     match token {
                         Token::OpenParen | Token::Word(_) => {
-                            components.push(Param::parse(input)?);
+                            components.push(Self::parse(input)?);
                         }
                         Token::Comma => {
                             input.pop_front();
@@ -230,25 +132,46 @@ impl Param {
                         }
                     }
                 }
-                Param::from_components("", components)
+                Parameter::Tuple {
+                    name: None,
+                    indexed: None,
+                    components,
+                }
             }
             Some(Token::Word(type_desc)) => {
                 if let Some(bits) = type_desc.strip_prefix("int") {
-                    Param::new("", Kind::Int(bits.parse().unwrap_or(256)))
+                    Parameter::Int {
+                        name: None,
+                        indexed: None,
+                        bits: bits.parse().unwrap_or(256),
+                    }
                 } else if let Some(bits) = type_desc.strip_prefix("uint") {
-                    Param::new("", Kind::Uint(bits.parse().unwrap_or(256)))
+                    Parameter::Uint {
+                        name: None,
+                        indexed: None,
+                        bits: bits.parse().unwrap_or(256),
+                    }
                 } else if let Some(bytes) = type_desc.strip_prefix("bytes") {
-                    if bytes.is_empty() {
-                        Param::new("", Kind::Bytes(None))
-                    } else {
-                        Param::new("", Kind::Bytes(Some(bytes.parse()?)))
+                    Parameter::Bytes {
+                        name: None,
+                        indexed: None,
+                        size: bytes.parse().ok(),
                     }
                 } else if type_desc == "address" {
-                    Param::new("", Kind::Address)
+                    Parameter::Address {
+                        name: None,
+                        indexed: None,
+                    }
                 } else if type_desc == "bool" {
-                    Param::new("", Kind::Bool)
+                    Parameter::Bool {
+                        name: None,
+                        indexed: None,
+                    }
                 } else if type_desc == "string" {
-                    Param::new("", Kind::String)
+                    Parameter::String {
+                        name: None,
+                        indexed: None,
+                    }
                 } else {
                     return Err(eyre!("{} not yet implemented", type_desc));
                 }
@@ -257,112 +180,255 @@ impl Param {
             _ => return Err(eyre!("expected '(' or word")),
         };
         while let Some(Token::Array(size)) = input.front() {
-            param.element.get_or_insert(Box::new(param.clone()));
-            param.kind = Kind::Array(*size, Box::new(param.kind.clone()));
-            param.components = None;
+            parameter = Parameter::Array {
+                name: None,
+                indexed: None,
+                length: *size,
+                element: Box::new(parameter.clone()),
+            };
             input.pop_front();
         }
-        match input.front() {
-            Some(Token::Word(word)) if word == "indexed" => {
+        if let Some(Token::Word(word)) = input.front() {
+            if word == "indexed" {
+                parameter.set_indexed();
                 input.pop_front();
-                param.indexed = true;
-                match input.pop_front() {
-                    Some(Token::Word(name)) => {
-                        param.name = Ident::new(name);
-                        Ok(param)
-                    }
-                    Some(_) | None => Err(eyre!("missing name for {:?}", param.kind)),
-                }
             }
-            Some(Token::Word(word)) => {
-                param.name = Ident::new(word);
-                input.pop_front();
-                Ok(param)
+        }
+        if let Some(Token::Word(word)) = input.front() {
+            parameter.set_name(word);
+            input.pop_front();
+        }
+        Ok(parameter)
+    }
+}
+
+macro_rules! get_field {
+    ($param:expr, $field:ident) => {
+        match $param {
+            Parameter::Tuple { $field, .. }
+            | Parameter::Array { $field, .. }
+            | Parameter::Address { $field, .. }
+            | Parameter::Bool { $field, .. }
+            | Parameter::Bytes { $field, .. }
+            | Parameter::String { $field, .. }
+            | Parameter::Int { $field, .. }
+            | Parameter::Uint { $field, .. } => $field,
+        }
+    };
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Parameter {
+    Tuple {
+        name: Option<Ident>,
+        indexed: Option<bool>,
+        components: Vec<Parameter>,
+    },
+    Array {
+        name: Option<Ident>,
+        indexed: Option<bool>,
+        length: Option<usize>,
+        element: Box<Parameter>,
+    },
+    Address {
+        name: Option<Ident>,
+        indexed: Option<bool>,
+    },
+    Bool {
+        name: Option<Ident>,
+        indexed: Option<bool>,
+    },
+    Bytes {
+        name: Option<Ident>,
+        indexed: Option<bool>,
+        size: Option<usize>,
+    },
+    String {
+        name: Option<Ident>,
+        indexed: Option<bool>,
+    },
+    Int {
+        name: Option<Ident>,
+        indexed: Option<bool>,
+        bits: usize,
+    },
+    Uint {
+        name: Option<Ident>,
+        indexed: Option<bool>,
+        bits: usize,
+    },
+}
+
+impl Parameter {
+    pub fn parse(input: &str) -> Result<Parameter> {
+        Token::parse(&mut Token::lex(input.trim())?)
+    }
+
+    fn name(&self) -> Ident {
+        get_field!(self, name)
+            .as_ref()
+            .map_or_else(|| Ident::new(""), |n| n.clone())
+    }
+
+    fn set_name(&mut self, name: &str) {
+        *get_field!(self, name) = Some(Ident::new(name));
+    }
+
+    fn indexed(&self) -> bool {
+        get_field!(self, indexed).unwrap_or(false)
+    }
+
+    fn set_indexed(&mut self) {
+        *get_field!(self, indexed) = Some(true);
+    }
+
+    /// number of evm words occupied by the kind
+    /// will always be a multiple of 32
+    /// most of the time it _is_ 32 unless there
+    /// is a static array or static tuple
+    fn size(&self) -> usize {
+        match self {
+            Parameter::Tuple { components, .. } if self.is_static() => {
+                components.iter().map(Self::size).sum()
             }
-            Some(_) | None => Err(eyre!("missing name for {:?}", param.kind)),
+            Parameter::Array {
+                length: Some(length),
+                element,
+                ..
+            } if element.is_static() => 32 + length * element.size(),
+            _ => 32,
         }
     }
 
-    pub fn sighash(&self) -> FixedBytes<32> {
-        keccak256(format!("{}{}", self.name, self.kind))
+    fn is_static(&self) -> bool {
+        match self {
+            Parameter::Tuple { components, .. } => components.iter().all(Parameter::is_static),
+            Parameter::Array {
+                length: Some(_),
+                element,
+                ..
+            } => element.is_static(),
+            Parameter::Array { length: None, .. } => false,
+            Parameter::Address { .. } => true,
+            Parameter::Bool { .. } => true,
+            Parameter::Bytes { size: None, .. } => false,
+            Parameter::Bytes { size: Some(_), .. } => true,
+            Parameter::Int { .. } => true,
+            Parameter::Uint { .. } => true,
+            Parameter::String { .. } => false,
+        }
     }
 
-    /// Query must start with outermost param's name.
-    /// If found returns the param that was selected
-    /// and may not be the outermost param.
-    pub fn find(&mut self, query: Vec<Ident>) -> Option<&mut Self> {
-        if query.is_empty() {
-            return None;
-        }
-        if self.name.value != query[0].value {
-            return None;
-        }
-        if query.len() == 1 {
-            self.name.quote_style = query[0].quote_style;
-            return Some(self);
-        }
-        self.components
-            .iter_mut()
-            .flatten()
-            .find_map(|c| c.find(query.iter().skip(1).cloned().collect()))
-    }
-
-    pub fn select(&mut self) {
-        self.selected = Some(true);
-        self.components
-            .iter_mut()
-            .flatten()
-            .for_each(|c| c.select());
-    }
-
-    /// true when this param, or any of its components, are selected = Some(True)
-    pub fn selected(&self) -> bool {
-        self.selected.unwrap_or(
-            self.components
-                .as_ref()
-                .map(|components| components.iter().any(Param::selected))
-                .unwrap_or(false),
-        )
+    fn signature(&self) -> String {
+        todo!()
     }
 
     pub fn topics_to_sql(&self) -> Vec<(Ident, String)> {
-        self.components
-            .iter()
-            .flat_map(|v| v.iter())
-            .enumerate()
-            .filter(|(_, param)| param.indexed && param.selected())
-            .map(|(pos, param)| (param.name.clone(), format!("topics[{}]", pos + 2)))
-            .collect()
+        if let Self::Tuple { components, .. } = self {
+            components
+                .iter()
+                .enumerate()
+                .filter(|(_, param)| param.indexed())
+                .map(|(pos, param)| (param.name(), format!("topics[{}]", pos + 2)))
+                .collect()
+        } else {
+            vec![]
+        }
     }
 
     pub fn to_sql(&self, inner: &str) -> Vec<(Ident, String)> {
-        self.components
-            .iter()
-            .flatten()
-            .filter(|p| !p.indexed)
-            .scan(0, |size_counter, param| {
-                let size = *size_counter;
-                *size_counter += param.kind.size();
-                Some((size, param))
-            })
-            .filter(|(_, param)| param.selected())
-            .map(|(pos, param)| match &param.kind {
-                Kind::Tuple(_) => todo!(),
-                Kind::Array(_, _) => todo!(),
-                Kind::Bytes(None) | Kind::String => (
-                    param.name.clone(),
-                    format!("abi_bytes(abi_dynamic({}, {}))", inner, pos),
-                ),
-                Kind::Address
-                | Kind::Bool
-                | Kind::Bytes(Some(_))
-                | Kind::Int(_)
-                | Kind::Uint(_) => (
-                    param.name.clone(),
-                    format!("abi_fixed_bytes({}, {}, {})", inner, pos, param.kind.size()),
-                ),
-            })
-            .collect()
+        match self {
+            Parameter::Tuple { components, .. } => components
+                .iter()
+                .filter(|p| !p.indexed())
+                .scan(0, |size_counter, param| {
+                    let size = *size_counter;
+                    *size_counter += param.size();
+                    Some((size, param))
+                })
+                .map(|(pos, component)| match component {
+                    Parameter::Tuple { .. } | Parameter::Array { .. } if component.is_static() => (
+                        component.name(),
+                        format!(
+                            "abi2json(abi_fixed_bytes({}, {}, {}), '{}')",
+                            inner,
+                            pos,
+                            component.size(),
+                            component.signature()
+                        ),
+                    ),
+                    Parameter::Tuple { .. } | Parameter::Array { .. } => (
+                        component.name(),
+                        format!(
+                            "abi2json(abi_dynamic({}, {}), '{}')",
+                            inner,
+                            pos,
+                            component.signature()
+                        ),
+                    ),
+                    Parameter::Address { .. } => (
+                        component.name(),
+                        format!("abi_fixed_bytes({}, {}, {})", inner, pos, component.size()),
+                    ),
+                    _ => todo!(),
+                })
+                .collect(),
+            _ => vec![],
+        }
+    }
+}
+
+impl std::fmt::Display for Parameter {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Tuple {
+                name, components, ..
+            } => {
+                write!(f, "(")?;
+                for (i, c) in components.iter().enumerate() {
+                    c.fmt(f)?;
+                    if !matches!(c, Self::Array { .. }) {
+                        write!(f, " {}", c.name())?;
+                    }
+                    if i != components.len() - 1 {
+                        write!(f, ", ")?;
+                    }
+                }
+                write!(f, ")")
+            }
+            Self::Array {
+                name,
+                length: Some(length),
+                element,
+                ..
+            } => {
+                element.fmt(f)?;
+                if !matches!(element.as_ref(), Self::Array { .. }) {
+                    write!(f, "[{}] {}", length, self.name())
+                } else {
+                    write!(f, "[{}]", length)
+                }
+            }
+            Self::Array {
+                name,
+                length: None,
+                element,
+                ..
+            } => {
+                element.fmt(f)?;
+                if !matches!(element.as_ref(), Self::Array { .. }) {
+                    write!(f, "[] {}", self.name())
+                } else {
+                    write!(f, "[]")
+                }
+            }
+            Self::Address { name, .. }
+            | Self::Bool { name, .. }
+            | Self::Bytes { name, .. }
+            | Self::Int { name, .. }
+            | Self::Uint { name, .. }
+            | Self::String { name, .. } => self.fmt(f),
+        }
     }
 }
 
@@ -391,56 +457,55 @@ impl AbiBytes for &[u8] {
     }
 }
 
-pub fn to_json(input: &[u8], param: &Param) -> Result<serde_json::Value> {
-    match &param.kind {
-        Kind::Array(length, kind) => Ok(serde_json::Value::Array(
+pub fn to_json(input: &[u8], param: &Parameter) -> Result<serde_json::Value> {
+    match param {
+        Parameter::Array {
+            element, length, ..
+        } => Ok(serde_json::Value::Array(
             (0..length.unwrap_or(input.next_usize(0)?))
                 .map(|i| {
-                    if kind.is_static() {
+                    if element.is_static() {
                         Ok(to_json(
-                            input.get_static(i * kind.size(), kind.size())?,
-                            param.element.as_ref().unwrap(),
+                            input.get_static(i * element.size(), element.size())?,
+                            element,
                         )?)
                     } else {
-                        Ok(to_json(
-                            (&input[32..]).skip_to(32 * i)?,
-                            param.element.as_ref().unwrap(),
-                        )?)
+                        Ok(to_json((&input[32..]).skip_to(32 * i)?, element)?)
                     }
                 })
                 .collect::<Result<_>>()?,
         )),
-        Kind::Tuple(_) => Ok(serde_json::Value::Object(
-            param
-                .components
+        Parameter::Tuple { components, .. } => Ok(serde_json::Value::Object(
+            components
                 .iter()
-                .flatten()
-                .filter(|p| !p.indexed)
+                .filter(|p| !p.indexed())
                 .scan(0, |offset, c| {
                     let i = *offset;
-                    *offset += param.kind.size();
+                    *offset += c.size();
                     Some((i, c))
                 })
                 .map(|(i, c)| {
-                    let field = if c.kind.is_static() {
-                        to_json(input.get_static(i, c.kind.size())?, c)?
+                    let field = if c.is_static() {
+                        to_json(input.get_static(i, c.size())?, c)?
                     } else {
                         to_json(input.skip_to(i)?, c)?
                     };
-                    Ok((c.name.to_string(), field))
+                    Ok((c.name().to_string(), field))
                 })
                 .collect::<Result<_>>()?,
         )),
-        Kind::Address => Ok(input.get_static(12, 20)?.encode_hex().into()),
-        Kind::Bool => Ok((input.get_static(31, 1)?[0] == 1).into()),
-        Kind::Bytes(None) => Ok(input.get_dynamic(0)?.encode_hex().into()),
-        Kind::Bytes(Some(size)) => Ok(input.get_static(0, *size)?.encode_hex().into()),
-        Kind::String => Ok(String::from_utf8(input.get_dynamic(0)?.to_vec())?.into()),
-        Kind::Int(_) => Ok(s256::Int::try_from_be_slice(input.get_static(0, 32)?)
+        Parameter::Address { .. } => Ok(input.get_static(12, 20)?.encode_hex().into()),
+        Parameter::Bool { .. } => Ok((input.get_static(31, 1)?[0] == 1).into()),
+        Parameter::Bytes { size: None, .. } => Ok(input.get_dynamic(0)?.encode_hex().into()),
+        Parameter::Bytes {
+            size: Some(size), ..
+        } => Ok(input.get_static(0, *size)?.encode_hex().into()),
+        Parameter::String { .. } => Ok(String::from_utf8(input.get_dynamic(0)?.to_vec())?.into()),
+        Parameter::Int { .. } => Ok(s256::Int::try_from_be_slice(input.get_static(0, 32)?)
             .ok_or_eyre("decoding i256")?
             .to_string()
             .into()),
-        Kind::Uint(_) => Ok(U256::try_from_be_slice(input.get_static(0, 32)?)
+        Parameter::Uint { .. } => Ok(U256::try_from_be_slice(input.get_static(0, 32)?)
             .ok_or_eyre("decoding u256")?
             .to_string()
             .into()),
@@ -449,7 +514,9 @@ pub fn to_json(input: &[u8], param: &Param) -> Result<serde_json::Value> {
 
 #[cfg(test)]
 mod json_tests {
-    use super::{parse, to_json};
+    use crate::abi::Event;
+
+    use super::to_json;
     use alloy::hex;
     use assert_json_diff::assert_json_eq;
 
@@ -475,9 +542,9 @@ mod json_tests {
             4242000000000000000000000000000000000000000000000000000000000000
             "#
         );
-        let param = parse("Foo((string b, string[] c, string[] d)[] a)").unwrap();
+        let param = Event::parse("Foo((string b, string[] c, string[] d)[] a)").unwrap();
         assert_json_eq!(
-            to_json(&data, &param).unwrap(),
+            to_json(&data, &param.fields).unwrap(),
             serde_json::json!({"a": [{"b": "BB", "c": ["BB"], "d": ["BB"]}]})
         )
     }
@@ -492,7 +559,9 @@ mod tests {
     };
     use assert_json_diff::assert_json_eq;
 
-    use super::{parse, Kind, Token};
+    use crate::abi::{Event, Parameter};
+
+    use super::Token;
     use sqlparser::ast::Ident;
 
     macro_rules! ident {
@@ -507,51 +576,17 @@ mod tests {
     }
 
     #[test]
-    fn test_find() {
-        assert!(parse("Foo(uint a, uint b)")
-            .unwrap()
-            .find(ident!("Foo", "a"))
-            .is_some());
-        assert!(parse("Foo(uint a, uint b, (uint c) d)")
-            .unwrap()
-            .find(ident!("Foo", "d", "c"))
-            .is_some());
-        assert!(parse("Foo(uint a, uint b)")
-            .unwrap()
-            .find(ident!("Foo", "c"))
-            .is_none());
-    }
-
-    #[test]
-    fn test_select_has_select() {
-        assert!({
-            let mut param = parse("Foo(uint a, uint b)").unwrap();
-            param.find(ident!("Foo", "a")).unwrap().select();
-            param.selected()
-        });
-        assert!({
-            let mut param = parse("Foo(uint a, uint b, (uint c) d)").unwrap();
-            param.find(ident!("Foo", "d", "c")).unwrap().select();
-            param.selected()
-        });
-        assert!({
-            let mut param = parse("Foo(uint a, uint b)").unwrap();
-            param.find(ident!("Foo", "c")).is_none() && !param.selected()
-        });
-    }
-
-    #[test]
     fn test_sighash() {
         assert_eq!(
             "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
-            parse("Transfer(address from, address to, uint256 value)")
+            Event::parse("Transfer(address from, address to, uint256 value)")
                 .unwrap()
                 .sighash()
                 .encode_hex()
         );
         assert_eq!(
             "8dbb3a9672eebfd3773e72dd9c102393436816d832c7ba9e1e1ac8fcadcac7a9",
-            parse(
+            Event::parse(
                 //underscores
                 r#"
                 Store_SetRecord(
@@ -569,7 +604,7 @@ mod tests {
         );
         assert_eq!(
             "30ebccc1ba352c4539c811df296809a7ae8446c4965445b6ee359b7a47f1bc8f",
-            parse(
+            Event::parse(
                 r#"
                     IntentFinished(
                         address indexed intentAddr,
@@ -594,31 +629,35 @@ mod tests {
     }
 
     #[test]
-    fn test_kind_display() {
-        assert_eq!("int256", Kind::Int(256).to_string());
-        assert_eq!(
-            "int256[1]",
-            Kind::Array(Some(1), Box::new(Kind::Int(256))).to_string()
-        );
-        assert_eq!(
-            "int256[]",
-            Kind::Array(None, Box::new(Kind::Int(256))).to_string()
-        );
-        assert_eq!(
-            "(int256[],bytes)",
-            Kind::Tuple(vec![
-                Kind::Array(None, Box::new(Kind::Int(256))),
-                Kind::Bytes(None)
-            ])
-            .to_string()
-        );
-    }
-
-    #[test]
     fn test_static() {
-        assert!(Kind::Int(256).is_static());
-        assert!(Kind::Array(Some(1), Box::new(Kind::Int(256))).is_static());
-        assert!(!Kind::Array(None, Box::new(Kind::Int(256))).is_static());
+        assert!(Parameter::Int {
+            name: None,
+            indexed: None,
+            bits: 256
+        }
+        .is_static());
+        assert!(Parameter::Array {
+            name: None,
+            indexed: None,
+            length: Some(1),
+            element: Box::new(Parameter::Int {
+                name: None,
+                indexed: None,
+                bits: 256
+            })
+        }
+        .is_static());
+        assert!(!Parameter::Array {
+            name: None,
+            indexed: None,
+            length: None,
+            element: Box::new(Parameter::Int {
+                name: None,
+                indexed: None,
+                bits: 256
+            })
+        }
+        .is_static())
     }
 
     #[test]
@@ -660,18 +699,46 @@ mod tests {
     }
 
     #[test]
-    fn test_param_parse() {
-        assert_eq!(&parse("foo(int bar)").unwrap().kind.to_string(), "(int256)");
+    fn test_parse() {
         assert_eq!(
-            parse("Foo(string a, bytes16 b, bytes c, int256 d, int256[] e, string[] f, bool g)")
-                .unwrap()
-                .kind
-                .to_string(),
-            "(string,bytes16,bytes,int256,int256[],string[],bool)"
-        );
-        assert_eq!(
-            parse("(int[][] bar)[] foo").unwrap().kind.to_string(),
-            "(int256[][])[]"
+            Token::parse(&mut Token::lex("(int a, (int b, int[])[])").unwrap()).unwrap(),
+            Parameter::Tuple {
+                name: None,
+                indexed: None,
+                components: vec![
+                    Parameter::Int {
+                        name: Some(ident!("a")),
+                        indexed: None,
+                        bits: 256,
+                    },
+                    Parameter::Array {
+                        name: None,
+                        indexed: None,
+                        length: None,
+                        element: Box::new(Parameter::Tuple {
+                            name: None,
+                            indexed: None,
+                            components: vec![
+                                Parameter::Int {
+                                    name: Some(ident!("b")),
+                                    indexed: None,
+                                    bits: 256
+                                },
+                                Parameter::Array {
+                                    name: None,
+                                    indexed: None,
+                                    length: None,
+                                    element: Box::new(Parameter::Int {
+                                        name: None,
+                                        indexed: None,
+                                        bits: 256
+                                    })
+                                }
+                            ]
+                        })
+                    },
+                ]
+            }
         );
     }
 
@@ -679,43 +746,29 @@ mod tests {
     fn test_to_sql() {
         assert_eq!(
             vec![(ident!("b"), String::from("abi_bytes(abi_dynamic(data, 0))"))],
-            {
-                let mut param = parse("foo(int indexed a, bytes b)").unwrap();
-                param.find(ident!("foo", "b")).unwrap().select();
-                param.to_sql("data")
-            }
+            Event::parse("foo(int indexed a, bytes b)")
+                .unwrap()
+                .data_sql()
         );
         assert_eq!(
             vec![(ident!("a"), String::from("abi_fixed_bytes(data, 0, 32)"))],
-            {
-                let mut param = parse("(int a ) foo").unwrap();
-                param.find(ident!("foo", "a")).unwrap().select();
-                param.to_sql("data")
-            }
+            Event::parse("foo(int a )").unwrap().data_sql()
         );
         assert_eq!(
             vec![(
                 ident!("a"),
-                String::from(
-                    "json_build_object('b',encode(abi_bytes(abi_dynamic(abi_dynamic(data, 0), 0)), 'hex'),'c',abi_int(abi_fixed_bytes(abi_dynamic(data, 0), 32, 32))::text)"
-                )
+                String::from("abi2json(abi_dynamic(data, 0), '(bytes b, int256 c) a')")
             )],
-            {
-                let mut param = parse("((bytes b, int c) a) foo").unwrap();
-                param.find(ident!("foo", "a")).unwrap().select();
-                param.to_sql("data")
-            }
+            Event::parse("foo((bytes b, int c) a)").unwrap().data_sql()
         );
         assert_eq!(
             vec![(
                 ident!("c"),
-                String::from("json_build_object('d',abi_uint(abi_fixed_bytes(abi_fixed_bytes(data, 32, 32), 0, 32))::text)")
+                String::from("abi2json(abi_fixed_bytes(data, 32, 32), '(uint256 d) c')")
             )],
-            {
-                let mut param = parse("((bytes b) a, (uint d) c) foo").unwrap();
-                param.find(ident!("foo", "c")).unwrap().select();
-                    param.to_sql("data")
-            }
+            Event::parse("((bytes b) a, (uint d) c) foo")
+                .unwrap()
+                .data_sql()
         );
     }
 
@@ -735,8 +788,7 @@ mod tests {
             0000000000000000000000000000000000000000000000000000000000000005
             "#
         );
-        let mut param = parse("(uint[5] b) a").unwrap();
-        param.find(ident!("a", "b")).unwrap().select();
+        let param = Parameter::parse("(uint[5] b) a").unwrap();
         let row = pg
             .query_one(
                 &format!(
@@ -775,8 +827,7 @@ mod tests {
             0000000000000000000000000000000000000000000000000000000000000005
             "#
         );
-        let mut param = parse("(uint[] b) a").unwrap();
-        param.find(ident!("a", "b")).unwrap().select();
+        let param = Parameter::parse("(uint[] b) a").unwrap();
         let row = pg
             .query_one(
                 &format!(
@@ -829,14 +880,16 @@ mod tests {
             68656C6C6F000000000000000000000000000000000000000000000000000000
             "#
         );
-        let mut param = parse("IntentFinished(address indexed intentAddr, address indexed destinationAddr, bool indexed success,(uint256 toChainId, (address token, uint256 amount)[] bridgeTokenOutOptions, (address token, uint256 amount) finalCallToken, (address to, uint256 value, bytes data) finalCall, address escrow, address refundAddress, uint256 nonce) intent)").unwrap();
-        param
-            .find(ident!("IntentFinished", "intent"))
-            .unwrap()
-            .select();
-        let query = param.to_sql("$1");
+        let event = Event::parse("IntentFinished(address indexed intentAddr, address indexed destinationAddr, bool indexed success,(uint256 toChainId, (address token, uint256 amount)[] bridgeTokenOutOptions, (address token, uint256 amount) finalCallToken, (address to, uint256 value, bytes data) finalCall, address escrow, address refundAddress, uint256 nonce) intent)").unwrap();
+        let query = event.data_sql();
         let row = pg
-            .query_one(&format!("select {}", &query[0].1), &[&data])
+            .query_one(
+                &format!(
+                    "with x as (select $1 as data) select {} from x",
+                    &query[0].1
+                ),
+                &[&data],
+            )
             .await
             .expect("issue with query");
         let res: serde_json::Value = row.get(0);
@@ -925,39 +978,26 @@ mod tests {
             4242000000000000000000000000000000000000000000000000000000000000
             "#
         );
-        let mut param = parse("Foo((string b, string[] c, string[] d)[] a)").unwrap();
-        param.find(ident!("Foo", "a")).unwrap().select();
-        println!("{:?}", param);
-        let query = param.to_sql("$1");
-        println!("query: {}", fmt_sql(&query[0].1));
+        let event = Event::parse("Foo((string b, string[] c, string[] d)[] a)").unwrap();
+        let query = event.data_sql();
         let row = pg
-            .query_one(&format!("select {}", &query[0].1), &[&data])
+            .query_one(
+                &format!(
+                    "with x as (select $1 as data) select {} from x",
+                    &query[0].1
+                ),
+                &[&data],
+            )
             .await
             .expect("issue with query");
         let res: serde_json::Value = row.get(0);
         assert_json_eq!(
             res,
-            serde_json::json!({
-                "a": [
-                    {
-                        "b": "BB",
-                        "c": ["BB"],
-                        "d": ["BB"]
-                    }
-                ]
-            })
+            serde_json::json!([{
+                "b": "BB",
+                "c": ["BB"],
+                "d": ["BB"]
+            }])
         )
-    }
-
-    const PG: &sqlparser::dialect::PostgreSqlDialect = &sqlparser::dialect::PostgreSqlDialect {};
-    fn fmt_sql(sql: &str) -> String {
-        match sqlparser::parser::Parser::parse_sql(PG, sql) {
-            Ok(ast) => sqlformat::format(
-                &ast[0].to_string(),
-                &sqlformat::QueryParams::None,
-                sqlformat::FormatOptions::default(),
-            ),
-            Err(_) => sql.to_string(),
-        }
     }
 }

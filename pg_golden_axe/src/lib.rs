@@ -1,8 +1,11 @@
+use be::abi;
 use pgrx::prelude::*;
 
 ::pgrx::pg_module_magic!();
 
 #[pg_extern]
-fn abi2json(_data: &[u8], _desc: &str) -> pgrx::JsonB {
-    pgrx::JsonB(serde_json::Value::String(String::from("golden axe!")))
+fn abi2json(data: &[u8], desc: &str) -> pgrx::JsonB {
+    let param = abi::Parameter::parse(desc).expect("unable to parse abi signature");
+    let parsed = abi::to_json(data, &param).expect("unable to decode");
+    pgrx::JsonB(parsed)
 }

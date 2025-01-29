@@ -60,13 +60,13 @@ const METADATA: [&str; 7] = [
 
 #[derive(Debug)]
 struct Relation {
-    event: Option<abi::Param>,
+    event: Option<abi::Event>,
     // A single event can be referenced
     // multiple times eg multiple joins
     // on single table.
     table_alias: HashSet<Ident>,
     table_name: Ident,
-    metadata: HashSet<Ident>,
+    selected_fields: HashSet<Ident>,
 }
 
 impl Relation {
@@ -75,18 +75,16 @@ impl Relation {
             || self.table_alias.contains(other)
     }
 
-    /// Sets the field on the relation for SQL inclusion
-    /// May return an abi::Param if the field is one
-    /// It may select and _not_ return a Param in the case of METADATA
-    fn field(&mut self, mut query: Vec<Ident>) -> Option<&mut abi::Param> {
-        if let (Some(event), Some(other)) = (self.event.as_ref(), query.first()) {
-            if self.named(other) {
-                query[0] = event.name.clone();
-            } else if other.value.ne(&event.name.value) {
-                query.insert(0, event.name.clone());
-            }
+    fn has_field(&self, field: &Ident) -> bool {
+        self.event
+            .as_ref()
+            .map_or(false, |event| event.has_field(field))
+    }
+
+    fn select_field(&mut self, field: &Ident) {
+        if self.has_field(field) || METADATA.contains(&field.to_string().as_str()) {
+            self.selected_fields.insert(field.clone());
         }
-        self.event.as_mut().and_then(|event| event.find(query))
     }
 
     fn to_sql(&self, chain: api::Chain, from: Option<u64>) -> String {
@@ -94,14 +92,14 @@ impl Relation {
         res.push(format!("{} as not materialized (", self.table_name));
         res.push("select".to_string());
         let mut select_list = Vec::new();
-        self.metadata.iter().sorted().for_each(|f| {
+        self.selected_fields.iter().sorted().for_each(|f| {
             select_list.push(f.to_string());
         });
-        if let Some(param) = &self.event {
-            for (ident, sql) in param.topics_to_sql() {
+        if let Some(event) = &self.event {
+            for (ident, sql) in event.topics_sql() {
                 select_list.push(format!("{} as {}", sql, ident));
             }
-            for (ident, sql) in param.to_sql("data") {
+            for (ident, sql) in event.data_sql() {
                 select_list.push(format!("{} as {}", sql, ident));
             }
         }
@@ -129,15 +127,15 @@ impl UserQuery {
             event: None,
             table_name: Ident::new("logs"),
             table_alias: HashSet::new(),
-            metadata: HashSet::new(),
+            selected_fields: HashSet::new(),
         }];
         for sig in event_sigs.iter().filter(|s| !s.is_empty()) {
-            let event = abi::parse(sig)
+            let event = abi::Event::parse(sig)
                 .map_err(|_| api::Error::User(format!("unable to parse event: {}", sig)))?;
             relations.push(Relation {
                 table_name: event.name.clone(),
                 table_alias: HashSet::new(),
-                metadata: HashSet::new(),
+                selected_fields: HashSet::new(),
                 event: Some(event),
             });
         }
@@ -163,14 +161,12 @@ impl UserQuery {
     fn relations(self) -> Vec<Relation> {
         self.relations
             .into_iter()
-            .filter(|rel| {
-                rel.event.as_ref().is_some_and(|param| param.selected()) || !rel.metadata.is_empty()
-            })
+            .filter(|rel| !rel.selected_fields.is_empty())
             .sorted_by_key(|s| s.table_name.to_string())
             .collect()
     }
 
-    fn touch_relation(&mut self, name: &Ident, alias: Option<&Ident>) -> Result<(), api::Error> {
+    fn set_relation(&mut self, name: &Ident, alias: Option<&Ident>) -> Result<(), api::Error> {
         let relations_debug_str = self
             .relations
             .iter()
@@ -191,42 +187,16 @@ impl UserQuery {
         Ok(())
     }
 
-    fn touch_metadata(&mut self, expr: &ast::Expr) {
-        let query = expr.collect();
-        if let (Some(event_name), Some(field_name)) = (query.first(), query.last()) {
-            if METADATA.contains(&field_name.value.as_str()) {
-                if self.relations.iter().any(|r| r.named(event_name)) {
-                    let rel = self
-                        .relations
-                        .iter_mut()
-                        .find(|rel| rel.named(event_name))
-                        .expect("something went horribly wrong");
-                    rel.metadata.insert(field_name.clone());
-                } else if let Some(rel) = self
-                    .relations
-                    .iter_mut()
-                    .sorted_by_key(|rel| rel.event.is_none())
-                    .next()
-                {
-                    rel.metadata.insert(field_name.clone());
-                }
-            }
-        }
+    fn get_relation(&mut self, id: &Ident) -> Option<&mut Relation> {
+        self.relations.iter_mut().find(|rel| rel.named(id))
     }
 
-    fn touch_param(&mut self, expr: &ast::Expr) -> Option<&mut abi::Param> {
-        let query = expr.collect();
-        let possible_event_name = query.first()?;
-        if self.relations.iter().any(|r| r.named(possible_event_name)) {
-            self.relations
-                .iter_mut()
-                .find(|rel| rel.named(possible_event_name))
-                .expect("something went horribly wrong")
-                .field(query)
-        } else {
-            self.relations
-                .iter_mut()
-                .find_map(|rel| rel.field(query.clone()))
+    fn get_param(&mut self, expr: &ast::Expr) -> Option<abi::Parameter> {
+        let idents = expr.collect();
+        match idents.len() {
+            1 => todo!(),
+            2 => todo!(),
+            _ => None,
         }
     }
 
@@ -292,52 +262,55 @@ impl UserQuery {
                 },
             });
         }
-        let alias = expr.last();
-        match &self.touch_param(expr)?.kind {
-            abi::Kind::Bool => Some(wrap_function(
-                alias,
-                ast::Ident::new("abi_bool"),
-                expr.clone(),
-            )),
-            abi::Kind::Address => Some(wrap_function(
-                alias,
-                ast::Ident::new("abi_address"),
-                expr.clone(),
-            )),
-            abi::Kind::Int(_) => Some(wrap_function(
-                alias,
-                ast::Ident::new("abi_int"),
-                expr.clone(),
-            )),
-            abi::Kind::Uint(_) => Some(wrap_function(
-                alias,
-                ast::Ident::new("abi_uint"),
-                expr.clone(),
-            )),
-            abi::Kind::String => Some(wrap_function(
-                alias,
-                ast::Ident::new("abi_string"),
-                expr.clone(),
-            )),
-            abi::Kind::Array(None, kind) => match kind.deref() {
-                abi::Kind::Uint(_) => Some(wrap_function(
-                    alias,
-                    ast::Ident::new("abi_uint_array"),
-                    expr.clone(),
-                )),
-                abi::Kind::Int(_) => Some(wrap_function(
-                    alias,
-                    ast::Ident::new("abi_int_array"),
-                    expr.clone(),
-                )),
-                abi::Kind::Bytes(Some(_)) => Some(wrap_function_arg(
-                    alias,
+        match &self.get_param(expr)? {
+            abi::Parameter::Array {
+                length: None,
+                element,
+                ..
+            } => match element.deref() {
+                abi::Parameter::Bytes { size: Some(_), .. } => Some(wrap_function_arg(
+                    expr.last(),
                     ast::Ident::new("abi_fixed_bytes_array"),
                     expr.clone(),
                     number_arg(32),
                 )),
+                abi::Parameter::Int { .. } => Some(wrap_function(
+                    expr.last(),
+                    ast::Ident::new("abi_int_array"),
+                    expr.clone(),
+                )),
+                abi::Parameter::Uint { .. } => Some(wrap_function(
+                    expr.last(),
+                    ast::Ident::new("abi_uint_array"),
+                    expr.clone(),
+                )),
                 _ => None,
             },
+            abi::Parameter::Address { .. } => Some(wrap_function(
+                expr.last(),
+                ast::Ident::new("abi_address"),
+                expr.clone(),
+            )),
+            abi::Parameter::Bool { .. } => Some(wrap_function(
+                expr.last(),
+                ast::Ident::new("abi_bool"),
+                expr.clone(),
+            )),
+            abi::Parameter::Int { .. } => Some(wrap_function(
+                expr.last(),
+                ast::Ident::new("abi_int"),
+                expr.clone(),
+            )),
+            abi::Parameter::String { .. } => Some(wrap_function(
+                expr.last(),
+                ast::Ident::new("abi_string"),
+                expr.clone(),
+            )),
+            abi::Parameter::Uint { .. } => Some(wrap_function(
+                expr.last(),
+                ast::Ident::new("abi_uint"),
+                expr.clone(),
+            )),
             _ => None,
         }
     }
@@ -377,7 +350,7 @@ impl UserQuery {
     fn rewrite_literal(
         &mut self,
         expr: &mut ast::Expr,
-        kind: abi::Kind,
+        parameter: abi::Parameter,
         compact: bool,
     ) -> Result<(), api::Error> {
         let data = match expr {
@@ -403,8 +376,8 @@ impl UserQuery {
             }
             _ => return Ok(()),
         };
-        match kind {
-            abi::Kind::Address => {
+        match parameter {
+            abi::Parameter::Address { .. } => {
                 let data = if compact {
                     format!(r#"\x{}"#, hex::encode(data))
                 } else {
@@ -412,7 +385,7 @@ impl UserQuery {
                 };
                 *expr = ast::Expr::Value(ast::Value::SingleQuotedString(data));
             }
-            abi::Kind::Uint(_) => {
+            abi::Parameter::Uint { .. } => {
                 *expr = ast::Expr::Value(ast::Value::SingleQuotedString(format!(
                     r#"\x{}"#,
                     hex::encode(left_pad(data))
@@ -433,18 +406,40 @@ impl UserQuery {
         left: &mut Box<ast::Expr>,
         right: &mut Box<ast::Expr>,
     ) -> Result<(), api::Error> {
-        if let Some(param) = self.touch_param(left) {
-            let kind = param.kind.clone();
-            self.rewrite_literal(right, kind, false)?;
+        if let Some(param) = self.get_param(left) {
+            self.rewrite_literal(right, param, false)?;
         }
         if left.last().map_or(false, |v| v.to_string() == "address") {
-            self.rewrite_literal(right, abi::Kind::Address, true)?;
+            self.rewrite_literal(
+                right,
+                abi::Parameter::Address {
+                    name: None,
+                    indexed: None,
+                },
+                true,
+            )?;
         }
         if left.last().map_or(false, |v| v.to_string() == "tx_hash") {
-            self.rewrite_literal(right, abi::Kind::Bytes(Some(32)), false)?;
+            self.rewrite_literal(
+                right,
+                abi::Parameter::Bytes {
+                    name: None,
+                    indexed: None,
+                    size: Some(32),
+                },
+                false,
+            )?;
         }
         if left.last().map_or(false, |v| v.to_string() == "topics") {
-            self.rewrite_literal(right, abi::Kind::Bytes(Some(32)), false)?;
+            self.rewrite_literal(
+                right,
+                abi::Parameter::Bytes {
+                    name: None,
+                    indexed: None,
+                    size: Some(32),
+                },
+                false,
+            )?;
         }
         Ok(())
     }
@@ -542,10 +537,15 @@ impl UserQuery {
 
     fn validate_expression(&mut self, expr: &mut ast::Expr) -> Result<(), api::Error> {
         match expr {
-            ast::Expr::Identifier(_) | ast::Expr::CompoundIdentifier(_) => {
-                self.touch_metadata(expr);
-                if let Some(param) = self.touch_param(expr) {
-                    param.select();
+            ast::Expr::Identifier(ident) => {
+                if let Some(rel) = self.relations.iter_mut().find(|rel| rel.has_field(ident)) {
+                    rel.select_field(ident);
+                }
+                Ok(())
+            }
+            ast::Expr::CompoundIdentifier(idents) if idents.len() == 2 => {
+                if let Some(rel) = self.get_relation(&idents[0]) {
+                    rel.select_field(&idents[1]);
                 }
                 Ok(())
             }
@@ -700,7 +700,7 @@ impl UserQuery {
                         relation
                     )));
                 }
-                self.touch_relation(&name_parts[0], Some(&alias.name))
+                self.set_relation(&name_parts[0], Some(&alias.name))
             }
             ast::TableFactor::Table {
                 name: ast::ObjectName(name_parts),
@@ -712,7 +712,7 @@ impl UserQuery {
                         relation
                     )));
                 }
-                self.touch_relation(&name_parts[0], None)
+                self.set_relation(&name_parts[0], None)
             }
             _ => no!(relation),
         }
@@ -1321,12 +1321,7 @@ mod tests {
             r#"select c->>'d' from foo"#,
             r#"
                 with foo as not materialized (
-                    select json_build_object(
-                      'd',
-                      abi_uint(abi_fixed_bytes(abi_dynamic(data, 64), 0, 32))::text,
-                      'e',
-                      encode(abi_bytes(abi_dynamic(abi_dynamic(data, 64), 32)), 'hex')
-                    ) AS c
+                    select abi2json(data, '(uint256,bytes)') AS c
                     from logs
                     where chain = 1
                     and topics [1] = '\x851f2bcfcac86844a44298d8354312295b246183022d51c76398d898d87014fc'
