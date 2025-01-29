@@ -133,7 +133,7 @@ fn templates() -> Result<handlebars::Handlebars<'static>, handlebars::TemplateEr
             }
             result.join("\n")
         } else {
-            String::from("")
+            format!("snippet {} not found", snippet_name)
         }
     }
 
