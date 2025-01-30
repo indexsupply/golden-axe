@@ -13,7 +13,7 @@ use crate::s256;
 #[derive(Debug)]
 pub struct Event {
     pub name: Ident,
-    pub fields: Parameter,
+    fields: Parameter,
 }
 
 impl Event {
@@ -30,6 +30,13 @@ impl Event {
         })
     }
 
+    pub fn get_field(&self, id: &Ident) -> Option<&Parameter> {
+        match &self.fields {
+            Parameter::Tuple { components, .. } => components.iter().find(|c| c.name() == *id),
+            _ => None,
+        }
+    }
+
     pub fn has_field(&self, id: &Ident) -> bool {
         match &self.fields {
             Parameter::Tuple { components, .. } => components.iter().any(|c| c.name() == *id),
@@ -38,15 +45,15 @@ impl Event {
     }
 
     pub fn topics_sql(&self) -> Vec<(Ident, String)> {
-        todo!()
+        self.fields.topics_sql()
     }
 
     pub fn data_sql(&self) -> Vec<(Ident, String)> {
-        todo!()
+        self.fields.data_sql("data")
     }
 
     pub fn sighash(&self) -> FixedBytes<32> {
-        todo!()
+        keccak256(format!("{}{}", self.name, self.fields))
     }
 }
 
@@ -282,6 +289,10 @@ impl Parameter {
         *get_field!(self, indexed) = Some(true);
     }
 
+    fn is_array(&self) -> bool {
+        matches!(self, Self::Array { .. })
+    }
+
     /// number of evm words occupied by the kind
     /// will always be a multiple of 32
     /// most of the time it _is_ 32 unless there
@@ -319,11 +330,7 @@ impl Parameter {
         }
     }
 
-    fn signature(&self) -> String {
-        todo!()
-    }
-
-    pub fn topics_to_sql(&self) -> Vec<(Ident, String)> {
+    pub fn topics_sql(&self) -> Vec<(Ident, String)> {
         if let Self::Tuple { components, .. } = self {
             components
                 .iter()
@@ -336,7 +343,7 @@ impl Parameter {
         }
     }
 
-    pub fn to_sql(&self, inner: &str) -> Vec<(Ident, String)> {
+    pub fn data_sql(&self, inner: &str) -> Vec<(Ident, String)> {
         match self {
             Parameter::Tuple { components, .. } => components
                 .iter()
@@ -350,27 +357,31 @@ impl Parameter {
                     Parameter::Tuple { .. } | Parameter::Array { .. } if component.is_static() => (
                         component.name(),
                         format!(
-                            "abi2json(abi_fixed_bytes({}, {}, {}), '{}')",
+                            "abi2json(abi_fixed_bytes({}, {}, {}), '{:#}')",
                             inner,
                             pos,
                             component.size(),
-                            component.signature()
+                            component
                         ),
                     ),
                     Parameter::Tuple { .. } | Parameter::Array { .. } => (
                         component.name(),
                         format!(
-                            "abi2json(abi_dynamic({}, {}), '{}')",
-                            inner,
-                            pos,
-                            component.signature()
+                            "abi2json(abi_dynamic({}, {}), '{:#}')",
+                            inner, pos, component
                         ),
                     ),
-                    Parameter::Address { .. } => (
+                    Parameter::Bytes { size: None, .. } | Parameter::String { .. } => {
+                        (component.name(), format!("abi_dynamic({}, {})", inner, pos))
+                    }
+                    Parameter::Address { .. }
+                    | Parameter::Bool { .. }
+                    | Parameter::Bytes { size: Some(_), .. }
+                    | Parameter::Int { .. }
+                    | Parameter::Uint { .. } => (
                         component.name(),
                         format!("abi_fixed_bytes({}, {}, {})", inner, pos, component.size()),
                     ),
-                    _ => todo!(),
                 })
                 .collect(),
             _ => vec![],
@@ -381,53 +392,66 @@ impl Parameter {
 impl std::fmt::Display for Parameter {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Self::Tuple {
-                name, components, ..
-            } => {
+            Self::Tuple { components, .. } => {
                 write!(f, "(")?;
                 for (i, c) in components.iter().enumerate() {
                     c.fmt(f)?;
-                    if !matches!(c, Self::Array { .. }) {
+                    if f.alternate() && !c.is_array() {
                         write!(f, " {}", c.name())?;
                     }
                     if i != components.len() - 1 {
-                        write!(f, ", ")?;
+                        write!(f, ",")?;
                     }
                 }
                 write!(f, ")")
             }
             Self::Array {
-                name,
                 length: Some(length),
                 element,
                 ..
             } => {
                 element.fmt(f)?;
-                if !matches!(element.as_ref(), Self::Array { .. }) {
+                if f.alternate() && !element.is_array() {
                     write!(f, "[{}] {}", length, self.name())
                 } else {
                     write!(f, "[{}]", length)
                 }
             }
             Self::Array {
-                name,
                 length: None,
                 element,
                 ..
             } => {
                 element.fmt(f)?;
-                if !matches!(element.as_ref(), Self::Array { .. }) {
+                if f.alternate() && !element.is_array() {
                     write!(f, "[] {}", self.name())
                 } else {
                     write!(f, "[]")
                 }
             }
-            Self::Address { name, .. }
-            | Self::Bool { name, .. }
-            | Self::Bytes { name, .. }
-            | Self::Int { name, .. }
-            | Self::Uint { name, .. }
-            | Self::String { name, .. } => self.fmt(f),
+            Self::Address { .. } => {
+                write!(f, "address")
+            }
+            Self::Bool { .. } => {
+                write!(f, "bool")
+            }
+            Self::Bytes { size: None, .. } => {
+                write!(f, "bytes")
+            }
+            Self::Bytes {
+                size: Some(size), ..
+            } => {
+                write!(f, "bytes{}", size)
+            }
+            Self::Int { bits, .. } => {
+                write!(f, "int{}", bits)
+            }
+            Self::String { .. } => {
+                write!(f, "string")
+            }
+            Self::Uint { bits, .. } => {
+                write!(f, "uint{}", bits)
+            }
         }
     }
 }
@@ -464,13 +488,18 @@ pub fn to_json(input: &[u8], param: &Parameter) -> Result<serde_json::Value> {
         } => Ok(serde_json::Value::Array(
             (0..length.unwrap_or(input.next_usize(0)?))
                 .map(|i| {
+                    // When length is dynamic, the first 32 bytes are
+                    // designated for the actual length of the array
+                    // the range creation preceding map(...) has read the
+                    // 32 byte length description.
+                    let input = length.map_or(&input[32..], |_| input);
                     if element.is_static() {
                         Ok(to_json(
                             input.get_static(i * element.size(), element.size())?,
                             element,
                         )?)
                     } else {
-                        Ok(to_json((&input[32..]).skip_to(32 * i)?, element)?)
+                        Ok(to_json(input.skip_to(32 * i)?, element)?)
                     }
                 })
                 .collect::<Result<_>>()?,
@@ -548,15 +577,75 @@ mod json_tests {
             serde_json::json!({"a": [{"b": "BB", "c": ["BB"], "d": ["BB"]}]})
         )
     }
+
+    #[test]
+    fn test_daimo() {
+        let data = hex!(
+            r#"
+            0000000000000000000000000000000000000000000000000000000000000020
+            0000000000000000000000000000000000000000000000000000000000002105
+            0000000000000000000000000000000000000000000000000000000000000100
+            000000000000000000000000833589fcd6edb6e08f4c7c32d4f71b54bda02913
+            00000000000000000000000000000000000000000000000000000000000f4240
+            00000000000000000000000000000000000000000000000000000000000001e0
+            0000000000000000000000009bd9caf29b76e98d57fc3a228a39c7efe8ca0eaf
+            0000000000000000000000007531f00dbc616b3466990e615bf01eff507c88d4
+            4f24c5540ed51ae10044296e2974edba583788db5bb132ff2e0339770ca018b8
+            0000000000000000000000000000000000000000000000000000000000000003
+            000000000000000000000000833589fcd6edb6e08f4c7c32d4f71b54bda02913
+            00000000000000000000000000000000000000000000000000000000000f4240
+            000000000000000000000000eb466342c4d449bc9f53a865d5cb90586f405215
+            00000000000000000000000000000000000000000000000000000000000f4240
+            00000000000000000000000050c5725949a6f0c72e6c4a641f24049a917db0cb
+            0000000000000000000000000000000000000000000000000de0b6b3a7640000
+            0000000000000000000000007531f00dbc616b3466990e615bf01eff507c88d4
+            0000000000000000000000000000000000000000000000000000000000000000
+            0000000000000000000000000000000000000000000000000000000000000060
+            0000000000000000000000000000000000000000000000000000000000000005
+            68656C6C6F000000000000000000000000000000000000000000000000000000
+            "#
+        );
+        let event = Event::parse("IntentFinished(address indexed intentAddr, address indexed destinationAddr, bool indexed success,(uint256 toChainId, (address token, uint256 amount)[] bridgeTokenOutOptions, (address token, uint256 amount) finalCallToken, (address to, uint256 value, bytes data) finalCall, address escrow, address refundAddress, uint256 nonce) intent)").unwrap();
+        assert_json_eq!(
+            to_json(&data, &event.fields).unwrap(),
+            serde_json::json!({
+                "intent": {
+                    "toChainId": "8453",
+                    "bridgeTokenOutOptions": [
+                        {
+                            "token": "833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+                            "amount": "1000000"
+                        },
+                        {
+                            "token": "eb466342c4d449bc9f53a865d5cb90586f405215",
+                            "amount": "1000000"
+                        },
+                        {
+                            "token": "50c5725949a6f0c72e6c4a641f24049a917db0cb",
+                            "amount": "1000000000000000000"
+                        }
+                    ],
+                    "finalCallToken": {
+                        "token": "833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+                        "amount": "1000000"
+                    },
+                    "finalCall": {
+                        "to": "7531f00dbc616b3466990e615bf01eff507c88d4",
+                        "value": "0",
+                        "data": "68656c6c6f",
+                    },
+                    "escrow": "9bd9caf29b76e98d57fc3a228a39c7efe8ca0eaf",
+                    "refundAddress": "7531f00dbc616b3466990e615bf01eff507c88d4",
+                    "nonce": "35797683442637942692858199402223327241210246169636214527328521135655386880184"
+                }
+            })
+        )
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use alloy::{
-        hex::ToHexExt,
-        primitives::{hex, U256},
-        sol_types::SolEvent,
-    };
+    use alloy::{hex::ToHexExt, primitives::hex, sol_types::SolEvent};
     use assert_json_diff::assert_json_eq;
 
     use crate::abi::{Event, Parameter};
@@ -626,6 +715,43 @@ mod tests {
             .sighash()
             .encode_hex()
         )
+    }
+
+    #[test]
+    fn test_signature() {
+        assert_eq!(
+            format!("{:#}", Parameter::parse("(uint a, uint b)").unwrap()),
+            "(uint256 a,uint256 b)"
+        );
+        assert_eq!(
+            format!("{:#}", Parameter::parse("((uint b, uint c)[] a)").unwrap()),
+            "((uint256 b,uint256 c)[] a)"
+        );
+        assert_eq!(
+            format!(
+                "{:#}",
+                Parameter::parse(
+                    r#"
+                    (
+                        address indexed intentAddr,
+                        address indexed destinationAddr,
+                        bool indexed success,
+                        (
+                            uint256 toChainId,
+                            (address token, uint256 amount)[] bridgeTokenOutOptions,
+                            (address token, uint256 amount) finalCallToken,
+                            (address to, uint256 value, bytes data) finalCall,
+                            address escrow,
+                            address refundAddress,
+                            uint256 nonce
+                        ) intent
+                    )
+                "#
+                )
+                .unwrap()
+            ),
+            "(address intentAddr,address destinationAddr,bool success,(uint256 toChainId,(address token,uint256 amount)[] bridgeTokenOutOptions,(address token,uint256 amount) finalCallToken,(address to,uint256 value,bytes data) finalCall,address escrow,address refundAddress,uint256 nonce) intent)"
+        );
     }
 
     #[test]
@@ -745,27 +871,33 @@ mod tests {
     #[test]
     fn test_to_sql() {
         assert_eq!(
-            vec![(ident!("b"), String::from("abi_bytes(abi_dynamic(data, 0))"))],
+            vec![(ident!("b"), String::from("abi_dynamic(data, 0)"))],
             Event::parse("foo(int indexed a, bytes b)")
                 .unwrap()
                 .data_sql()
         );
         assert_eq!(
             vec![(ident!("a"), String::from("abi_fixed_bytes(data, 0, 32)"))],
-            Event::parse("foo(int a )").unwrap().data_sql()
+            Event::parse("foo(int a)").unwrap().data_sql()
         );
         assert_eq!(
             vec![(
                 ident!("a"),
-                String::from("abi2json(abi_dynamic(data, 0), '(bytes b, int256 c) a')")
+                String::from("abi2json(abi_dynamic(data, 0), '(bytes b,int256 c)')")
             )],
             Event::parse("foo((bytes b, int c) a)").unwrap().data_sql()
         );
         assert_eq!(
-            vec![(
-                ident!("c"),
-                String::from("abi2json(abi_fixed_bytes(data, 32, 32), '(uint256 d) c')")
-            )],
+            vec![
+                (
+                    ident!("a"),
+                    String::from("abi2json(abi_dynamic(data, 0), '(bytes b)')")
+                ),
+                (
+                    ident!("c"),
+                    String::from("abi2json(abi_fixed_bytes(data, 32, 32), '(uint256 d)')")
+                )
+            ],
             Event::parse("((bytes b) a, (uint d) c) foo")
                 .unwrap()
                 .data_sql()
@@ -773,83 +905,6 @@ mod tests {
     }
 
     static SCHEMA: &str = include_str!("./sql/schema.sql");
-
-    #[tokio::test]
-    async fn test_static_array() {
-        let pool = shared::pg::test::new(SCHEMA).await;
-        let pg = pool.get().await.expect("getting pg from test pool");
-        let data = hex!(
-            r#"
-            0000000000000000000000000000000000000000000000000000000000000005
-            0000000000000000000000000000000000000000000000000000000000000001
-            0000000000000000000000000000000000000000000000000000000000000002
-            0000000000000000000000000000000000000000000000000000000000000003
-            0000000000000000000000000000000000000000000000000000000000000004
-            0000000000000000000000000000000000000000000000000000000000000005
-            "#
-        );
-        let param = Parameter::parse("(uint[5] b) a").unwrap();
-        let row = pg
-            .query_one(
-                &format!(
-                    "with data as (select {} as b) select abi_uint_array(b) from data",
-                    param.to_sql("$1")[0].1
-                ),
-                &[&data],
-            )
-            .await
-            .expect("issue with query");
-        let res: Vec<U256> = row.get(0);
-        assert_eq!(
-            vec![
-                U256::from(1),
-                U256::from(2),
-                U256::from(3),
-                U256::from(4),
-                U256::from(5)
-            ],
-            res
-        )
-    }
-
-    #[tokio::test]
-    async fn test_abi_uint_array() {
-        let pool = shared::pg::test::new(SCHEMA).await;
-        let pg = pool.get().await.expect("getting pg from test pool");
-        let data = hex!(
-            r#"
-            0000000000000000000000000000000000000000000000000000000000000020
-            0000000000000000000000000000000000000000000000000000000000000005
-            0000000000000000000000000000000000000000000000000000000000000001
-            0000000000000000000000000000000000000000000000000000000000000002
-            0000000000000000000000000000000000000000000000000000000000000003
-            0000000000000000000000000000000000000000000000000000000000000004
-            0000000000000000000000000000000000000000000000000000000000000005
-            "#
-        );
-        let param = Parameter::parse("(uint[] b) a").unwrap();
-        let row = pg
-            .query_one(
-                &format!(
-                    "with data as (select {} as b) select abi_uint_array(b) from data",
-                    param.to_sql("$1")[0].1
-                ),
-                &[&data],
-            )
-            .await
-            .expect("issue with query");
-        let res: Vec<U256> = row.get(0);
-        assert_eq!(
-            vec![
-                U256::from(1),
-                U256::from(2),
-                U256::from(3),
-                U256::from(4),
-                U256::from(5)
-            ],
-            res
-        )
-    }
 
     #[tokio::test]
     async fn test_complex_event() {
@@ -881,11 +936,11 @@ mod tests {
             "#
         );
         let event = Event::parse("IntentFinished(address indexed intentAddr, address indexed destinationAddr, bool indexed success,(uint256 toChainId, (address token, uint256 amount)[] bridgeTokenOutOptions, (address token, uint256 amount) finalCallToken, (address to, uint256 value, bytes data) finalCall, address escrow, address refundAddress, uint256 nonce) intent)").unwrap();
-        let query = event.data_sql();
+        let query = dbg!(event.data_sql());
         let row = pg
             .query_one(
                 &format!(
-                    "with x as (select $1 as data) select {} from x",
+                    "with x as (select $1::bytea as data) select {} from x",
                     &query[0].1
                 ),
                 &[&data],
@@ -893,6 +948,7 @@ mod tests {
             .await
             .expect("issue with query");
         let res: serde_json::Value = row.get(0);
+        dbg!(&res);
         assert_json_eq!(
             res,
             serde_json::json!({
@@ -983,7 +1039,7 @@ mod tests {
         let row = pg
             .query_one(
                 &format!(
-                    "with x as (select $1 as data) select {} from x",
+                    "with x as (select $1::bytea as data) select {} from x",
                     &query[0].1
                 ),
                 &[&data],

@@ -76,9 +76,11 @@ impl Relation {
     }
 
     fn has_field(&self, field: &Ident) -> bool {
-        self.event
-            .as_ref()
-            .map_or(false, |event| event.has_field(field))
+        self.get_field(field).is_some()
+    }
+
+    fn get_field(&self, field: &Ident) -> Option<&abi::Parameter> {
+        self.event.as_ref().and_then(|event| event.get_field(field))
     }
 
     fn select_field(&mut self, field: &Ident) {
@@ -187,15 +189,20 @@ impl UserQuery {
         Ok(())
     }
 
-    fn get_relation(&mut self, id: &Ident) -> Option<&mut Relation> {
-        self.relations.iter_mut().find(|rel| rel.named(id))
+    fn get_relation(&self, id: &Ident) -> Option<&Relation> {
+        self.relations.iter().find(|rel| rel.named(id))
     }
 
-    fn get_param(&mut self, expr: &ast::Expr) -> Option<abi::Parameter> {
+    fn get_param(&self, expr: &ast::Expr) -> Option<&abi::Parameter> {
         let idents = expr.collect();
         match idents.len() {
-            1 => todo!(),
-            2 => todo!(),
+            1 => self
+                .relations
+                .iter()
+                .find_map(|rel| rel.get_field(&idents[0])),
+            2 => self
+                .get_relation(&idents[0])
+                .and_then(|rel| rel.get_field(&idents[1])),
             _ => None,
         }
     }
@@ -350,7 +357,7 @@ impl UserQuery {
     fn rewrite_literal(
         &mut self,
         expr: &mut ast::Expr,
-        parameter: abi::Parameter,
+        parameter: &abi::Parameter,
         compact: bool,
     ) -> Result<(), api::Error> {
         let data = match expr {
@@ -407,12 +414,12 @@ impl UserQuery {
         right: &mut Box<ast::Expr>,
     ) -> Result<(), api::Error> {
         if let Some(param) = self.get_param(left) {
-            self.rewrite_literal(right, param, false)?;
+            self.rewrite_literal(right, &param.clone(), false)?;
         }
         if left.last().map_or(false, |v| v.to_string() == "address") {
             self.rewrite_literal(
                 right,
-                abi::Parameter::Address {
+                &abi::Parameter::Address {
                     name: None,
                     indexed: None,
                 },
@@ -422,7 +429,7 @@ impl UserQuery {
         if left.last().map_or(false, |v| v.to_string() == "tx_hash") {
             self.rewrite_literal(
                 right,
-                abi::Parameter::Bytes {
+                &abi::Parameter::Bytes {
                     name: None,
                     indexed: None,
                     size: Some(32),
@@ -433,7 +440,7 @@ impl UserQuery {
         if left.last().map_or(false, |v| v.to_string() == "topics") {
             self.rewrite_literal(
                 right,
-                abi::Parameter::Bytes {
+                &abi::Parameter::Bytes {
                     name: None,
                     indexed: None,
                     size: Some(32),
@@ -544,7 +551,7 @@ impl UserQuery {
                 Ok(())
             }
             ast::Expr::CompoundIdentifier(idents) if idents.len() == 2 => {
-                if let Some(rel) = self.get_relation(&idents[0]) {
+                if let Some(rel) = self.relations.iter_mut().find(|rel| rel.named(&idents[0])) {
                     rel.select_field(&idents[1]);
                 }
                 Ok(())
