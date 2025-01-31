@@ -458,7 +458,11 @@
           let tr = document.createElement("tr");
           row.forEach((col, i) => {
             let td = document.createElement("td");
-            td.textContent = col;
+            if (Array.isArray(col) || (typeof col === 'object' && col !== null)) {
+              td.textContent = JSON.stringify(col);
+            } else {
+              td.textContent = col;
+            }
             tr.appendChild(td);
           });
           if (shouldAppend) {
