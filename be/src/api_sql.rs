@@ -6,7 +6,7 @@ use std::{
 
 use alloy::{
     hex,
-    primitives::{Bytes, U64},
+    primitives::{Bytes, I256, U64},
 };
 use axum::{
     extract::State,
@@ -27,7 +27,7 @@ use tokio_postgres::types::Type;
 
 use crate::{
     api::{self, ChainOptionExt},
-    gafe, query, s256,
+    gafe, query,
 };
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
@@ -214,7 +214,7 @@ fn handle_rows(rows: Vec<tokio_postgres::Row>) -> Result<Rows, api::Error> {
                     Value::Bool(b)
                 }
                 Type::NUMERIC => {
-                    let n: Option<s256::Int> = row.get(idx);
+                    let n: Option<I256> = row.get(idx);
                     match n {
                         Some(n) => Value::String(n.to_string()),
                         None => Value::Null,
@@ -242,10 +242,6 @@ fn handle_rows(rows: Vec<tokio_postgres::Row>) -> Result<Rows, api::Error> {
                 Type::TEXT => {
                     let s: String = row.get(idx);
                     Value::String(s)
-                }
-                Type::NUMERIC_ARRAY => {
-                    let nums: Vec<s256::Int> = row.get(idx);
-                    serde_json::json!(nums.iter().map(|n| n.to_string()).collect::<Vec<String>>())
                 }
                 Type::BYTEA_ARRAY => {
                     let arrays: Vec<Vec<u8>> = row.get::<usize, Vec<Vec<u8>>>(idx);
