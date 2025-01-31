@@ -331,8 +331,8 @@ impl Parameter {
         if let Self::Tuple { components, .. } = self {
             components
                 .iter()
+                .filter(|param| param.indexed())
                 .enumerate()
-                .filter(|(_, param)| param.indexed())
                 .map(|(pos, param)| (param.name(), format!("topics[{}]", pos + 2)))
                 .collect()
         } else {

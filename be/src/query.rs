@@ -948,26 +948,25 @@ mod tests {
     #[tokio::test]
     async fn test_topics() {
         check_sql(
-            vec!["Transfer(address indexed from, address indexed to, uint indexed tokens)"],
+            vec!["Foo(bytes a, address indexed b, address indexed c, uint indexed d)"],
             r#"
-                select tokens
-                from transfer
-                where "from" = 0x00000000000000000000000000000000deadbeef
-                and tokens > 1
+                select d
+                from foo
+                where b = 0x00000000000000000000000000000000deadbeef and d > 1
             "#,
             r#"
-                with transfer as not materialized (
+                with foo as not materialized (
                     select
-                        topics[2] as "from",
-                        topics[4] as tokens
+                        topics[2] as b,
+                        topics[4] as d
                     from logs
                     where chain = 1
-                    and topics [1] = '\xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
+                    and topics [1] = '\x72eae38a3ba453587e882ca855750801146201259c8660a1ff0804b765331e9e'
                 )
-                select abi_uint(tokens) as tokens
-                from transfer
-                where "from" = '\x00000000000000000000000000000000000000000000000000000000deadbeef'
-                and tokens > '\x0000000000000000000000000000000000000000000000000000000000000001'
+                select abi_uint(d) as d
+                from foo
+                where b = '\x00000000000000000000000000000000000000000000000000000000deadbeef'
+                and d > '\x0000000000000000000000000000000000000000000000000000000000000001'
             "#,
         ).await;
     }
