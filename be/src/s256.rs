@@ -9,12 +9,6 @@ pub enum Int {
     Neg(U256),
 }
 
-impl Int {
-    pub fn try_from_be_slice(_input: &[u8]) -> Option<Int> {
-        Some(Int::Pos(U256::from(42)))
-    }
-}
-
 impl fmt::Display for Int {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

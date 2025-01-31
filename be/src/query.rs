@@ -8,7 +8,7 @@ use sqlparser::{
     ast::{self, Ident},
     parser::Parser,
 };
-use std::{collections::HashSet, ops::Deref, str::FromStr};
+use std::{collections::HashSet, str::FromStr};
 
 use crate::{
     abi::{self},
@@ -75,17 +75,18 @@ impl Relation {
             || self.table_alias.contains(other)
     }
 
-    fn has_field(&self, field: &Ident) -> bool {
-        self.get_field(field).is_some()
-    }
-
     fn get_field(&self, field: &Ident) -> Option<&abi::Parameter> {
         self.event.as_ref().and_then(|event| event.get_field(field))
     }
 
-    fn select_field(&mut self, field: &Ident) {
-        if self.has_field(field) || METADATA.contains(&field.to_string().as_str()) {
+    /// Inserts the field into selected_fields if the fields name is on the event or in metadata
+    /// The field's name is lowercased when compared to the event fields.
+    fn select_field(&mut self, field: &Ident) -> bool {
+        if self.get_field(field).is_some() || METADATA.contains(&field.to_string().as_str()) {
             self.selected_fields.insert(field.clone());
+            true
+        } else {
+            false
         }
     }
 
@@ -95,14 +96,18 @@ impl Relation {
         res.push("select".to_string());
         let mut select_list = Vec::new();
         self.selected_fields.iter().sorted().for_each(|f| {
-            select_list.push(f.to_string());
+            if METADATA.contains(&f.to_string().as_str()) {
+                select_list.push(f.to_string());
+            }
         });
         if let Some(event) = &self.event {
-            for (ident, sql) in event.topics_sql() {
-                select_list.push(format!("{} as {}", sql, ident));
-            }
-            for (ident, sql) in event.data_sql() {
-                select_list.push(format!("{} as {}", sql, ident));
+            let statements = event.sql();
+            for selected in self.selected_fields.iter().sorted() {
+                let mut unquoted = selected.clone();
+                unquoted.quote_style = None;
+                if let Some(sql) = statements.get(&unquoted) {
+                    select_list.push(format!("{} as {}", sql, selected));
+                }
             }
         }
         res.push(select_list.join(","));
@@ -125,12 +130,7 @@ struct UserQuery {
 
 impl UserQuery {
     fn new(event_sigs: &[&str]) -> Result<UserQuery, api::Error> {
-        let mut relations = vec![Relation {
-            event: None,
-            table_name: Ident::new("logs"),
-            table_alias: HashSet::new(),
-            selected_fields: HashSet::new(),
-        }];
+        let mut relations = vec![];
         for sig in event_sigs.iter().filter(|s| !s.is_empty()) {
             let event = abi::Event::parse(sig)
                 .map_err(|_| api::Error::User(format!("unable to parse event: {}", sig)))?;
@@ -141,6 +141,12 @@ impl UserQuery {
                 event: Some(event),
             });
         }
+        relations.push(Relation {
+            event: None,
+            table_name: Ident::new("logs"),
+            table_alias: HashSet::new(),
+            selected_fields: HashSet::new(),
+        });
         Ok(UserQuery { relations })
     }
 
@@ -270,29 +276,6 @@ impl UserQuery {
             });
         }
         match &self.get_param(expr)? {
-            abi::Parameter::Array {
-                length: None,
-                element,
-                ..
-            } => match element.deref() {
-                abi::Parameter::Bytes { size: Some(_), .. } => Some(wrap_function_arg(
-                    expr.last(),
-                    ast::Ident::new("abi_fixed_bytes_array"),
-                    expr.clone(),
-                    number_arg(32),
-                )),
-                abi::Parameter::Int { .. } => Some(wrap_function(
-                    expr.last(),
-                    ast::Ident::new("abi_int_array"),
-                    expr.clone(),
-                )),
-                abi::Parameter::Uint { .. } => Some(wrap_function(
-                    expr.last(),
-                    ast::Ident::new("abi_uint_array"),
-                    expr.clone(),
-                )),
-                _ => None,
-            },
             abi::Parameter::Address { .. } => Some(wrap_function(
                 expr.last(),
                 ast::Ident::new("abi_address"),
@@ -545,15 +528,14 @@ impl UserQuery {
     fn validate_expression(&mut self, expr: &mut ast::Expr) -> Result<(), api::Error> {
         match expr {
             ast::Expr::Identifier(ident) => {
-                if let Some(rel) = self.relations.iter_mut().find(|rel| rel.has_field(ident)) {
-                    rel.select_field(ident);
-                }
+                self.relations.iter_mut().any(|rel| rel.select_field(ident));
                 Ok(())
             }
             ast::Expr::CompoundIdentifier(idents) if idents.len() == 2 => {
-                if let Some(rel) = self.relations.iter_mut().find(|rel| rel.named(&idents[0])) {
-                    rel.select_field(&idents[1]);
-                }
+                self.relations
+                    .iter_mut()
+                    .find(|rel| rel.named(&idents[0]))
+                    .map(|rel| rel.select_field(&idents[1]));
                 Ok(())
             }
             ast::Expr::IsFalse(_) => Ok(()),
@@ -778,39 +760,6 @@ fn wrap_function(
     }
 }
 
-fn number_arg(i: u64) -> ast::FunctionArg {
-    ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Expr(ast::Expr::Value(
-        ast::Value::Number(i.to_string(), false),
-    )))
-}
-
-fn expr_arg(expr: ast::Expr) -> ast::FunctionArg {
-    ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Expr(expr))
-}
-
-fn wrap_function_arg(
-    alias: Option<ast::Ident>,
-    outer: ast::Ident,
-    inner: ast::Expr,
-    arg: ast::FunctionArg,
-) -> ast::ExprWithAlias {
-    ast::ExprWithAlias {
-        alias,
-        expr: ast::Expr::Function(ast::Function {
-            name: ast::ObjectName(vec![outer]),
-            args: ast::FunctionArguments::List(ast::FunctionArgumentList {
-                args: vec![expr_arg(inner), arg],
-                clauses: vec![],
-                duplicate_treatment: None,
-            }),
-            null_treatment: None,
-            filter: None,
-            over: None,
-            within_group: vec![],
-        }),
-    }
-}
-
 fn extract_function_arg(function: &ast::Function) -> Option<ast::Expr> {
     if let ast::FunctionArguments::List(list) = &function.args {
         if list.args.is_empty() {
@@ -920,7 +869,7 @@ mod tests {
                         abi_fixed_bytes(data, 32, 32) AS b,
                         abi_bytes(abi_dynamic(data, 64)) AS c,
                         abi_fixed_bytes(data, 96, 32) AS d,
-                        abi_dynamic(data, 128) AS e,
+                        abi2json(abi_dynamic(data, 128), 'int256[] e') AS e,
                         abi_fixed_bytes(data, 192, 32) AS g
                     from logs
                     where chain = 1
@@ -931,7 +880,7 @@ mod tests {
                     b,
                     c,
                     abi_int(d) AS d,
-                    abi_int_array(e) AS e,
+                    e,
                     abi_bool(g) AS g
                 from foo
                 where g = '\x0000000000000000000000000000000000000000000000000000000000000001'
@@ -1161,15 +1110,13 @@ mod tests {
                 with foo as not materialized (
                     select
                         topics[2] as a,
-                        abi_dynamic(data, 0) AS b,
-                        abi_dynamic(data, 32) AS c
+                        abi2json(abi_dynamic(data, 0), 'uint256[] b') AS b,
+                        abi2json(abi_dynamic(data, 32), 'int256[] c') AS c
                     from logs
                     where chain = 1
                     and topics [1] = '\xc64a40e125a06afb756e3721cfa09bbcbccf1703151b93b4b303bb1a4198b2ea'
                 )
-                select
-                    abi_uint_array(b) AS b,
-                    abi_int_array(c) AS c
+                select b, c
                 from foo
                 where a = '\x00000000000000000000000000000000000000000000000000000000deadbeef'
             "#,
@@ -1328,7 +1275,8 @@ mod tests {
             r#"select c->>'d' from foo"#,
             r#"
                 with foo as not materialized (
-                    select abi2json(data, '(uint256,bytes)') AS c
+                    select
+                    abi2json(abi_dynamic(data, 64), '(uint256 d,bytes e)') AS c
                     from logs
                     where chain = 1
                     and topics [1] = '\x851f2bcfcac86844a44298d8354312295b246183022d51c76398d898d87014fc'
@@ -1359,12 +1307,12 @@ mod tests {
                     select
                         address,
                         block_num,
+                        abi2json(abi_dynamic(data, 64), 'int256[] embedding') AS "embedding",
                         topics[2] as "marketId",
                         topics[3] as "predictionId",
                         topics[4] as "predictor",
-                        abi_fixed_bytes(data, 0, 32) as "value",
-                        abi_bytes(abi_dynamic(data, 32)) as "text",
-                        abi_dynamic(data, 64) as "embedding"
+                        abi_bytes(abi_dynamic(data, 32)) AS "text",
+                        abi_fixed_bytes(data, 0, 32) AS "value"
                     from logs
                     where chain = 1
                     and topics[1] = '\xce9c0df4181cf7f57cf163a3bc9d3102b1af09f4dcfed92644a72f5ca70fdfdf'
@@ -1375,9 +1323,9 @@ mod tests {
                     abi_uint("marketId") AS "marketId",
                     abi_uint("predictionId") AS "predictionId",
                     abi_address("predictor") AS "predictor",
-                    abi_uint("value") as "value",
-                    abi_string("text") as "text",
-                    abi_int_array("embedding") as "embedding"
+                    abi_uint("value") AS "value",
+                    abi_string("text") AS "text",
+                    "embedding"
                 FROM predictionadded
                 WHERE address = '\x6e5310add12a6043fee1fbdc82366dcab7f5ad15'
             "#,
@@ -1392,18 +1340,18 @@ mod tests {
             r#"
                 with store_setrecord as not materialized (
                     select
-                        topics [2] as tableid,
-                        abi_dynamic(data, 0) as keytuple,
-                        abi_bytes(abi_dynamic(data, 32)) as staticdata,
+                        abi_bytes(abi_dynamic(data, 96)) as dynamicdata,
                         abi_fixed_bytes(data, 64, 32) as encodedlengths,
-                        abi_bytes(abi_dynamic(data, 96)) as dynamicdata
+                        abi2json(abi_dynamic(data, 0), 'bytes32[] keyTuple') AS keyTuple,
+                        abi_bytes(abi_dynamic(data, 32)) as staticdata,
+                        topics [2] as tableid
                     from logs
                     where chain = 1
                     and topics [1] = '\x8dbb3a9672eebfd3773e72dd9c102393436816d832c7ba9e1e1ac8fcadcac7a9'
                 )
                 select
                     tableid,
-                    abi_fixed_bytes_array(keytuple, 32) as keytuple,
+                    keytuple,
                     staticdata,
                     encodedlengths,
                     dynamicdata

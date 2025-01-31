@@ -347,7 +347,7 @@ mod tests {
             .add_raw_query_param(&serde_html_form::to_string(&request).unwrap())
             .await;
         resp.assert_text_contains(
-            r#"You are attempting to query 'bar' but it isn't defined. Possible events to query are: 'logs, foo'""#
+            r#"You are attempting to query 'bar' but it isn't defined. Possible events to query are: 'foo, logs'""#
         );
     }
 }

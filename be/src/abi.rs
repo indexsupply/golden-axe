@@ -1,14 +1,12 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 use alloy::{
     hex::ToHexExt,
-    primitives::{keccak256, FixedBytes, U256, U64},
+    primitives::{keccak256, FixedBytes, I256, U256, U64},
 };
 use eyre::{eyre, OptionExt, Result};
 use itertools::Itertools;
 use sqlparser::ast::Ident;
-
-use crate::s256;
 
 #[derive(Debug)]
 pub struct Event {
@@ -25,31 +23,30 @@ impl Event {
             None => (input, ""),
         };
         Ok(Event {
-            name: Ident::new(name),
+            name: Ident::new(name.trim()),
             fields: Token::parse(&mut Token::lex(tuple_desc)?)?,
         })
     }
 
     pub fn get_field(&self, id: &Ident) -> Option<&Parameter> {
         match &self.fields {
-            Parameter::Tuple { components, .. } => components.iter().find(|c| c.name() == *id),
+            Parameter::Tuple { components, .. } => components
+                .iter()
+                .find(|c| c.name().value.to_lowercase() == id.value.to_lowercase()),
             _ => None,
         }
     }
 
-    pub fn has_field(&self, id: &Ident) -> bool {
-        match &self.fields {
-            Parameter::Tuple { components, .. } => components.iter().any(|c| c.name() == *id),
-            _ => false,
-        }
+    pub fn sql(&self) -> HashMap<Ident, String> {
+        self.fields
+            .topics_sql()
+            .into_iter()
+            .chain(self.fields.data_sql("data"))
+            .collect()
     }
 
-    pub fn topics_sql(&self) -> Vec<(Ident, String)> {
-        self.fields.topics_sql()
-    }
-
-    pub fn data_sql(&self) -> Vec<(Ident, String)> {
-        self.fields.data_sql("data")
+    pub fn signature(&self) -> String {
+        format!("{}{:#}", self.name, self.fields)
     }
 
     pub fn sighash(&self) -> FixedBytes<32> {
@@ -371,9 +368,10 @@ impl Parameter {
                             inner, pos, component
                         ),
                     ),
-                    Parameter::Bytes { size: None, .. } | Parameter::String { .. } => {
-                        (component.name(), format!("abi_dynamic({}, {})", inner, pos))
-                    }
+                    Parameter::Bytes { size: None, .. } | Parameter::String { .. } => (
+                        component.name(),
+                        format!("abi_bytes(abi_dynamic({}, {}))", inner, pos),
+                    ),
                     Parameter::Address { .. }
                     | Parameter::Bool { .. }
                     | Parameter::Bytes { size: Some(_), .. }
@@ -530,7 +528,7 @@ pub fn to_json(input: &[u8], param: &Parameter) -> Result<serde_json::Value> {
             size: Some(size), ..
         } => Ok(input.get_static(0, *size)?.encode_hex().into()),
         Parameter::String { .. } => Ok(String::from_utf8(input.get_dynamic(0)?.to_vec())?.into()),
-        Parameter::Int { .. } => Ok(s256::Int::try_from_be_slice(input.get_static(0, 32)?)
+        Parameter::Int { .. } => Ok(I256::try_from_be_slice(input.get_static(0, 32)?)
             .ok_or_eyre("decoding i256")?
             .to_string()
             .into()),
@@ -645,6 +643,8 @@ mod json_tests {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use alloy::{hex::ToHexExt, primitives::hex, sol_types::SolEvent};
     use assert_json_diff::assert_json_eq;
 
@@ -827,6 +827,19 @@ mod tests {
     #[test]
     fn test_parse() {
         assert_eq!(
+            Parameter::parse("int256[] a").unwrap(),
+            Parameter::Array {
+                name: Some(ident!("a")),
+                indexed: None,
+                length: None,
+                element: Box::new(Parameter::Int {
+                    name: None,
+                    indexed: None,
+                    bits: 256
+                })
+            },
+        );
+        assert_eq!(
             Token::parse(&mut Token::lex("(int a, (int b, int[])[])").unwrap()).unwrap(),
             Parameter::Tuple {
                 name: None,
@@ -871,24 +884,25 @@ mod tests {
     #[test]
     fn test_to_sql() {
         assert_eq!(
-            vec![(ident!("b"), String::from("abi_dynamic(data, 0)"))],
-            Event::parse("foo(int indexed a, bytes b)")
-                .unwrap()
-                .data_sql()
+            HashMap::from([
+                (ident!("a"), String::from("topics[2]")),
+                (ident!("b"), String::from("abi_bytes(abi_dynamic(data, 0))"))
+            ]),
+            Event::parse("foo(int indexed a, bytes b)").unwrap().sql()
         );
         assert_eq!(
-            vec![(ident!("a"), String::from("abi_fixed_bytes(data, 0, 32)"))],
-            Event::parse("foo(int a)").unwrap().data_sql()
+            HashMap::from([(ident!("a"), String::from("abi_fixed_bytes(data, 0, 32)"))]),
+            Event::parse("foo(int a)").unwrap().sql()
         );
         assert_eq!(
-            vec![(
+            HashMap::from([(
                 ident!("a"),
                 String::from("abi2json(abi_dynamic(data, 0), '(bytes b,int256 c)')")
-            )],
-            Event::parse("foo((bytes b, int c) a)").unwrap().data_sql()
+            )]),
+            Event::parse("foo((bytes b, int c) a)").unwrap().sql()
         );
         assert_eq!(
-            vec![
+            HashMap::from([
                 (
                     ident!("a"),
                     String::from("abi2json(abi_dynamic(data, 0), '(bytes b)')")
@@ -897,10 +911,8 @@ mod tests {
                     ident!("c"),
                     String::from("abi2json(abi_fixed_bytes(data, 32, 32), '(uint256 d)')")
                 )
-            ],
-            Event::parse("((bytes b) a, (uint d) c) foo")
-                .unwrap()
-                .data_sql()
+            ]),
+            Event::parse("((bytes b) a, (uint d) c) foo").unwrap().sql()
         );
     }
 
@@ -936,12 +948,12 @@ mod tests {
             "#
         );
         let event = Event::parse("IntentFinished(address indexed intentAddr, address indexed destinationAddr, bool indexed success,(uint256 toChainId, (address token, uint256 amount)[] bridgeTokenOutOptions, (address token, uint256 amount) finalCallToken, (address to, uint256 value, bytes data) finalCall, address escrow, address refundAddress, uint256 nonce) intent)").unwrap();
-        let query = dbg!(event.data_sql());
+        let query = event.sql();
         let row = pg
             .query_one(
                 &format!(
                     "with x as (select $1::bytea as data) select {} from x",
-                    &query[0].1
+                    &query.get(&ident!("intent")).unwrap(),
                 ),
                 &[&data],
             )
@@ -1035,12 +1047,12 @@ mod tests {
             "#
         );
         let event = Event::parse("Foo((string b, string[] c, string[] d)[] a)").unwrap();
-        let query = event.data_sql();
+        let query = event.sql();
         let row = pg
             .query_one(
                 &format!(
                     "with x as (select $1::bytea as data) select {} from x",
-                    &query[0].1
+                    &query.get(&ident!("a")).unwrap()
                 ),
                 &[&data],
             )
