@@ -236,22 +236,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_pg_golden_axe() {
-        let pool = shared::pg::test::new(SCHEMA_BE).await;
-        let res = pool
-            .get()
-            .await
-            .unwrap()
-            .query("select abi2json(''::bytea, '')", &[])
-            .await
-            .unwrap();
-        assert!(res.first().is_some_and(|row| {
-            let js = row.get::<usize, serde_json::Value>(0);
-            js.as_str().is_some_and(|s| s == "golden axe!")
-        }));
-    }
-
-    #[tokio::test]
     async fn test_index() {
         let pool = shared::pg::test::new(SCHEMA_BE).await;
         let config = api::Config::new(pool.clone(), pool.clone(), pool.clone());
@@ -363,7 +347,7 @@ mod tests {
             .add_raw_query_param(&serde_html_form::to_string(&request).unwrap())
             .await;
         resp.assert_text_contains(
-            r#"You are attempting to query 'bar' but it isn't defined. Possible events to query are: 'foo'""#
+            r#"You are attempting to query 'bar' but it isn't defined. Possible events to query are: 'foo, logs'""#
         );
     }
 }

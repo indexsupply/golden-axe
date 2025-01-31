@@ -1,4 +1,4 @@
-create extension pg_golden_axe;
+create extension if not exists pg_golden_axe;
 
 create table if not exists blocks(
     chain int8 not null,

@@ -34,7 +34,7 @@ struct UserQuery {
 
 impl UserQuery {
     pub fn gen_sql(mut self) -> UserQuery {
-        self.generated_sql = be::sql_generate::query(
+        self.generated_sql = be::query::sql(
             self.chain,
             None,
             &self.sql,

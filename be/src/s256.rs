@@ -1,7 +1,7 @@
 use std::fmt;
 
 use alloy::primitives::U256;
-use eyre::eyre;
+use eyre::{eyre, Result};
 use tokio_postgres::types::{FromSql, Type};
 
 pub enum Int {
