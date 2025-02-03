@@ -6,7 +6,7 @@ use std::{
 
 use alloy::{
     hex,
-    primitives::{Bytes, I256, U64},
+    primitives::{I256, U64},
 };
 use axum::{
     extract::State,
@@ -20,7 +20,6 @@ use axum_extra::extract::Form;
 use deadpool_postgres::Pool;
 use eyre::{Context, Result};
 use futures::Stream;
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio_postgres::types::Type;
@@ -242,13 +241,6 @@ fn handle_rows(rows: Vec<tokio_postgres::Row>) -> Result<Rows, api::Error> {
                 Type::TEXT => {
                     let s: String = row.get(idx);
                     Value::String(s)
-                }
-                Type::BYTEA_ARRAY => {
-                    let arrays: Vec<Vec<u8>> = row.get::<usize, Vec<Vec<u8>>>(idx);
-                    serde_json::json!(arrays
-                        .iter()
-                        .map(|array| Bytes::copy_from_slice(array))
-                        .collect_vec())
                 }
                 Type::JSON | Type::JSONB => row.get::<usize, serde_json::Value>(idx),
                 _ => Value::Null,

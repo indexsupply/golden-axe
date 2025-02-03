@@ -597,7 +597,7 @@ impl UserQuery {
 
     fn validate_function(&mut self, function: &mut ast::Function) -> Result<(), api::Error> {
         let name = function.name.to_string().to_lowercase();
-        const VALID_FUNCS: [&str; 15] = [
+        const VALID_FUNCS: [&str; 12] = [
             "min",
             "max",
             "sum",
@@ -609,9 +609,6 @@ impl UserQuery {
             "abi_address",
             "abi_uint",
             "abi_int",
-            "abi_uint_array",
-            "abi_int_array",
-            "abi_fixed_bytes_array",
             "abi_string",
         ];
         if !VALID_FUNCS.contains(&name.as_str()) {

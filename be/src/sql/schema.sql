@@ -49,19 +49,6 @@ begin
 end;
 $$ language plpgsql immutable strict;
 
-create or replace function abi_uint_array(input bytea) returns numeric[] as $$
-declare
-	length int;
-    result numeric[] = array[]::numeric[];
-begin
-	length := b2i(substring(input from 29 for 4));
-    for i in 0..(length - 1) loop
-        result := array_append(result, abi_uint(substring(input from (1 + 32) + (i * 32) for 32)));
-    end loop;
-    return result;
-end;
-$$ language plpgsql immutable strict;
-
 create or replace function abi_int(b bytea) returns numeric as $$
 declare
     n numeric := 0;
@@ -87,19 +74,6 @@ begin
     return n;
 end;
 $$ language plpgsql strict immutable parallel safe cost 1;
-
-create or replace function abi_int_array(input bytea) returns numeric[] as $$
-declare
-	length int;
-    result numeric[] = array[]::numeric[];
-begin
-	length := b2i(substring(input from 29 for 4));
-    for i in 0..(length - 1) loop
-        result := array_append(result, abi_int(substring(input from (1 + 32) + (i * 32) for 32)));
-    end loop;
-    return result;
-end;
-$$ language plpgsql immutable strict parallel safe cost 1;
 
 create or replace function abi_dynamic(input bytea, pos int) returns bytea as $$
 declare
@@ -149,20 +123,6 @@ begin
 	return substring(input from (1 + 32) for length);
 end;
 $$ language plpgsql immutable strict;
-
-create or replace function abi_fixed_bytes_array(input bytea, size int)
-returns bytea[] as $$
-declare
-    length int;
-    result bytea[] = array[]::bytea[];
-begin
-	length := b2i(substring(input from 29 for 4));
-    for i in 0..(length - 1) loop
-        result := array_append(result, substring(input from (1 + 32) + (i * size) for size));
-    end loop;
-    return result;
-end;
-$$ language plpgsql;
 
 create or replace function h2s(input bytea) returns text
     language sql immutable
