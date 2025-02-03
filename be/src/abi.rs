@@ -385,6 +385,66 @@ impl Parameter {
             _ => vec![],
         }
     }
+
+    pub fn to_json(&self, input: &[u8]) -> Result<serde_json::Value> {
+        match self {
+            Parameter::Array {
+                element, length, ..
+            } => Ok(serde_json::Value::Array(
+                (0..length.unwrap_or(input.next_usize(0)?))
+                    .map(|i| {
+                        // When length is dynamic, the first 32 bytes are
+                        // designated for the actual length of the array
+                        // the range creation preceding map(...) has read the
+                        // 32 byte length description.
+                        let input = length.map_or(&input[32..], |_| input);
+                        if element.is_static() {
+                            Ok(element
+                                .to_json(input.get_static(i * element.size(), element.size())?)?)
+                        } else {
+                            Ok(element.to_json(input.skip_to(32 * i)?)?)
+                        }
+                    })
+                    .collect::<Result<_>>()?,
+            )),
+            Parameter::Tuple { components, .. } => Ok(serde_json::Value::Object(
+                components
+                    .iter()
+                    .filter(|p| !p.indexed())
+                    .scan(0, |offset, c| {
+                        let i = *offset;
+                        *offset += c.size();
+                        Some((i, c))
+                    })
+                    .map(|(i, c)| {
+                        let field = if c.is_static() {
+                            c.to_json(input.get_static(i, c.size())?)?
+                        } else {
+                            c.to_json(input.skip_to(i)?)?
+                        };
+                        Ok((c.name().to_string(), field))
+                    })
+                    .collect::<Result<_>>()?,
+            )),
+            Parameter::Address { .. } => Ok(input.get_static(12, 20)?.encode_hex().into()),
+            Parameter::Bool { .. } => Ok((input.get_static(31, 1)?[0] == 1).into()),
+            Parameter::Bytes { size: None, .. } => Ok(input.get_dynamic(0)?.encode_hex().into()),
+            Parameter::Bytes {
+                size: Some(size), ..
+            } => Ok(input.get_static(0, *size)?.encode_hex().into()),
+            Parameter::String { .. } => {
+                Ok(String::from_utf8(input.get_dynamic(0)?.to_vec())?.into())
+            }
+            Parameter::Int { .. } => Ok(I256::try_from_be_slice(input.get_static(0, 32)?)
+                .ok_or_eyre("decoding i256")?
+                .to_string()
+                .into()),
+            Parameter::Uint { .. } => Ok(U256::try_from_be_slice(input.get_static(0, 32)?)
+                .ok_or_eyre("decoding u256")?
+                .to_string()
+                .into()),
+        }
+    }
 }
 
 impl std::fmt::Display for Parameter {
@@ -479,71 +539,10 @@ impl AbiBytes for &[u8] {
     }
 }
 
-pub fn to_json(input: &[u8], param: &Parameter) -> Result<serde_json::Value> {
-    match param {
-        Parameter::Array {
-            element, length, ..
-        } => Ok(serde_json::Value::Array(
-            (0..length.unwrap_or(input.next_usize(0)?))
-                .map(|i| {
-                    // When length is dynamic, the first 32 bytes are
-                    // designated for the actual length of the array
-                    // the range creation preceding map(...) has read the
-                    // 32 byte length description.
-                    let input = length.map_or(&input[32..], |_| input);
-                    if element.is_static() {
-                        Ok(to_json(
-                            input.get_static(i * element.size(), element.size())?,
-                            element,
-                        )?)
-                    } else {
-                        Ok(to_json(input.skip_to(32 * i)?, element)?)
-                    }
-                })
-                .collect::<Result<_>>()?,
-        )),
-        Parameter::Tuple { components, .. } => Ok(serde_json::Value::Object(
-            components
-                .iter()
-                .filter(|p| !p.indexed())
-                .scan(0, |offset, c| {
-                    let i = *offset;
-                    *offset += c.size();
-                    Some((i, c))
-                })
-                .map(|(i, c)| {
-                    let field = if c.is_static() {
-                        to_json(input.get_static(i, c.size())?, c)?
-                    } else {
-                        to_json(input.skip_to(i)?, c)?
-                    };
-                    Ok((c.name().to_string(), field))
-                })
-                .collect::<Result<_>>()?,
-        )),
-        Parameter::Address { .. } => Ok(input.get_static(12, 20)?.encode_hex().into()),
-        Parameter::Bool { .. } => Ok((input.get_static(31, 1)?[0] == 1).into()),
-        Parameter::Bytes { size: None, .. } => Ok(input.get_dynamic(0)?.encode_hex().into()),
-        Parameter::Bytes {
-            size: Some(size), ..
-        } => Ok(input.get_static(0, *size)?.encode_hex().into()),
-        Parameter::String { .. } => Ok(String::from_utf8(input.get_dynamic(0)?.to_vec())?.into()),
-        Parameter::Int { .. } => Ok(I256::try_from_be_slice(input.get_static(0, 32)?)
-            .ok_or_eyre("decoding i256")?
-            .to_string()
-            .into()),
-        Parameter::Uint { .. } => Ok(U256::try_from_be_slice(input.get_static(0, 32)?)
-            .ok_or_eyre("decoding u256")?
-            .to_string()
-            .into()),
-    }
-}
-
 #[cfg(test)]
 mod json_tests {
-    use crate::abi::Event;
+    use crate::abi::Parameter;
 
-    use super::to_json;
     use alloy::hex;
     use assert_json_diff::assert_json_eq;
 
@@ -569,9 +568,9 @@ mod json_tests {
             4242000000000000000000000000000000000000000000000000000000000000
             "#
         );
-        let param = Event::parse("Foo((string b, string[] c, string[] d)[] a)").unwrap();
+        let param = Parameter::parse("((string b, string[] c, string[] d)[] a)").unwrap();
         assert_json_eq!(
-            to_json(&data, &param.fields).unwrap(),
+            param.to_json(&data).unwrap(),
             serde_json::json!({"a": [{"b": "BB", "c": ["BB"], "d": ["BB"]}]})
         )
     }
@@ -603,9 +602,9 @@ mod json_tests {
             68656C6C6F000000000000000000000000000000000000000000000000000000
             "#
         );
-        let event = Event::parse("IntentFinished(address indexed intentAddr, address indexed destinationAddr, bool indexed success,(uint256 toChainId, (address token, uint256 amount)[] bridgeTokenOutOptions, (address token, uint256 amount) finalCallToken, (address to, uint256 value, bytes data) finalCall, address escrow, address refundAddress, uint256 nonce) intent)").unwrap();
+        let param =Parameter::parse("(address indexed intentAddr, address indexed destinationAddr, bool indexed success,(uint256 toChainId, (address token, uint256 amount)[] bridgeTokenOutOptions, (address token, uint256 amount) finalCallToken, (address to, uint256 value, bytes data) finalCall, address escrow, address refundAddress, uint256 nonce) intent)").unwrap();
         assert_json_eq!(
-            to_json(&data, &event.fields).unwrap(),
+            param.to_json(&data).unwrap(),
             serde_json::json!({
                 "intent": {
                     "toChainId": "8453",

@@ -5,7 +5,10 @@ use pgrx::prelude::*;
 
 #[pg_extern(immutable, parallel_safe)]
 fn abi2json(data: &[u8], desc: &str) -> pgrx::JsonB {
-    let param = abi::Parameter::parse(desc).expect("unable to parse abi signature");
-    let parsed = abi::to_json(data, &param).expect("unable to decode");
-    pgrx::JsonB(parsed)
+    pgrx::JsonB(
+        abi::Parameter::parse(desc)
+            .expect("unable to parse abi signature")
+            .to_json(data)
+            .expect("decoding abi data"),
+    )
 }
