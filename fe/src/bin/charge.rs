@@ -44,15 +44,27 @@ async fn main() {
         let mut amount: i64 = 0;
         for charge in charges {
             amount += charge.amount;
-            line_items.push(format!(
-                "{} Plan {}/{} to {}/{} ${}",
+            let mut desc = format!(
+                "{} Plan {}/{} to {}/{} ${}.",
                 charge.plan,
                 args.month,
                 charge.from,
                 args.month,
                 charge.to,
-                charge.amount as f64 / 100.0
-            ));
+                charge.amount as f64 / 100.0,
+            );
+            if charge.plan == "Indie" {
+                desc.push_str(&format!(
+                    " Chains: {}",
+                    charge
+                        .chains
+                        .iter()
+                        .map(|c| c.to_string())
+                        .collect::<Vec<String>>()
+                        .join(",")
+                ));
+            }
+            line_items.push(desc);
         }
         println!("\n\n-----------\n{}\n", customer.owner_email);
         let description = format!(
@@ -93,6 +105,7 @@ struct Customer {
 #[derive(Debug)]
 struct Charge {
     plan: String,
+    chains: Vec<i64>,
     from: u8,
     to: u8,
     amount: i64,
@@ -110,16 +123,18 @@ async fn query(pool: &Pool, year: u16, month: u8) -> Result<Charges, web::Error>
                 select
                     owner_email,
                     name,
+                    chains,
                     created_at,
                     lead(created_at) over (
                         partition by owner_email
                         order by created_at
-                    ) - '1 day'::interval as stopped_at
+                    ) as stopped_at
                 from plan_changes
             ), with_days as (
                 select
                     owner_email,
                     name,
+                    chains,
                     extract(day from greatest(
                             created_at,
                             date_trunc('month', make_date($1, $2, 1))
@@ -137,6 +152,7 @@ async fn query(pool: &Pool, year: u16, month: u8) -> Result<Charges, web::Error>
                 accounts.owner_email,
                 accounts.stripe_id,
                 INITCAP(plans.name) as name,
+                chains,
                 started_at,
                 stopped_at,
                 (round(plans.amount * ((stopped_at - started_at) + 1) / num_days, 2) * 100)::int8 as amount
@@ -165,6 +181,7 @@ async fn query(pool: &Pool, year: u16, month: u8) -> Result<Charges, web::Error>
             .or_default()
             .push(Charge {
                 plan: row.get("name"),
+                chains: row.get("chains"),
                 from: row.get::<&str, i32>("started_at") as u8,
                 to: row.get::<&str, i32>("stopped_at") as u8,
                 amount: row.get("amount"),
