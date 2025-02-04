@@ -102,3 +102,6 @@ insert into
         (false, 52085143, 'https://rpc-ethena-testnet-0.t.conduit.xyz')
     on conflict(chain)
     do nothing;
+
+create table if not exists plans(name text, amount numeric, primary key (name));
+insert into plans(name, amount) values ('pro', 100), ('indie', 20) on conflict(name) do nothing;
