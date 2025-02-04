@@ -208,40 +208,34 @@ fn handle_rows(rows: Vec<tokio_postgres::Row>) -> Result<Rows, api::Error> {
         let mut json_row: Vec<Value> = Vec::new();
         for (idx, column) in row.columns().iter().enumerate() {
             let value = match *column.type_() {
-                Type::BOOL => {
-                    let b: bool = row.get(idx);
-                    Value::Bool(b)
-                }
-                Type::NUMERIC => {
-                    let n: Option<I256> = row.get(idx);
-                    match n {
-                        Some(n) => Value::String(n.to_string()),
-                        None => Value::Null,
-                    }
-                }
-                Type::INT2 => {
-                    let n: i16 = row.get(idx);
-                    Value::Number(n.into())
-                }
-                Type::INT4 => {
-                    let n: i32 = row.get(idx);
-                    Value::Number(n.into())
-                }
-                Type::INT8 => {
-                    let n: Option<i64> = row.get(idx);
-                    match n {
-                        Some(n) => Value::Number(n.into()),
-                        None => Value::Null,
-                    }
-                }
-                Type::BYTEA => {
-                    let b: &[u8] = row.get(idx);
-                    Value::String(hex::encode_prefixed(b))
-                }
-                Type::TEXT => {
-                    let s: String = row.get(idx);
-                    Value::String(s)
-                }
+                Type::BOOL => match row.get::<usize, Option<bool>>(idx) {
+                    Some(b) => Value::Bool(b),
+                    None => Value::Bool(false),
+                },
+                Type::NUMERIC => match row.get::<usize, Option<I256>>(idx) {
+                    Some(n) => Value::String(n.to_string()),
+                    None => Value::Null,
+                },
+                Type::INT2 => match row.get::<usize, Option<i16>>(idx) {
+                    Some(n) => Value::Number(n.into()),
+                    None => Value::Null,
+                },
+                Type::INT4 => match row.get::<usize, Option<i32>>(idx) {
+                    Some(n) => Value::Number(n.into()),
+                    None => Value::Null,
+                },
+                Type::INT8 => match row.get::<usize, Option<i64>>(idx) {
+                    Some(n) => Value::Number(n.into()),
+                    None => Value::Null,
+                },
+                Type::BYTEA => match row.get::<usize, Option<&[u8]>>(idx) {
+                    Some(b) => Value::String(hex::encode_prefixed(b)),
+                    None => Value::Null,
+                },
+                Type::TEXT => match row.get::<usize, Option<String>>(idx) {
+                    Some(s) => Value::String(s),
+                    None => Value::Null,
+                },
                 Type::JSON | Type::JSONB => row.get::<usize, serde_json::Value>(idx),
                 _ => Value::Null,
             };
