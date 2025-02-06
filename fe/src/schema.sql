@@ -18,8 +18,14 @@ create table if not exists accounts(
 );
 
 create table if not exists plan_changes (
+    id bigserial unique,
     owner_email text not null,
     name text not null,
+    amount int8,
+    daimo_id text,
+    daimo_tx text,
+    stripe_session text,
+    stripe_customer text,
     chains bigint[] not null default '{}',
     rate int default 10,
     timeout int default 10,

@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-use crate::web;
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Query {
     pub chain: u64,
@@ -17,7 +15,7 @@ pub struct Query {
 pub async fn user_history(
     pg: &tokio_postgres::Client,
     owner_email: &str,
-) -> Result<Vec<Query>, web::Error> {
+) -> Result<Vec<Query>, shared::Error> {
     Ok(pg
         .query(
             "

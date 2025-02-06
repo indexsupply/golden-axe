@@ -6,7 +6,7 @@ use std::{
 use clap::Parser;
 use deadpool_postgres::Pool;
 use eyre::Result;
-use fe::{postmark, stripe, web};
+use fe::{postmark, stripe};
 
 #[derive(Parser)]
 struct Args {
@@ -113,7 +113,7 @@ struct Charge {
 
 type Charges = HashMap<Customer, Vec<Charge>>;
 
-async fn query(pool: &Pool, year: u16, month: u8) -> Result<Charges, web::Error> {
+async fn query(pool: &Pool, year: u16, month: u8) -> Result<Charges, shared::Error> {
     let res = pool
         .get()
         .await?

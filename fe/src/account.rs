@@ -1,15 +1,15 @@
 use eyre::Result;
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 
-use crate::{stripe, web};
+use crate::{daimo, stripe};
 
 pub mod handlers {
     use axum::{
         extract::State,
-        response::{Html, IntoResponse},
-        Json,
+        response::{Html, IntoResponse, Redirect},
     };
-    use axum_extra::extract::SignedCookieJar;
+    use axum_extra::extract::{Form, SignedCookieJar};
     use serde_json::json;
 
     use crate::{
@@ -17,13 +17,13 @@ pub mod handlers {
         web::{self, FlashMessage},
     };
 
-    use super::{current_plan, setup_stripe, Plan, PlanChangeRequest};
+    use super::{refresh_plan, Plan, PlanChangeRequest};
 
     pub async fn index(
         State(state): State<web::State>,
         flash: axum_flash::IncomingFlashes,
         jar: SignedCookieJar,
-    ) -> Result<impl IntoResponse, web::Error> {
+    ) -> Result<impl IntoResponse, shared::Error> {
         let user = session::User::from_jar(jar);
         let pg = state.pool.get().await?;
         let api_keys = if let Some(user) = &user {
@@ -50,175 +50,270 @@ pub mod handlers {
         Ok((flash, resp).into_response())
     }
 
-    pub async fn change_plan(
-        State(state): State<web::State>,
-        flash: axum_flash::Flash,
-        jar: SignedCookieJar,
-        Json(change): Json<PlanChangeRequest>,
-    ) -> Result<impl IntoResponse, web::Error> {
-        let user = session::User::from_jar(jar).unwrap();
-        let mut plan: Plan = change.into();
-        plan.owner_email = Some(user.email);
-
-        let mut pg = state.pool.get().await?;
-        let mut pgtx = pg.transaction().await?;
-        plan.insert(&mut pgtx).await?;
-        pgtx.commit().await?;
-
-        let flash = if &plan.name == "pro" {
-            flash.success("⚡️upgraded your plan to: PRO⚡️")
-        } else {
-            flash.success(format!("changed your plan to: {}", &plan.name))
-        };
-        Ok((flash, axum::http::StatusCode::OK).into_response())
-    }
-
     pub async fn account(
         State(state): State<web::State>,
         flash: axum_flash::IncomingFlashes,
         jar: SignedCookieJar,
-    ) -> Result<impl IntoResponse, web::Error> {
+    ) -> Result<impl IntoResponse, shared::Error> {
         let user = session::User::from_jar(jar).unwrap();
-        let mut pg = state.pool.get().await?;
-        let customer_id = setup_stripe(&mut pg, &state.stripe, &user.email).await?;
-        let intent = state.stripe.setup_intent(&customer_id).await?;
-        let payment_method = state.stripe.payment_methods(&customer_id).await?;
-        let plan = current_plan(&pg, &user.email).await?;
+        let pg = state.pool.get().await?;
+        let plan = refresh_plan(&state.daimo, &state.stripe, &pg, &user.email).await?;
         let api_keys = api_key::list(&pg, &user.email).await?;
         let rendered_html = state.templates.render(
             "account.html",
             &json!({
                 "user": user,
                 "flash": FlashMessage::from(flash.clone()),
-                "stripe_pub_key": state.stripe_pub_key.unwrap_or(String::from("LOCAL DEV")),
-                "client_secret": intent.client_secret.to_string(),
                 "plan": plan,
-                "payment_method": payment_method,
                 "api_keys": api_keys,
             }),
         )?;
         Ok((flash, Html(rendered_html)).into_response())
     }
-}
 
-#[derive(Serialize, Deserialize)]
-pub struct Plan {
-    owner_email: Option<String>,
-    name: String,
-    rate: i32,
-    timeout: i32,
-    chains: Vec<i64>,
-}
-
-impl Plan {
-    fn default() -> Plan {
-        PlanChangeRequest {
-            name: String::from("indie"),
-            chains: vec![8453, 84532],
+    pub async fn update_stripe(
+        flash: axum_flash::Flash,
+        State(state): State<web::State>,
+        jar: SignedCookieJar,
+    ) -> Result<impl IntoResponse, shared::Error> {
+        let pg = state.pool.get().await?;
+        let user = session::User::from_jar(jar).unwrap();
+        let redirect = format!("{}/account", state.fe_url);
+        let plan = Plan::get_latest_completed(&pg, &user.email).await?;
+        if let Some(c) = plan.as_ref().and_then(|p| p.stripe_customer.clone()) {
+            let session = state.stripe.create_session_update(&c, &redirect).await?;
+            Ok(Redirect::to(&session.url.unwrap()).into_response())
+        } else {
+            let flash = flash.error("unable to find stripe plan for update");
+            Ok((flash, Redirect::to("/account")).into_response())
         }
-        .into()
     }
-    async fn insert(&self, pgtx: &mut tokio_postgres::Transaction<'_>) -> Result<(), web::Error> {
-        pgtx.query(
+
+    pub async fn setup_stripe(
+        State(state): State<web::State>,
+        jar: SignedCookieJar,
+        Form(change): Form<PlanChangeRequest>,
+    ) -> Result<impl IntoResponse, shared::Error> {
+        let pg = state.pool.get().await?;
+        let user = session::User::from_jar(jar).unwrap();
+        let amount = change.stripe_amount();
+        let redirect = format!("{}/account", state.fe_url);
+        let session = state.stripe.create_session(&user.email, &redirect).await?;
+        pg.execute(
             "
-                insert into plan_changes (owner_email, name, rate, timeout, chains)
-                values ($1, $2, $3, $4, $5)
+            insert into plan_changes (owner_email, name, amount, stripe_session)
+            values ($1, $2, $3, $4)
             ",
-            &[
-                &self.owner_email,
-                &self.name,
-                &self.rate,
-                &self.timeout,
-                &self.chains,
-            ],
+            &[&user.email, &change.plan_name, &amount, &session.id],
         )
         .await?;
-        Ok(())
+        Ok(Redirect::to(&session.url.unwrap()))
+    }
+
+    pub async fn setup_daimo(
+        State(state): State<web::State>,
+        jar: SignedCookieJar,
+        Form(change): Form<PlanChangeRequest>,
+    ) -> Result<impl IntoResponse, shared::Error> {
+        let pg = state.pool.get().await?;
+        let user = session::User::from_jar(jar).unwrap();
+        let plan = Plan::get_latest_completed(&pg, &user.email).await?;
+        let amount = change.daimo_amount(plan.map(|p| p.balance()));
+        let redirect = &format!("{}/account", state.fe_url);
+        let payment_link = state
+            .daimo
+            .generate(&change.plan_name, 100, redirect)
+            .await?;
+        pg.execute(
+            "
+            insert into plan_changes (owner_email, name, amount, daimo_id)
+            values ($1, $2, $3, $4)
+            ",
+            &[&user.email, &change.plan_name, &amount, &payment_link.id],
+        )
+        .await?;
+        Ok(Redirect::to(&payment_link.url))
     }
 }
 
-impl From<PlanChangeRequest> for Plan {
-    fn from(change: PlanChangeRequest) -> Self {
-        let (rps, ttl): (i32, i32) = match change.name.to_lowercase().as_str() {
-            "indie" => (5, 10),
-            "pro" => (100, 60),
-            "dedicated" => (100, 60),
-            _ => (0, 0),
-        };
-        Plan {
-            owner_email: None,
-            name: change.name,
-            rate: rps,
-            timeout: ttl,
-            chains: change.chains,
-        }
-    }
-}
-
-#[derive(Deserialize)]
-pub struct PlanChangeRequest {
-    name: String,
-    chains: Vec<i64>,
-}
-
-pub async fn current_plan(
+pub async fn refresh_plan(
+    daimo: &daimo::Client,
+    stripe: &stripe::Client,
     pg: &tokio_postgres::Client,
     email: &str,
-) -> Result<Option<Plan>, web::Error> {
+) -> Result<Option<Plan>, shared::Error> {
+    check_daimo(email, daimo, pg).await?;
+    check_stripe(email, stripe, pg).await?;
+    Plan::get_latest(pg, email).await
+}
+
+async fn check_daimo(
+    email: &str,
+    daimo: &daimo::Client,
+    pg: &tokio_postgres::Client,
+) -> Result<(), shared::Error> {
     let res = pg
         .query(
             "
-            select name, rate, timeout, chains
+            select id, daimo_id
             from plan_changes
             where owner_email = $1
-            order by created_at desc
+            and daimo_id is not null
+            and daimo_tx is null
+            order by created_at
             limit 1
             ",
             &[&email],
         )
         .await?;
-    if res.is_empty() {
-        Ok(None)
-    } else {
-        let row = res.first().expect("should be at least 1 plan_change");
-        Ok(Some(Plan {
-            owner_email: None,
-            name: row.get("name"),
-            rate: row.get("rate"),
-            timeout: row.get("timeout"),
-            chains: row.get("chains"),
-        }))
+    if let Some(row) = res.first() {
+        if let Some(tx_hash) = daimo.check(row.get("daimo_id")).await? {
+            pg.execute(
+                "update plan_changes set daimo_tx = $1 where id = $2",
+                &[&tx_hash, &row.get::<&str, i64>("id")],
+            )
+            .await?;
+        }
     }
+    Ok(())
 }
 
-async fn setup_stripe(
-    pg: &mut tokio_postgres::Client,
-    stripe: &stripe::Client,
+async fn check_stripe(
     email: &str,
-) -> Result<String, web::Error> {
-    let mut pgtx = pg.transaction().await?;
-    let res = pgtx
+    stripe: &stripe::Client,
+    pg: &tokio_postgres::Client,
+) -> Result<(), shared::Error> {
+    let res = pg
         .query(
-            "select stripe_id from accounts where owner_email = $1",
+            "
+            select id, stripe_session
+            from plan_changes
+            where owner_email = $1
+            and stripe_session is not null
+            and stripe_customer is null
+            order by created_at
+            limit 1
+            ",
             &[&email],
         )
         .await?;
-    if res.is_empty() {
-        tracing::debug!("creating stripe customer for: {}", email);
-        let customer = stripe.create_customer(email).await?;
-        pgtx.execute(
-            "insert into accounts (owner_email, stripe_id) values ($1, $2)",
-            &[&email, &customer.id],
-        )
-        .await?;
-        let mut plan = Plan::default();
-        plan.owner_email = Some(email.to_string());
-        plan.insert(&mut pgtx).await?;
-        pgtx.commit().await?;
-        Ok(customer.id)
-    } else {
-        let strip_id: String = res.first().unwrap().get(0);
-        tracing::debug!("stripe customer exists for {}", email);
-        Ok(strip_id)
+    if let Some(row) = res.first() {
+        if let Some(session) = stripe.get_session(row.get("stripe_session")).await? {
+            pg.execute(
+                "update plan_changes set stripe_customer = $1 where id = $2",
+                &[
+                    &session.customer.unwrap_or_default(),
+                    &row.get::<&str, i64>("id"),
+                ],
+            )
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct PlanChangeRequest {
+    plan_name: String,
+}
+
+impl PlanChangeRequest {
+    /// returns the plan's base amount less any previously paid balance
+    fn daimo_amount(&self, balance: Option<i64>) -> i64 {
+        let base = match self.plan_name.as_str() {
+            "indie" => 40000,
+            "pro" => 280000,
+            "unlimited" => 2200000,
+            _ => 0,
+        };
+        base - balance.unwrap_or(0)
+    }
+
+    fn stripe_amount(&self) -> i64 {
+        match self.plan_name.as_str() {
+            "indie" => 5000,
+            "pro" => 25000,
+            "unlimited" => 200000,
+            _ => 0,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Plan {
+    id: i64,
+    owner_email: Option<String>,
+    name: String,
+    amount: i64,
+    daimo_id: Option<String>,
+    daimo_tx: Option<String>,
+    stripe_session: Option<String>,
+    stripe_customer: Option<String>,
+    created_at: OffsetDateTime,
+}
+
+impl Plan {
+    fn balance(&self) -> i64 {
+        self.daimo_tx.as_ref().map_or(0, |_| {
+            let remaining = 365 - (OffsetDateTime::now_utc() - self.created_at).whole_days();
+            remaining.max(0) * (self.amount / 365)
+        })
+    }
+
+    fn from_row(row: &tokio_postgres::Row) -> Plan {
+        Plan {
+            owner_email: row.get("owner_email"),
+            id: row.get("id"),
+            name: row.get("name"),
+            amount: row.get("amount"),
+            daimo_id: row.get("daimo_id"),
+            daimo_tx: row.get("daimo_tx"),
+            stripe_session: row.get("stripe_session"),
+            stripe_customer: row.get("stripe_customer"),
+            created_at: row.get("created_at"),
+        }
+    }
+
+    pub async fn get_latest_completed(
+        pg: &tokio_postgres::Client,
+        email: &str,
+    ) -> Result<Option<Plan>, shared::Error> {
+        Ok(pg
+            .query(
+                "
+                select owner_email, id, name, amount, daimo_id, daimo_tx, stripe_session, stripe_customer, created_at
+                from plan_changes
+                where owner_email = $1
+                and (
+                    (daimo_id is not null and daimo_tx is not null)
+                    or
+                    (stripe_session is not null and stripe_customer is not null)
+                )
+                order by created_at desc
+                limit 1
+                ",
+                &[&email],
+            )
+            .await?
+            .first()
+            .map(Plan::from_row))
+    }
+
+    pub async fn get_latest(
+        pg: &tokio_postgres::Client,
+        email: &str,
+    ) -> Result<Option<Plan>, shared::Error> {
+        Ok(pg
+            .query(
+                "
+                select owner_email, id, name, amount, daimo_id, daimo_tx, stripe_session, stripe_customer, created_at
+                from plan_changes
+                where owner_email = $1
+                order by created_at desc
+                limit 1
+                ",
+                &[&email],
+            )
+            .await?.first().map(Plan::from_row))
     }
 }

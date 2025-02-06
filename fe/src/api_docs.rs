@@ -4,7 +4,7 @@ use serde_json::json;
 
 use crate::web;
 
-pub async fn index(State(state): State<web::State>) -> Result<Html<String>, web::Error> {
+pub async fn index(State(state): State<web::State>) -> Result<Html<String>, shared::Error> {
     let index = state.templates.render("docs/index.md", &json!({}))?;
     let mut options = Options::empty();
     options.insert(Options::ENABLE_GFM);

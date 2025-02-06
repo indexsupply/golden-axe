@@ -26,7 +26,9 @@ impl User {
     }
 }
 
-pub async fn try_login(State(state): State<web::State>) -> Result<impl IntoResponse, web::Error> {
+pub async fn try_login(
+    State(state): State<web::State>,
+) -> Result<impl IntoResponse, shared::Error> {
     Ok(Html(state.templates.render("login.html", &json!(""))?))
 }
 
@@ -43,7 +45,7 @@ pub async fn email_login_link(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(state): State<web::State>,
     Form(req): Form<EmailLoginRequest>,
-) -> Result<impl IntoResponse, web::Error> {
+) -> Result<impl IntoResponse, shared::Error> {
     if req
         .honeypot
         .as_ref()
@@ -99,7 +101,7 @@ pub async fn login(
     State(state): State<web::State>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Form(req): Form<LoginRequest>,
-) -> Result<impl IntoResponse, web::Error> {
+) -> Result<impl IntoResponse, shared::Error> {
     let pg = state.pool.get().await?;
     const Q: &str = r#"
         update login_links
