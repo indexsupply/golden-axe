@@ -20,7 +20,6 @@ create table if not exists plan_changes (
     daimo_tx text,
     stripe_session text,
     stripe_customer text,
-    chains bigint[] not null default '{}',
     rate int default 10,
     timeout int default 10,
     created_at timestamptz default now()
@@ -47,7 +46,7 @@ create table if not exists collabs(
 drop view if exists account_limits;
 create view account_limits as
     with current_plans as (
-        select distinct on (owner_email) owner_email, chains, rate, timeout
+        select distinct on (owner_email) owner_email, rate, timeout
         from plan_changes
         order by owner_email, created_at desc
     )
@@ -55,8 +54,7 @@ create view account_limits as
         secret,
         timeout,
         rate,
-        origins,
-        chains
+        origins
     from api_keys
     left join current_plans on current_plans.owner_email = api_keys.owner_email
     where api_keys.deleted_at is null;
