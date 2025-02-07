@@ -122,7 +122,7 @@ pub mod handlers {
         let redirect = &format!("{}/account", state.fe_url);
         let payment_link = state
             .daimo
-            .generate(&change.plan_name, 100, redirect)
+            .generate(&change.plan_name, amount, redirect)
             .await?;
         pg.execute(
             "
