@@ -3,8 +3,6 @@ use getrandom::getrandom;
 use serde::Serialize;
 use tokio_postgres::Client;
 
-use crate::web;
-
 time::serde::format_description!(
     short,
     OffsetDateTime,
@@ -19,7 +17,7 @@ pub struct ApiKey {
     created_at: time::OffsetDateTime,
 }
 
-pub async fn delete(pg: &Client, owner_email: &str, secret: String) -> Result<(), web::Error> {
+pub async fn delete(pg: &Client, owner_email: &str, secret: String) -> Result<(), shared::Error> {
     pg.query(
         "update api_keys set deleted_at = now() where owner_email = $1 and secret = $2",
         &[&owner_email, &secret],
@@ -28,7 +26,7 @@ pub async fn delete(pg: &Client, owner_email: &str, secret: String) -> Result<()
     Ok(())
 }
 
-pub async fn create(pg: &Client, owner_email: &str, origins: String) -> Result<(), web::Error> {
+pub async fn create(pg: &Client, owner_email: &str, origins: String) -> Result<(), shared::Error> {
     let mut secret = vec![0u8; 16];
     getrandom(&mut secret).wrap_err("unable to generate secret")?;
     let origins = if origins.is_empty() {
@@ -44,7 +42,7 @@ pub async fn create(pg: &Client, owner_email: &str, origins: String) -> Result<(
     Ok(())
 }
 
-pub async fn list(pg: &Client, owner_email: &str) -> Result<Vec<ApiKey>, web::Error> {
+pub async fn list(pg: &Client, owner_email: &str) -> Result<Vec<ApiKey>, shared::Error> {
     let res = pg
         .query(
             "
@@ -79,25 +77,26 @@ pub mod handlers {
 
     use crate::{account, session, web};
 
-    use super::list;
-
     pub async fn new(
+        flash: axum_flash::Flash,
         State(state): State<web::State>,
         jar: SignedCookieJar,
-    ) -> Result<impl IntoResponse, web::Error> {
+    ) -> Result<impl IntoResponse, shared::Error> {
         let user = session::User::from_jar(jar).unwrap();
         let pg = state.pool.get().await?;
-        let plan = account::current_plan(&pg, &user.email).await?;
-        let api_keys = list(&pg, &user.email).await?;
-        let rendered_html = state.templates.render(
-            "new-api-key.html",
-            &json!({
-                "user": user,
-                "plan": plan,
-                "api_keys": api_keys,
-            }),
-        )?;
-        Ok((Html(rendered_html)).into_response())
+        if let Some(plan) = account::Plan::get_latest_completed(&pg, &user.email).await? {
+            let rendered_html = state.templates.render(
+                "new-api-key.html",
+                &json!({
+                    "user": user,
+                    "plan": plan,
+                }),
+            )?;
+            Ok((Html(rendered_html)).into_response())
+        } else {
+            let flash = flash.error("Paid plan required for API keys");
+            Ok((flash, Redirect::to("/account")).into_response())
+        }
     }
 
     #[derive(Deserialize)]
@@ -109,7 +108,7 @@ pub mod handlers {
         flash: axum_flash::Flash,
         jar: SignedCookieJar,
         Form(req): Form<NewKeyRequest>,
-    ) -> Result<impl IntoResponse, web::Error> {
+    ) -> Result<impl IntoResponse, shared::Error> {
         let user = session::User::from_jar(jar).unwrap();
         let pg = state.pool.get().await?;
         super::create(&pg, &user.email, req.origins).await?;
@@ -122,11 +121,11 @@ pub mod handlers {
         flash: axum_flash::Flash,
         jar: SignedCookieJar,
         Json(secret): Json<String>,
-    ) -> Result<impl IntoResponse, web::Error> {
+    ) -> Result<impl IntoResponse, shared::Error> {
         let user = session::User::from_jar(jar).unwrap();
         let pg = state.pool.get().await?;
         super::delete(&pg, &user.email, secret).await?;
-        let flash = flash.success("endpoint deleted");
+        let flash = flash.success("api key deleted");
         Ok((flash, axum::http::StatusCode::OK).into_response())
     }
 }

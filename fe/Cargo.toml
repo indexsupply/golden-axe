@@ -9,6 +9,8 @@ name = "fe"
 path = "src/main.rs"
 
 [dependencies]
+alloy = { version = "0.8.3", features = ["postgres"] }
+rand = "0.8"
 axum = "0.7.5"
 axum-extra = { version = "0.9.3", features = ["cookie-signed", "typed-header"] }
 axum-flash = "0.8.0"
@@ -46,6 +48,7 @@ tower-http = { version = "0.5.0", features = [
 tracing = "0.1.40"
 tracing-appender = "0.2.3"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+bs58 = "0.5.1"
 
 [dev-dependencies]
 shared = { path = "../shared", features = ["test"] }

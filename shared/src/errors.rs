@@ -23,8 +23,20 @@ impl From<serde_json::Error> for Error {
     }
 }
 
+impl From<reqwest::Error> for Error {
+    fn from(err: reqwest::Error) -> Self {
+        Error::Server(err.into())
+    }
+}
+
 impl From<deadpool_postgres::PoolError> for Error {
     fn from(err: deadpool_postgres::PoolError) -> Self {
+        Error::Server(err.into())
+    }
+}
+
+impl From<handlebars::RenderError> for Error {
+    fn from(err: handlebars::RenderError) -> Self {
         Error::Server(err.into())
     }
 }

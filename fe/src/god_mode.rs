@@ -1,12 +1,11 @@
 use std::net::SocketAddr;
 
-use crate::web::Error;
 use crate::{session, web};
 use axum::extract::{ConnectInfo, FromRequestParts, State};
 use axum::response::{Html, IntoResponse};
 use axum::Form;
 use axum_extra::extract::SignedCookieJar;
-use eyre::{eyre, Context};
+use eyre::Context;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use time::OffsetDateTime;
@@ -75,7 +74,7 @@ pub async fn index(
     _: God,
     State(state): State<web::State>,
     Form(req): Form<Request>,
-) -> Result<impl IntoResponse, web::Error> {
+) -> Result<impl IntoResponse, shared::Error> {
     let pg = state.pool.get().await.wrap_err("getting db connection")?;
     let history = if req.top.is_some() {
         top(&pg, Form(req)).await?
@@ -92,7 +91,7 @@ pub async fn index(
 async fn log(
     pg: &tokio_postgres::Client,
     Form(req): Form<Request>,
-) -> Result<Vec<UserQuery>, web::Error> {
+) -> Result<Vec<UserQuery>, shared::Error> {
     Ok(pg
         .query(
             &format!(
@@ -135,7 +134,7 @@ async fn log(
 async fn top(
     pg: &tokio_postgres::Client,
     Form(req): Form<Request>,
-) -> Result<Vec<UserQuery>, web::Error> {
+) -> Result<Vec<UserQuery>, shared::Error> {
     Ok(pg
         .query(
             &format!(
@@ -182,7 +181,7 @@ pub struct God {}
 
 #[axum::async_trait]
 impl FromRequestParts<web::State> for God {
-    type Rejection = Error;
+    type Rejection = shared::Error;
     async fn from_request_parts(
         parts: &mut axum::http::request::Parts,
         state: &web::State,
@@ -197,7 +196,7 @@ impl FromRequestParts<web::State> for God {
             .unwrap();
         match session::User::from_jar(jar) {
             Some(user) if user.email == "r@32k.io" => Ok(God {}),
-            _ => Err(web::Error(eyre!("not authorized"))),
+            _ => Err(shared::Error::User(String::from("not authorized"))),
         }
     }
 }

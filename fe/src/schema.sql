@@ -11,15 +11,15 @@ create unique index if not exists unique_login_links
 on login_links(email)
 where invalidated_at is null;
 
-create table if not exists accounts(
-    owner_email text not null,
-    stripe_id text not null,
-    primary key (owner_email)
-);
-
 create table if not exists plan_changes (
+    id bigserial unique,
     owner_email text not null,
     name text not null,
+    amount int8,
+    daimo_id text,
+    daimo_tx text,
+    stripe_session text,
+    stripe_customer text,
     chains bigint[] not null default '{}',
     rate int default 10,
     timeout int default 10,
@@ -102,6 +102,3 @@ insert into
         (false, 52085143, 'https://rpc-ethena-testnet-0.t.conduit.xyz')
     on conflict(chain)
     do nothing;
-
-create table if not exists plans(name text, amount numeric, primary key (name));
-insert into plans(name, amount) values ('pro', 100), ('indie', 20) on conflict(name) do nothing;

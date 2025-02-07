@@ -53,11 +53,68 @@ pub struct Client {
     reqwest: reqwest::Client,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct Session {
+    pub id: String,
+    pub url: Option<String>,
+    pub customer: Option<String>,
+}
+
 impl Client {
     pub fn new(key: Option<String>) -> Client {
         Client {
             key,
             reqwest: reqwest::Client::new(),
+        }
+    }
+
+    pub async fn create_session_update(
+        &self,
+        customer: &str,
+        redirect_uri: &str,
+    ) -> Result<Session> {
+        self.post(
+            "v1/checkout/sessions",
+            &[
+                ("mode", "setup"),
+                ("customer", customer),
+                ("currency", "usd"),
+                ("success_url", redirect_uri),
+            ],
+        )
+        .await
+    }
+
+    pub async fn create_session(&self, email: &str, redirect_uri: &str) -> Result<Session> {
+        self.post(
+            "v1/checkout/sessions",
+            &[
+                ("mode", "setup"),
+                ("customer_email", email),
+                ("customer_creation", "always"),
+                ("success_url", redirect_uri),
+                ("currency", "usd"),
+            ],
+        )
+        .await
+    }
+
+    pub async fn get_session(&self, id: &str) -> Result<Option<Session>> {
+        let resp = self
+            .reqwest
+            .get(format!(
+                "https://api.stripe.com/v1/checkout/sessions/{}",
+                id
+            ))
+            .basic_auth(self.key.as_ref().unwrap().to_string(), Some(""))
+            .send()
+            .await?;
+        if resp.status().is_success() {
+            let session = resp.json::<Session>().await?;
+            println!("session: {:?}", session);
+            Ok(Some(session))
+        } else {
+            Err(eyre!(resp.text().await?))
         }
     }
 
@@ -81,34 +138,6 @@ impl Client {
         );
         let res: List<PaymentMethod> = self.get(&path, &data).await?;
         Ok(res.data.into_iter().nth(0))
-    }
-
-    pub async fn setup_intent(&self, customer_id: &str) -> Result<SetupIntent> {
-        if self.key.is_none() {
-            return Ok(SetupIntent {
-                client_secret: String::from("LOCAL DEV"),
-            });
-        }
-        let (path, data) = ("v1/setup_intents", [("customer", customer_id)]);
-        self.post(path, &data).await
-    }
-
-    // It's sad that you cannot provide an id for stripe
-    // If you call this multiple times you will end up with
-    // multiple stripe customers with the same email.
-    //
-    // The stripe customer search is not in-sync with the customer create
-    // endpoint meaning that you can't rely on searching for a customer
-    // before creating one.
-    pub async fn create_customer(&self, email: &str) -> Result<Customer> {
-        if self.key.is_none() {
-            return Ok(Customer {
-                id: String::from("LOCAL DEV"),
-                email: String::from("local@dev"),
-            });
-        }
-        let (path, data) = ("v1/customers", [("email", email)]);
-        self.post(path, &data).await
     }
 
     pub async fn charge_customer(
@@ -143,13 +172,12 @@ impl Client {
         path: &str,
         data: &D,
     ) -> Result<T> {
-        let response = self
+        let request = self
             .reqwest
             .get(format!("https://api.stripe.com/{}", path))
             .basic_auth(self.key.as_ref().unwrap().to_string(), Some(""))
-            .form(data)
-            .send()
-            .await?;
+            .form(data);
+        let response = request.send().await?;
         if response.status().is_success() {
             Ok(response.json().await?)
         } else {

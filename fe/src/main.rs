@@ -9,7 +9,7 @@ use axum_extra::extract::cookie::Key;
 use clap::{command, Parser};
 use eyre::{Context, Result};
 use fe::{
-    account, api_docs, api_key, conduit_api, god_mode, postmark, query, session, stripe, web,
+    account, api_docs, api_key, conduit_api, daimo, god_mode, postmark, query, session, stripe, web,
 };
 use rust_embed::Embed;
 use std::{collections::HashMap, net::SocketAddr};
@@ -51,6 +51,12 @@ struct Args {
 
     #[arg(long, env = "SESSION_KEY")]
     session_key: Option<String>,
+
+    #[arg(long, env = "DAIMO_KEY")]
+    daimo_key: Option<String>,
+
+    #[arg(long, env = "INDEXSUPPLY_KEY")]
+    indexsupply_key: Option<String>,
 }
 
 #[tokio::main]
@@ -93,6 +99,7 @@ async fn main() -> Result<()> {
         postmark: postmark::Client::new(args.postmark_key),
         stripe: stripe::Client::new(args.stripe_key),
         stripe_pub_key: args.stripe_pub_key,
+        daimo: daimo::Client::new(args.daimo_key, args.indexsupply_key.clone()),
     };
     state.pool.get().await?.batch_execute(SCHEMA).await?;
 
@@ -185,7 +192,9 @@ fn service(state: web::State) -> IntoMakeServiceWithConnectInfo<Router, SocketAd
         .route("/email-login-link", post(session::email_login_link))
         .route("/logout", get(session::logout))
         .route("/account", get(account::handlers::account))
-        .route("/change-plan", post(account::handlers::change_plan))
+        .route("/setup-daimo", post(account::handlers::setup_daimo))
+        .route("/setup-stripe", post(account::handlers::setup_stripe))
+        .route("/update-stripe", post(account::handlers::update_stripe))
         .route("/new-api-key", get(api_key::handlers::new))
         .route("/create-api-key", post(api_key::handlers::create))
         .route("/delete-api-key", post(api_key::handlers::delete))
@@ -202,7 +211,7 @@ mod tests {
     use axum_flash::Key;
     use axum_test::TestServer;
     use deadpool_postgres::Pool;
-    use fe::{conduit_api, postmark, stripe};
+    use fe::{conduit_api, daimo, postmark, stripe};
 
     fn test_state(pool: Pool) -> web::State {
         web::State {
@@ -216,6 +225,7 @@ mod tests {
             postmark: postmark::Client::default(),
             stripe: stripe::Client::default(),
             stripe_pub_key: None,
+            daimo: daimo::Client::default(),
         }
     }
 
