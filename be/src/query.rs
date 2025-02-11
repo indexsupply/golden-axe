@@ -103,10 +103,10 @@ impl Relation {
         if let Some(event) = &self.event {
             let statements = event.sql();
             for selected in self.selected_fields.iter().sorted() {
-                let mut unquoted = selected.clone();
-                unquoted.quote_style = None;
-                if let Some(sql) = statements.get(&unquoted) {
-                    select_list.push(format!("{} as {}", sql, selected));
+                for (col, sql) in &statements {
+                    if col.value.to_lowercase() == selected.value.to_lowercase() {
+                        select_list.push(format!("{} as {}", sql, selected));
+                    }
                 }
             }
         }
@@ -907,6 +907,19 @@ mod tests {
                     abi_uint("aAA") as "aAA",
                     abi_uint("b") as "b"
                 from foo
+            "#,
+        ).await;
+        check_sql(
+            vec!["Foo(uint indexed aAA, uint indexed b)"],
+            "select aaa from foo",
+            r#"
+                with foo as not materialized (
+                    select topics [2] as aaa
+                    from logs
+                    where chain = 1
+                    and topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
+                )
+                select abi_uint(aaa) as aaa from foo
             "#,
         ).await;
     }
