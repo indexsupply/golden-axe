@@ -157,8 +157,8 @@ fn templates() -> Result<handlebars::Handlebars<'static>, handlebars::TemplateEr
     reg.register_helper("join", Box::new(join));
     reg.register_helper("snippet", Box::new(snippet));
     reg.register_helper("money", Box::new(money));
-    reg.register_helper("atob", Box::new(atob));
     reg.register_helper("btoa", Box::new(btoa));
+    reg.register_helper("atob", Box::new(atob));
     reg.set_dev_mode(true);
     reg.register_embed_templates::<Assets>()?;
     reg.register_escape_fn(handlebars::no_escape);

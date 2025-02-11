@@ -105,7 +105,15 @@
             </form>
             <div id="history">
                 {{#each history}}
-                <div class="query" data-chain="{{chain}}" data-sql="{{(btoa sql)}}" data-generated-sql="{{(btoa generated_sql)}}" data-events='{{(btoa (join events "\n"))}}'>
+                <div
+                    class="query"
+                    data-chain="{{chain}}"
+                    data-sql="{{(btoa sql)}}"
+                    data-events='{{(btoa (join events "\n"))}}'
+                    {{#with generated_sql}}
+                    data-generated-sql="{{(btoa this)}}"
+                    {{/with}}
+                >
                     <div class="timing">
                         <div class="created_at">{{ created_at }}</div>
                         {{#if count }}

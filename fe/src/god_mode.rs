@@ -59,7 +59,7 @@ impl Request {
             predicates.push(format!("owner_email like '%{}%'", email))
         }
         if let Some(status) = &self.status {
-            predicates.push(format!("status / 100 = {}", status))
+            predicates.push(format!("status = {}", status))
         }
         if predicates.is_empty() {
             String::new()
