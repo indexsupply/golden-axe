@@ -25,6 +25,24 @@ create table if not exists plan_changes (
     created_at timestamptz default now()
 );
 
+create table if not exists plan_options (
+    id bigserial primary key,
+    name text not null,
+    owner_email text,
+    features text[] not null default '{}',
+    rate int default 10,
+    timeout int default 10,
+    daimo_amount int8 not null,
+    stripe_amount int8 not null
+);
+
+insert into plan_options (id, name, owner_email, rate, timeout, features, daimo_amount, stripe_amount) values
+(1, 'Indie', null, 5, 10, '{"5 requests per second per client", "10 connected clients", "Best Effort Support"}', 40000, 5000),
+(2, 'Pro', null, 10, 10, '{"10 requests per second per client", "1,000 connected clients", "Same Day Support"}', 280000, 25000),
+(3, 'Dedicated', null, 10, 10, '{"Custom Chains", "Custom Performance", "On-call Support"}', 2200000, 200000),
+(4, 'Ryan''s Special', 'r@32k.io', 10, 60, '{"Foo", "Bar", "Baz"}', 100, 100)
+on conflict (id) do nothing;
+
 create table if not exists api_keys (
     owner_email text not null,
     secret text not null,

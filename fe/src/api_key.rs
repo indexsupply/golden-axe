@@ -84,7 +84,7 @@ pub mod handlers {
     ) -> Result<impl IntoResponse, shared::Error> {
         let user = session::User::from_jar(jar).unwrap();
         let pg = state.pool.get().await?;
-        if let Some(plan) = account::Plan::get_latest_completed(&pg, &user.email).await? {
+        if let Some(plan) = account::PlanChange::get_latest_completed(&pg, &user.email).await? {
             let rendered_html = state.templates.render(
                 "new-api-key.html",
                 &json!({

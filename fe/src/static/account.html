@@ -110,13 +110,14 @@
             border-bottom: 2px solid black;
         }
         .option.selected {
-            border: 5px solid green;
+            border: 2px solid green;
         }
         .option {
             width: 100%;
             box-sizing: border-box;
             border: 2px inset black;
             padding: 0 0 10px 0;
+            min-height: 350px;
         }
         .option ul {
             padding-inline-start: 20px;
@@ -168,7 +169,7 @@
             <div class="api-key header">
                 <div class="secret header"><span>key</span></div>
                 <div class="origins header"><span>origins</span></div>
-                <div class="created_at header"><span>created_at</span></div>
+                <div class="created_at header"><span></span>created_at</span></div>
             </div>
             {{else}}
             <span>No API Keys</span>
@@ -177,7 +178,7 @@
             <div class="api-key">
                 <div class="secret"><span>{{ secret }}</span></div>
                 <div class="origins"><span>{{ (join origins ",") }}</span></div>
-                <div class="created_at"><span>{{ created_at }}</span></div>
+                <div class="created_at"><span></span>{{ created_at }}</span></div>
                 <div class="delete"><a href="{{ secret }}">delete</a></div>
             </div>
             {{/each}}
@@ -186,72 +187,42 @@
                 <a href="/new-api-key">new api key</a>
             </div>
         </div>
-        <div id="daimo-pay">
-            <div class="plan">
-                <h2>Plans</h2>
-                {{#if plan}}
-                <h3>Current: {{plan.name}}</h3>
-                {{/if}}
-                <div class="menu">
-                    <div class="option" name="indie">
-                        <h4>Indie</h4>
-                        <ul>
-                            <li>5 requests per second per client</li>
-                            <li>10 connected clients</li>
-                            <li>Best Effort Support</li>
-                        </ul>
-                        <p class="price">$400 per year<span>$33.33 per month</span></p>
-                        <form action="/setup-daimo" method="POST">
-                            <input type="hidden" name="plan_name" value="indie">
-                            <button type="submit">Pay with Daimo</button>
-                        </form>
-                        <p>$50 per month</p>
-                        <form action="/setup-stripe" method="POST">
-                            <input type="hidden" name="plan_name" value="indie">
-                            <button type="submit">Pay with Stripe</button>
-                        </form>
-                    </div>
-                    <div class="option" name="pro">
-                        <h4>Pro</h4>
-                        <ul>
-                            <li>10 requests per second per client</li>
-                            <li>1,000 connected clients</li>
-                            <li>Same Day Support</li>
-                        </ul>
-                        <p class="price">$2,800 per year<span>$233.33 per month</span></p>
-                        <form action="/setup-daimo" method="POST">
-                            <input type="hidden" name="plan_name" value="pro">
-                            <button type="submit">Pay with Daimo</button>
-                        </form>
-                        <p>$250 per month</p>
-                        <form action="/setup-stripe" method="POST">
-                            <input type="hidden" name="plan_name" value="pro">
-                            <button type="submit">Pay with Stripe</button>
-                        </form>
-                    </div>
-                    <div class="option" name="unlimited">
-                        <h4>Unlimited</h4>
-                        <ul>
-                            <li>Custom Chains</li>
-                            <li>Custom Performance</li>
-                            <li>On-call Support</li>
-                        </ul>
-                        <p class="price">$22,000 per year<span>$1,833.33 per month</span></p>
-                        <form action="/setup-daimo" method="POST">
-                            <input type="hidden" name="plan_name" value="unlimited">
-                            <button type="submit">Pay with Daimo</button>
-                        </form>
-                        <p>$2,000 per month</p>
-                        <form action="/setup-stripe" method="POST">
-                            <input type="hidden" name="plan_name" value="unlimited">
-                            <button type="submit">Pay with Stripe</button>
-                        </form>
-                    </div>
+        <div class="plan">
+            <h2>Plan</h2>
+            <h3>
+            {{#if plan}}
+            Current Plan: {{plan.name}}
+            {{/if}}
+            {{#if plan.expiration }}
+                <br><span>Service Until: {{plan.expiration}}</span>
+            {{/if}}
+            {{#if plan.stripe_session }}
+                <br><span>Charged {{(money plan.amount)}} monthly via Stripe</span>
+            {{/if}}
+            </h3>
+            <div class="menu">
+                {{#each options }}
+                <div class="option" name="{{this.name}}">
+                    <h4>{{ name }}</h4>
+                    <ul>{{#each features}}<li>{{ this }}</li>{{/each}}</ul>
+                    {{#if show_purchase_button }}
+                    <p class="price">{{daimo_amount}} per year<span>({{daimo_monthly}} per month)</span></p>
+                    <form action="/setup-daimo" method="POST">
+                        <input type="hidden" name="plan_name" value="{{this.name}}">
+                        <button type="submit">Pay with Daimo</button>
+                    </form>
+                    <p>{{stripe_amount}} per month</p>
+                    <form action="/setup-stripe" method="POST">
+                        <input type="hidden" name="plan_name" value="{{this.name}}">
+                        <button type="submit">Pay with Stripe</button>
+                    </form>
+                    {{/if}}
                 </div>
+                {{/each}}
             </div>
         </div>
         <div id="card">
-            <form action="/update-stripe" method="POST">
+            <form action="/update-stripe" method="POST"></form>
                 <button type="submit">Update Stripe Card</button>
             </form>
         </div>
@@ -282,7 +253,7 @@
 
       document.addEventListener("DOMContentLoaded", () => {
         {{#if plan}}
-          document.querySelector('div.option[name="{{plan.name}}"]').classList.add("selected");
+        document.querySelector(`div.option[name="{{plan.name}}"]`).classList.add("selected");
         {{/if}}
 
         document.querySelectorAll(".api-key:not(.header)").forEach(div => {

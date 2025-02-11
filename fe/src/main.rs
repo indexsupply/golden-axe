@@ -147,13 +147,16 @@ fn templates() -> Result<handlebars::Handlebars<'static>, handlebars::TemplateEr
     handlebars::handlebars_helper!(trunc: |s: String, n: usize| s.chars().take(n).collect::<String>());
     handlebars::handlebars_helper!(join: |s: Vec<String>, sep: String| s.join(&sep));
     handlebars::handlebars_helper!(snippet: |s: String, file: String| get_snippet(s, file));
+    handlebars::handlebars_helper!(money: |i: i64| account::money(i));
 
     let mut reg = handlebars::Handlebars::new();
     reg.register_helper("trunc", Box::new(trunc));
     reg.register_helper("join", Box::new(join));
     reg.register_helper("snippet", Box::new(snippet));
+    reg.register_helper("money", Box::new(money));
     reg.set_dev_mode(true);
     reg.register_embed_templates::<Assets>()?;
+    reg.register_escape_fn(handlebars::no_escape);
     Ok(reg)
 }
 
