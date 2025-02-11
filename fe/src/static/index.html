@@ -308,7 +308,7 @@
                 <div id="examples" class="queries">
                     <h2>Examples</h2>
                     {{#each examples }}
-                    <div class="query" data-chain="{{chain}}" data-sql="{{sql}}" data-events="{{(join events "\n")}}">
+                    <div class="query" data-chain="{{chain}}" data-sql='{{sql}}' data-events='{{(join events "\n")}}'>
                         <div class="desc">{{ desc }}</div>
                         <div class="event">{{(join events ",")}}</div>
                         <div class="sql">{{ sql }}</div>
@@ -318,7 +318,7 @@
                 <div id="history" class="queries">
                     <h2>History</h2>
                     {{#each history}}
-                    <div class="query" data-chain="{{chain}}" data-sql="{{sql}}" data-events="{{(join events "\n")}}">
+                    <div class="query" data-chain="{{chain}}" data-sql='{{sql}}' data-events='{{(join events "\n")}}'>
                         <div class="timing">
                             <div class="created_at">{{ created_at }}</div>
                             <div class="latency"><em>{{ latency }}ms</em></div>
