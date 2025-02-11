@@ -590,7 +590,7 @@ impl UserQuery {
                 self.validate_expressions(conditions)?;
                 self.validate_expressions(results)
             }
-            ast::Expr::Cast { .. } => Ok(()),
+            ast::Expr::Cast { expr, .. } => self.validate_expression(expr),
             _ => no!(expr),
         }
     }
@@ -1293,6 +1293,24 @@ mod tests {
                 select c->>'d' from foo
             "#,
         ).await;
+    }
+
+    #[tokio::test]
+    async fn test_cast() {
+        check_sql(
+            vec!["Foo(uint a, uint b, (uint d, bytes e) c)"],
+            r#"select sum((c->>'d')::int) from foo"#,
+            r#"
+            with foo as not materialized (
+              select abi2json(abi_dynamic(data, 64), '(uint256 d,bytes e)') as c
+              from logs
+              where chain = 1
+              and topics [1] = '\x851f2bcfcac86844a44298d8354312295b246183022d51c76398d898d87014fc'
+            )
+            select sum((c ->> 'd') :: int) from foo
+            "#,
+        )
+        .await;
     }
 
     #[tokio::test]
