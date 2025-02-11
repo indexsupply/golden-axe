@@ -2,9 +2,8 @@ use std::net::SocketAddr;
 
 use crate::{session, web};
 use axum::extract::{ConnectInfo, FromRequestParts, State};
-use axum::response::{Html, IntoResponse};
+use axum::response::{Html, IntoResponse, Redirect};
 use axum::Form;
-use axum_extra::extract::SignedCookieJar;
 use eyre::Context;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -181,7 +180,7 @@ pub struct God {}
 
 #[axum::async_trait]
 impl FromRequestParts<web::State> for God {
-    type Rejection = shared::Error;
+    type Rejection = axum::response::Response;
     async fn from_request_parts(
         parts: &mut axum::http::request::Parts,
         state: &web::State,
@@ -191,12 +190,9 @@ impl FromRequestParts<web::State> for God {
                 return Ok(God {});
             }
         }
-        let jar: SignedCookieJar = SignedCookieJar::from_request_parts(parts, state)
-            .await
-            .unwrap();
-        match session::User::from_jar(jar) {
-            Some(user) if user.email == "r@32k.io" => Ok(God {}),
-            _ => Err(shared::Error::User(String::from("not authorized"))),
+        match session::User::from_request_parts(parts, state).await {
+            Ok(user) if user.email == "r@32k.io" => Ok(God {}),
+            _ => Err(Redirect::temporary("/login").into_response()),
         }
     }
 }

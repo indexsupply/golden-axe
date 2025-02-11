@@ -71,18 +71,16 @@ pub mod handlers {
         response::{Html, IntoResponse, Redirect},
         Form, Json,
     };
-    use axum_extra::extract::SignedCookieJar;
     use serde::Deserialize;
     use serde_json::json;
 
     use crate::{account, session, web};
 
     pub async fn new(
-        flash: axum_flash::Flash,
         State(state): State<web::State>,
-        jar: SignedCookieJar,
+        flash: axum_flash::Flash,
+        user: session::User,
     ) -> Result<impl IntoResponse, shared::Error> {
-        let user = session::User::from_jar(jar).unwrap();
         let pg = state.pool.get().await?;
         if let Some(plan) = account::PlanChange::get_latest_completed(&pg, &user.email).await? {
             let rendered_html = state.templates.render(
@@ -106,10 +104,9 @@ pub mod handlers {
     pub async fn create(
         State(state): State<web::State>,
         flash: axum_flash::Flash,
-        jar: SignedCookieJar,
+        user: session::User,
         Form(req): Form<NewKeyRequest>,
     ) -> Result<impl IntoResponse, shared::Error> {
-        let user = session::User::from_jar(jar).unwrap();
         let pg = state.pool.get().await?;
         super::create(&pg, &user.email, req.origins).await?;
         let flash = flash.success("api key created");
@@ -119,10 +116,9 @@ pub mod handlers {
     pub async fn delete(
         State(state): State<web::State>,
         flash: axum_flash::Flash,
-        jar: SignedCookieJar,
+        user: session::User,
         Json(secret): Json<String>,
     ) -> Result<impl IntoResponse, shared::Error> {
-        let user = session::User::from_jar(jar).unwrap();
         let pg = state.pool.get().await?;
         super::delete(&pg, &user.email, secret).await?;
         let flash = flash.success("api key deleted");

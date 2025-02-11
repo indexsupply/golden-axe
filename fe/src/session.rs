@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 
 use axum::{
-    extract::{ConnectInfo, State},
+    extract::{ConnectInfo, FromRequestParts, State},
     response::{Html, IntoResponse, Redirect},
     Form,
 };
@@ -18,11 +18,22 @@ pub struct User {
     pub email: String,
 }
 
-impl User {
-    pub fn from_jar(jar: SignedCookieJar) -> Option<User> {
-        jar.get("email").map(|c| User {
-            email: c.value().to_string(),
-        })
+#[axum::async_trait]
+impl FromRequestParts<web::State> for User {
+    type Rejection = axum::response::Response;
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        state: &web::State,
+    ) -> Result<Self, Self::Rejection> {
+        let jar: SignedCookieJar = SignedCookieJar::from_request_parts(parts, state)
+            .await
+            .unwrap();
+        match jar.get("email") {
+            Some(cookie) => Ok(User {
+                email: cookie.value().to_string(),
+            }),
+            None => Err(Redirect::temporary("/login").into_response()),
+        }
     }
 }
 

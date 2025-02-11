@@ -14,7 +14,7 @@ pub mod handlers {
         extract::State,
         response::{Html, IntoResponse, Redirect},
     };
-    use axum_extra::extract::{Form, SignedCookieJar};
+    use axum_extra::extract::Form;
     use serde_json::json;
 
     use crate::{
@@ -28,9 +28,8 @@ pub mod handlers {
     pub async fn index(
         State(state): State<web::State>,
         flash: axum_flash::IncomingFlashes,
-        jar: SignedCookieJar,
+        user: Option<session::User>,
     ) -> Result<impl IntoResponse, shared::Error> {
-        let user = session::User::from_jar(jar);
         let pg = state.pool.get().await?;
         let api_keys = if let Some(user) = &user {
             Some(api_key::list(&pg, &user.email).await?)
@@ -59,9 +58,8 @@ pub mod handlers {
     pub async fn account(
         State(state): State<web::State>,
         flash: axum_flash::IncomingFlashes,
-        jar: SignedCookieJar,
+        user: session::User,
     ) -> Result<impl IntoResponse, shared::Error> {
-        let user = session::User::from_jar(jar).unwrap();
         let pg = state.pool.get().await?;
         let plan = refresh_plan(&state.daimo, &state.stripe, &pg, &user.email).await?;
         let api_keys = api_key::list(&pg, &user.email).await?;
@@ -81,10 +79,9 @@ pub mod handlers {
     pub async fn update_stripe(
         flash: axum_flash::Flash,
         State(state): State<web::State>,
-        jar: SignedCookieJar,
+        user: session::User,
     ) -> Result<impl IntoResponse, shared::Error> {
         let pg = state.pool.get().await?;
-        let user = session::User::from_jar(jar).unwrap();
         let redirect = format!("{}/account", state.fe_url);
         let plan = PlanChange::get_latest_completed(&pg, &user.email).await?;
         if let Some(c) = plan.as_ref().and_then(|p| p.stripe_customer.clone()) {
@@ -98,11 +95,10 @@ pub mod handlers {
 
     pub async fn setup_stripe(
         State(state): State<web::State>,
-        jar: SignedCookieJar,
+        user: session::User,
         Form(change): Form<PlanChangeRequest>,
     ) -> Result<impl IntoResponse, shared::Error> {
         let pg = state.pool.get().await?;
-        let user = session::User::from_jar(jar).unwrap();
         let new_plan = PlanOption::get(&pg, &change.plan_name, &user.email).await?;
         let redirect = format!("{}/account", state.fe_url);
         let session = state.stripe.create_session(&user.email, &redirect).await?;
@@ -126,10 +122,9 @@ pub mod handlers {
 
     pub async fn setup_daimo(
         State(state): State<web::State>,
-        jar: SignedCookieJar,
+        user: session::User,
         Form(change): Form<PlanChangeRequest>,
     ) -> Result<impl IntoResponse, shared::Error> {
-        let user = session::User::from_jar(jar).unwrap();
         let pg = state.pool.get().await?;
         let current_plan = PlanChange::get_latest_completed(&pg, &user.email).await?;
         let new_plan = PlanOption::get(&pg, &change.plan_name, &user.email).await?;
