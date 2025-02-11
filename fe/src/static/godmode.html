@@ -105,7 +105,7 @@
             </form>
             <div id="history">
                 {{#each history}}
-                <div class="query" data-chain="{{chain}}" data-sql="{{sql}}" data-generated-sql="{{ generated_sql }}" data-events="{{(join events "\n")}}">
+                <div class="query" data-chain="{{chain}}" data-sql="{{(btoa sql)}}" data-generated-sql="{{(btoa generated_sql)}}" data-events='{{(btoa (join events "\n"))}}'>
                     <div class="timing">
                         <div class="created_at">{{ created_at }}</div>
                         {{#if count }}
@@ -139,15 +139,15 @@
           event.target.textContent = original;
         }, 1000);
         const div = event.target.closest("div.query");
-        navigator.clipboard.writeText(div.getAttribute("data-generated-sql"));
+        navigator.clipboard.writeText(atob(div.getAttribute("data-generated-sql")));
       }
 
       function runQuery(event) {
         event.preventDefault();
         const div = event.target.closest("div.query");
         const chain = div.getAttribute("data-chain");
-        const sql = div.getAttribute("data-sql");
-        const events = div.getAttribute("data-events").split("\n");
+        const sql = atob(div.getAttribute("data-sql"));
+        const events = atob(div.getAttribute("data-events")).split("\n");
 
         let params = new URLSearchParams();
         params.append("query", sql);

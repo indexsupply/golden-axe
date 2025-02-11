@@ -51,6 +51,7 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 bs58 = "0.5.1"
 rust_decimal = { version = "1.36", features = ["db-tokio-postgres"] }
 rust_decimal_macros = "1.36"
+base64 = "0.22.1"
 
 [dev-dependencies]
 shared = { path = "../shared", features = ["test"] }

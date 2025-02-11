@@ -1939,6 +1939,7 @@ dependencies = [
  "axum-flash",
  "axum-macros",
  "axum-test",
+ "base64 0.22.1",
  "be",
  "bs58",
  "clap",
