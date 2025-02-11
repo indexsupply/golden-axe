@@ -86,7 +86,9 @@ impl Client {
             let error_message = resp.text().await?;
             Err(shared::Error::Server(eyre!(error_message).into()))
         } else {
-            Ok(resp.json::<PaymentLink>().await?)
+            let link = resp.json::<PaymentLink>().await?;
+            tracing::info!("new daimo payment link nonce: {}", nonce(&link.id));
+            Ok(link)
         }
     }
 
@@ -109,7 +111,13 @@ impl Client {
             )
             .await?;
         if res.len() >= 2 {
-            Ok(Some(res[1][0].as_str().unwrap_or_default().to_string()))
+            let tx_hash = res[1][0].as_str().unwrap_or_default().to_string();
+            tracing::info!(
+                "completed daimo payment nonce: {} tx: {}",
+                nonce(daimo_id),
+                tx_hash
+            );
+            Ok(Some(tx_hash))
         } else {
             Ok(None)
         }
