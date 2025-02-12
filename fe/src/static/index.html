@@ -308,7 +308,12 @@
                 <div id="examples" class="queries">
                     <h2>Examples</h2>
                     {{#each examples }}
-                    <div class="query" data-chain="{{chain}}" data-sql='{{sql}}' data-events='{{(join events "\n")}}'>
+                    <div
+                        class="query"
+                        data-chain="{{chain}}"
+                        data-events='{{(btoa (join events "\n"))}}'
+                        data-sql='{{(btoa sql)}}'
+                    >
                         <div class="desc">{{ desc }}</div>
                         <div class="event">{{(join events ",")}}</div>
                         <div class="sql">{{ sql }}</div>
@@ -379,8 +384,8 @@
       function querySelected(event) {
         const div = event.target.closest("div.query");
         const chain = div.getAttribute("data-chain");
-        const sql = div.getAttribute("data-sql");
-        const events = div.getAttribute("data-events");
+        const sql = atob(div.getAttribute("data-sql"));
+        const events = atob(div.getAttribute("data-events")).split("\n");
         setOrAddChain(chain);
         document.getElementById("query").value = sql;
         document.getElementById("events").value = events;
