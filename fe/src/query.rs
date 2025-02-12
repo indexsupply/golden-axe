@@ -22,7 +22,6 @@ pub async fn user_history(
             select chain, events, user_query, latency, created_at
             from user_queries
             where api_key in (select secret from api_keys where owner_email = $1)
-            and created_at > now() - '2 days'::interval
             order by created_at desc
             limit 100
             ",
@@ -39,4 +38,23 @@ pub async fn user_history(
             created_at: row.get("created_at"),
         })
         .collect())
+}
+
+pub mod handlers {
+    use axum::{extract::State, response::Html};
+    use serde_json::json;
+
+    use crate::{session, web};
+
+    pub async fn list(
+        State(state): State<web::State>,
+        user: session::User,
+    ) -> Result<Html<String>, shared::Error> {
+        let pg = state.pool.get().await?;
+
+        Ok(Html(state.templates.render(
+            "history.html",
+            &json!({"history": super::user_history(&pg, &user.email).await?}),
+        )?))
+    }
 }

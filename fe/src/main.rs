@@ -153,13 +153,15 @@ fn templates() -> Result<handlebars::Handlebars<'static>, handlebars::TemplateEr
     handlebars::handlebars_helper!(atob: |s: String| BASE64_STANDARD.decode(s).unwrap_or_default());
 
     let mut reg = handlebars::Handlebars::new();
+    if cfg!(debug_assertions) {
+        reg.set_dev_mode(true);
+    }
     reg.register_helper("trunc", Box::new(trunc));
     reg.register_helper("join", Box::new(join));
     reg.register_helper("snippet", Box::new(snippet));
     reg.register_helper("money", Box::new(money));
     reg.register_helper("btoa", Box::new(btoa));
     reg.register_helper("atob", Box::new(atob));
-    reg.set_dev_mode(true);
     reg.register_embed_templates::<Assets>()?;
     reg.register_escape_fn(handlebars::no_escape);
     Ok(reg)
@@ -200,6 +202,7 @@ fn service(state: web::State) -> IntoMakeServiceWithConnectInfo<Router, SocketAd
         .route("/email-login-link", post(session::email_login_link))
         .route("/logout", get(session::logout))
         .route("/account", get(account::handlers::account))
+        .route("/query-history", get(query::handlers::list))
         .route("/setup-daimo", post(account::handlers::setup_daimo))
         .route("/setup-stripe", post(account::handlers::setup_stripe))
         .route("/update-stripe", post(account::handlers::update_stripe))

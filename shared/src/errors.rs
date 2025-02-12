@@ -67,8 +67,8 @@ impl axum::response::IntoResponse for Error {
                 msg.unwrap_or(String::from("too many requests")),
             ),
             Self::User(msg) => (StatusCode::BAD_REQUEST, msg),
-            Self::Server(e) => {
-                tracing::error!(%e, "server-error={:?}", e);
+            Self::Server(error) => {
+                tracing::error!(error);
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "server error".to_string(),

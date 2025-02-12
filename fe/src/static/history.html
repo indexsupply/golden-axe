@@ -1,0 +1,10 @@
+{{#each history}}
+<div class="query" data-chain="{{chain}}" data-sql='{{sql}}' data-events='{{(join events "\n")}}'>
+    <div class="timing">
+        <div class="created_at">{{ created_at }}</div>
+        <div class="latency"><em>{{ latency }}ms</em></div>
+    </div>
+    <div class="event">{{(join events ",")}}</div>
+    <div class="sql">{{ sql }}</div>
+</div>
+{{/each}}

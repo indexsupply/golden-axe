@@ -19,7 +19,7 @@ pub mod handlers {
 
     use crate::{
         account::{view_plan_options, PlanOption},
-        api_key, query, session,
+        api_key, session,
         web::{self, FlashMessage},
     };
 
@@ -36,18 +36,12 @@ pub mod handlers {
         } else {
             None
         };
-        let history = if let Some(user) = &user {
-            Some(query::user_history(&pg, &user.email).await?)
-        } else {
-            None
-        };
         let resp = Html(state.templates.render(
             "index.html",
             &json!({
                 "api_url": state.be_url,
                 "api_keys": api_keys,
                 "examples": state.examples,
-                "history": history,
                 "user": user,
                 "flash": FlashMessage::from(flash.clone()),
             }),

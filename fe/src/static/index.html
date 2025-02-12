@@ -317,16 +317,6 @@
                 </div>
                 <div id="history" class="queries">
                     <h2>History</h2>
-                    {{#each history}}
-                    <div class="query" data-chain="{{chain}}" data-sql='{{sql}}' data-events='{{(join events "\n")}}'>
-                        <div class="timing">
-                            <div class="created_at">{{ created_at }}</div>
-                            <div class="latency"><em>{{ latency }}ms</em></div>
-                        </div>
-                        <div class="event">{{(join events ",")}}</div>
-                        <div class="sql">{{ sql }}</div>
-                    </div>
-                    {{/each}}
                 </div>
                 <div id="stats">
                     <label>Block:</label>
@@ -422,26 +412,25 @@
         document.getElementById("loading").style.display = 'block';
       }
 
-      function showHistory() {
-        //There is no event here because showHistory is determined on
-        //page load. If there is ?history=true in the url
-        //then we call this function and then remove the param from the url.
+      async function clickHistory(event) {
+        event.preventDefault();
+        const response = await fetch("/query-history");
+        const html = await response.text();
+        const historyDiv = document.getElementById('history');
+
         resetResponse();
-        document.getElementById("history").style.display = 'block';
-        document.querySelector("#history > div.query").click();
+        historyDiv.querySelectorAll('.query').forEach(el => el.remove());
+        historyDiv.insertAdjacentHTML('beforeend', html);
+        document
+          .querySelectorAll("div.query")
+          .forEach((div) => div.addEventListener("click", querySelected));
+        document
+          .getElementById("history").style.display = 'block';
       }
 
       function showTable() {
         resetResponse();
         document.querySelector("#response table").style.display = 'table';
-      }
-
-      function clickHistory(event) {
-        //We don't prevent default bwe want to reload the page
-        //to get the latest history from the db.
-        const url = new URL(window.location.href);
-        url.searchParams.set("history", true);
-        window.history.replaceState({}, '', url);
       }
 
       function addHeaderRow(row) {
@@ -762,7 +751,6 @@
         if (params.get("test")) {
           updateTestFlag(true);
         }
-
         if (!params.has("query")) {
           showExamples();
           return;
@@ -781,21 +769,6 @@
             setOrAddChain(chain);
         }
 
-        /*
-          When History is clicked, ?history=true is added to the
-          url and the page is redirected. As we are loading the page
-          if we find a history=true param then we should show the history
-          and then remove the param from the URL so that if/when the user
-          grabs the URL to share/save the history param is not included.
-        */
-        let history = params.get("history");
-        if (history) {
-          showHistory();
-          params.delete("history");
-          const url = new URL(window.location.href);
-          url.search = params;
-          window.history.replaceState({}, '', url);
-        }
       }
 
       window.addEventListener("popstate", function (event) {
