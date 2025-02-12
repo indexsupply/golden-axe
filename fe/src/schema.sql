@@ -76,7 +76,7 @@ create view account_limits as
     left join current_plans on current_plans.owner_email = api_keys.owner_email
     where api_keys.deleted_at is null;
 
-create unlogged table if not exists user_queries(
+create table if not exists user_queries(
     chain bigint,
     api_key text,
     events text[],
