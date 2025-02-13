@@ -1,4 +1,4 @@
-use std::{future::IntoFuture, net::SocketAddr, time::Duration};
+use std::{net::SocketAddr, time::Duration};
 
 use axum::{
     body::Body,
@@ -84,30 +84,37 @@ async fn main() {
         .await
         .expect("binding to tcp for http server");
 
-    if args.no_sync {
-        match tokio::try_join!(
-            tokio::spawn(account_limits(config.clone())),
-            tokio::spawn(axum::serve(listener, service(config.clone())).into_future()),
-        ) {
-            Ok(_) => tracing::error!("task died too soon"),
-            Err(e) => panic!("task failed {}", e),
-        }
-    } else {
-        match tokio::try_join!(
-            tokio::spawn(account_limits(config.clone())),
-            tokio::spawn(sync::run(config.clone())),
-            tokio::spawn(axum::serve(listener, service(config.clone())).into_future()),
-        ) {
-            Ok(_) => tracing::error!("task died too soon"),
-            Err(e) => panic!("task failed {}", e),
+    tokio::spawn(account_limits(config.clone()));
+    tokio::spawn(sync(args.clone(), config.clone()));
+    axum::serve(listener, service(config.clone()))
+        .await
+        .expect("serving api");
+}
+
+async fn sync(args: Args, config: api::Config) {
+    if !args.no_sync {
+        loop {
+            let config = config.clone();
+            let result = tokio::spawn(sync::run(config.clone())).await;
+            if let Err(e) = result {
+                tracing::error!("sync error: {}", e);
+            }
+            tokio::time::sleep(Duration::from_secs(10)).await;
         }
     }
 }
 
 async fn account_limits(config: api::Config) {
     loop {
-        if let Some(limits) = config.gafe.load_account_limits().await {
-            *config.account_limits.lock().unwrap() = limits;
+        let config = config.clone();
+        let result = tokio::spawn(async move {
+            if let Some(limits) = config.gafe.load_account_limits().await {
+                *config.account_limits.lock().unwrap() = limits;
+            }
+        })
+        .await;
+        if let Err(e) = result {
+            tracing::error!("account_limits error: {}", e);
         }
         tokio::time::sleep(Duration::from_secs(10)).await;
     }
