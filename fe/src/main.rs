@@ -13,8 +13,8 @@ use fe::{
     account, api_docs, api_key, conduit_api, daimo, god_mode, postmark, query, session, stripe, web,
 };
 use rust_embed::Embed;
-use std::{collections::HashMap, net::SocketAddr};
-use tower_http::trace::TraceLayer;
+use std::{collections::HashMap, net::SocketAddr, time::Duration};
+use tower_http::{classify::ServerErrorsFailureClass, trace::TraceLayer};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
@@ -177,14 +177,13 @@ fn service(state: web::State) -> IntoMakeServiceWithConnectInfo<Router, SocketAd
             tracing::info_span!("http", path, status = tracing::field::Empty)
         })
         .on_response(
-            |resp: &axum::http::Response<_>, d: std::time::Duration, span: &tracing::Span| {
+            |resp: &axum::http::Response<_>, _: Duration, span: &tracing::Span| {
                 span.record("status", resp.status().as_str());
-                let _guard = span.enter();
-                metrics::counter!("api.requests").increment(1);
-                metrics::histogram!("api.latency").record(d.as_millis() as f64);
-                if resp.status().is_client_error() || resp.status().is_server_error() {
-                    metrics::counter!("api.errors").increment(1);
-                }
+            },
+        )
+        .on_failure(
+            |error: ServerErrorsFailureClass, _: Duration, _span: &tracing::Span| {
+                tracing::error!(error = %error)
             },
         );
     let service = tower::ServiceBuilder::new().layer(tracing);

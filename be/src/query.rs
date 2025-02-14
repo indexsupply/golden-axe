@@ -891,24 +891,25 @@ mod tests {
         check_sql(
             vec!["Foo(uint indexed aAA, uint indexed b)"],
             r#"
-                select "aAA", "b"
-                from foo
+            select aaa, "b"
+            from foo
+            where aaa = 0
             "#,
             r#"
-                with foo as not materialized (
-                    select
-                        topics [2] as "aAA",
-                        topics [3] as "b"
-                    from logs
-                    where chain = 1
-                    and topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
-                )
-                select
-                    abi_uint("aAA") as "aAA",
-                    abi_uint("b") as "b"
-                from foo
+            WITH foo AS NOT MATERIALIZED (
+              SELECT
+                topics [2] AS aaa,
+                topics [3] AS "b"
+              FROM logs
+              WHERE chain = 1
+              AND topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
+            )
+            SELECT abi_uint(aAA) AS aAA, abi_uint("b") AS "b"
+            FROM foo
+            WHERE aaa = '\x0000000000000000000000000000000000000000000000000000000000000000'
             "#,
-        ).await;
+        )
+        .await;
         check_sql(
             vec!["Foo(uint indexed aAA, uint indexed b)"],
             "select aaa from foo",
