@@ -43,10 +43,21 @@
                 width: 100%;
                 box-sizing: border-box;
             }
+            .Success {
+                color: green;
+            }
+            .Error {
+                color: red;
+            }
         </style>
         <script src="login-form.js"></script>
     </head>
     <body>
+        <div>
+            {{#each flash }}
+            <marquee class="{{level}}">{{ message }}</marquee>
+            {{/each}}
+        </div>
         <h1>Welcome</h1>
         <form method="post" action="#">
             <label for="email">An account will be created for the email if one doesn't already exist.</label>

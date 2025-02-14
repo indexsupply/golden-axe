@@ -39,8 +39,14 @@ impl FromRequestParts<web::State> for User {
 
 pub async fn try_login(
     State(state): State<web::State>,
+    flash: axum_flash::IncomingFlashes,
 ) -> Result<impl IntoResponse, shared::Error> {
-    Ok(Html(state.templates.render("login.html", &json!(""))?))
+    Ok(Html(state.templates.render(
+        "login.html",
+        &json!({
+            "flash": FlashMessage::from(flash.clone()),
+        }),
+    )?))
 }
 
 #[derive(Deserialize)]
@@ -85,9 +91,17 @@ pub async fn email_login_link(
     )
     .await?;
     pgtx.commit().await?;
-    send_email_login(state, &req.email, secret).await?;
-    let flash = flash.success("Please check your email to log in.");
-    Ok((flash, Redirect::to("/")).into_response())
+    match send_email_login(state, &req.email, secret).await {
+        Ok(_) => {
+            let flash = flash.success("Please check your email to log in.");
+            Ok((flash, Redirect::to("/")).into_response())
+        }
+        Err(e) => {
+            tracing::error!("sending email: {}", e);
+            let flash = flash.error("Error sending email. Please try again.");
+            Ok((flash, Redirect::to("/login")).into_response())
+        }
+    }
 }
 
 async fn send_email_login(state: web::State, to: &str, secret: Vec<u8>) -> Result<()> {
