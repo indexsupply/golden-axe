@@ -214,8 +214,9 @@ impl UserQuery {
     }
 
     fn abi_decode_expr(&mut self, expr: &ast::Expr) -> Option<ast::ExprWithAlias> {
-        if let ast::Expr::UnaryOp { op, expr } = &expr {
-            return match self.abi_decode_expr(expr) {
+        match &expr {
+            ast::Expr::Nested(expr) => self.abi_decode_expr(expr),
+            ast::Expr::UnaryOp { op, expr } => match self.abi_decode_expr(expr) {
                 Some(expr) => Some(ast::ExprWithAlias {
                     alias: None,
                     expr: ast::Expr::UnaryOp {
@@ -224,42 +225,52 @@ impl UserQuery {
                     },
                 }),
                 None => None,
-            };
-        }
-        if let ast::Expr::BinaryOp { left, op, right } = &expr {
-            return Some(ast::ExprWithAlias {
+            },
+            ast::Expr::BinaryOp { left, op, right } => Some(ast::ExprWithAlias {
                 alias: None,
                 expr: ast::Expr::BinaryOp {
                     left: self.abi_decode_expr(left).map(|e| Box::new(e.expr))?,
                     right: self.abi_decode_expr(right).map(|e| Box::new(e.expr))?,
                     op: op.clone(),
                 },
-            });
-        }
-        if let ast::Expr::Value(_) = &expr {
-            return Some(ast::ExprWithAlias {
+            }),
+            ast::Expr::Value(_) => Some(ast::ExprWithAlias {
                 alias: None,
                 expr: expr.clone(),
-            });
-        }
-        if let ast::Expr::Function(f) = &expr {
-            if let Some(expr) = extract_function_arg(f) {
-                let wrapped = self.abi_decode_expr(&expr)?;
-                return Some(wrap_function(
-                    None,
-                    f.name.0.first().unwrap().clone(),
-                    wrapped.expr,
-                ));
-            }
-        }
-        if let ast::Expr::Case {
-            operand,
-            conditions,
-            results,
-            else_result,
-        } = &expr
-        {
-            return Some(ast::ExprWithAlias {
+            }),
+            ast::Expr::Function(f) => match &f.args {
+                ast::FunctionArguments::List(list) => match list.args.first() {
+                    Some(ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Expr(expr))) => {
+                        Some(ast::ExprWithAlias {
+                            alias: None,
+                            expr: ast::Expr::Function(ast::Function {
+                                name: f.name.clone(),
+                                args: ast::FunctionArguments::List(ast::FunctionArgumentList {
+                                    duplicate_treatment: list.duplicate_treatment,
+                                    args: vec![ast::FunctionArg::Unnamed(
+                                        ast::FunctionArgExpr::Expr(
+                                            self.abi_decode_expr(expr)?.expr,
+                                        ),
+                                    )],
+                                    clauses: vec![],
+                                }),
+                                null_treatment: None,
+                                filter: None,
+                                over: None,
+                                within_group: vec![],
+                            }),
+                        })
+                    }
+                    _ => None,
+                },
+                _ => None,
+            },
+            ast::Expr::Case {
+                operand,
+                conditions,
+                results,
+                else_result,
+            } => Some(ast::ExprWithAlias {
                 alias: None,
                 expr: ast::Expr::Case {
                     operand: operand.clone(),
@@ -273,35 +284,35 @@ impl UserQuery {
                         .and_then(|expr| self.abi_decode_expr(expr))
                         .map(|rewritten| Box::new(rewritten.expr)),
                 },
-            });
-        }
-        match &self.get_param(expr)? {
-            abi::Parameter::Address { .. } => Some(wrap_function(
-                expr.last(),
-                ast::Ident::new("abi_address"),
-                expr.clone(),
-            )),
-            abi::Parameter::Bool { .. } => Some(wrap_function(
-                expr.last(),
-                ast::Ident::new("abi_bool"),
-                expr.clone(),
-            )),
-            abi::Parameter::Int { .. } => Some(wrap_function(
-                expr.last(),
-                ast::Ident::new("abi_int"),
-                expr.clone(),
-            )),
-            abi::Parameter::String { .. } => Some(wrap_function(
-                expr.last(),
-                ast::Ident::new("abi_string"),
-                expr.clone(),
-            )),
-            abi::Parameter::Uint { .. } => Some(wrap_function(
-                expr.last(),
-                ast::Ident::new("abi_uint"),
-                expr.clone(),
-            )),
-            _ => None,
+            }),
+            _ => match &self.get_param(expr)? {
+                abi::Parameter::Address { .. } => Some(wrap_function(
+                    expr.last(),
+                    ast::Ident::new("abi_address"),
+                    expr.clone(),
+                )),
+                abi::Parameter::Bool { .. } => Some(wrap_function(
+                    expr.last(),
+                    ast::Ident::new("abi_bool"),
+                    expr.clone(),
+                )),
+                abi::Parameter::Int { .. } => Some(wrap_function(
+                    expr.last(),
+                    ast::Ident::new("abi_int"),
+                    expr.clone(),
+                )),
+                abi::Parameter::String { .. } => Some(wrap_function(
+                    expr.last(),
+                    ast::Ident::new("abi_string"),
+                    expr.clone(),
+                )),
+                abi::Parameter::Uint { .. } => Some(wrap_function(
+                    expr.last(),
+                    ast::Ident::new("abi_uint"),
+                    expr.clone(),
+                )),
+                _ => None,
+            },
         }
     }
 
@@ -757,18 +768,6 @@ fn wrap_function(
     }
 }
 
-fn extract_function_arg(function: &ast::Function) -> Option<ast::Expr> {
-    if let ast::FunctionArguments::List(list) = &function.args {
-        if list.args.is_empty() {
-            return None;
-        }
-        if let ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Expr(expr)) = &list.args[0] {
-            return Some(expr.clone());
-        }
-    }
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1077,6 +1076,24 @@ mod tests {
                 select sum(abi_uint(b))
                 from foo
                 where a = '\x00000000000000000000000000000000000000000000000000000000deadbeef'
+            "#,
+        ).await;
+    }
+
+    #[tokio::test]
+    async fn test_select_distinct() {
+        check_sql(
+            vec!["Foo(address indexed a)"],
+            "select count(distinct a) from foo",
+            r#"
+                with foo as not materialized (
+                    select topics[2] as a
+                    from logs
+                    where chain = 1
+                    and topics [1] = '\xe773a60b784586770a963a70fa6ba2bdf31c462939b6ba36852ed45f5f722358'
+                )
+                select count(distinct abi_address(a))
+                from foo
             "#,
         ).await;
     }
