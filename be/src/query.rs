@@ -215,7 +215,13 @@ impl UserQuery {
 
     fn abi_decode_expr(&mut self, expr: &ast::Expr) -> Option<ast::ExprWithAlias> {
         match &expr {
-            ast::Expr::Nested(expr) => self.abi_decode_expr(expr),
+            ast::Expr::Nested(expr) => match self.abi_decode_expr(expr) {
+                Some(expr) => Some(ast::ExprWithAlias {
+                    alias: expr.alias,
+                    expr: ast::Expr::Nested(Box::new(expr.expr)),
+                }),
+                None => None,
+            },
             ast::Expr::Cast {
                 kind,
                 expr,
@@ -840,7 +846,7 @@ mod tests {
         check_sql(
             vec!["Foo(uint a, uint b)"],
             r#"
-                select a
+                select a, ((b))
                 from foo
                 where a = 1
                 and (b = 1 OR b = 0)
@@ -854,7 +860,9 @@ mod tests {
                     where chain = 1
                     and topics [1] = '\x36af629ed92d12da174153c36f0e542f186a921bae171e0318253e5a717234ea'
                 )
-                select abi_uint(a) as a
+                select
+                    abi_uint(a) as a,
+                    ((abi_uint(b))) AS b
                 from foo
                 where a = '\x0000000000000000000000000000000000000000000000000000000000000001'
                 and (
