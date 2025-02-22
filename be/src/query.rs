@@ -216,6 +216,23 @@ impl UserQuery {
     fn abi_decode_expr(&mut self, expr: &ast::Expr) -> Option<ast::ExprWithAlias> {
         match &expr {
             ast::Expr::Nested(expr) => self.abi_decode_expr(expr),
+            ast::Expr::Cast {
+                kind,
+                expr,
+                data_type,
+                format,
+            } => match self.abi_decode_expr(expr) {
+                Some(expr) => Some(ast::ExprWithAlias {
+                    alias: None,
+                    expr: ast::Expr::Cast {
+                        kind: kind.clone(),
+                        expr: Box::new(expr.expr),
+                        data_type: data_type.clone(),
+                        format: format.clone(),
+                    },
+                }),
+                None => None,
+            },
             ast::Expr::UnaryOp { op, expr } => match self.abi_decode_expr(expr) {
                 Some(expr) => Some(ast::ExprWithAlias {
                     alias: None,
@@ -1326,6 +1343,25 @@ mod tests {
               and topics [1] = '\x851f2bcfcac86844a44298d8354312295b246183022d51c76398d898d87014fc'
             )
             select sum((c ->> 'd') :: int) from foo
+            "#,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_cast_rewrite() {
+        check_sql(
+            vec!["Foo(uint a)"],
+            "select sum(a)::text from foo",
+            r#"
+            with foo as not materialized (
+              select abi_fixed_bytes(data, 0, 32) as a
+              from logs
+              where chain = 1
+              and topics [1] = '\x1176bd96090075e8a903f0c486668395688fc8c045fd7d1d173b9852e4613ca1'
+            )
+            select sum(abi_uint(a))::text
+            from foo
             "#,
         )
         .await;
