@@ -5,7 +5,7 @@ use alloy::{
 use eyre::{Context, Result};
 use itertools::Itertools;
 use sqlparser::{
-    ast::{self, Ident},
+    ast::{self, Ident, OrderByExpr},
     parser::Parser,
 };
 use std::{collections::HashSet, str::FromStr};
@@ -339,6 +339,12 @@ impl UserQuery {
         }
     }
 
+    fn rewrite_order_by(&mut self, oexpr: &mut OrderByExpr) {
+        if let Some(rewritten) = self.abi_decode_expr(&oexpr.expr) {
+            oexpr.expr = rewritten.expr.clone();
+        }
+    }
+
     // We rewrite select items to preform last-mile abi decoding.
     // The decoding that happens within the log loading CTE will keep
     // data in 32byte padded format. It is in the rewritten user query
@@ -475,6 +481,7 @@ impl UserQuery {
             ast::Query { body, order_by, .. } => {
                 self.validate_query_body(body)?;
                 for oexpr in order_by {
+                    self.rewrite_order_by(oexpr);
                     self.validate_expression(&mut oexpr.expr)?;
                 }
                 Ok(())
@@ -1370,6 +1377,31 @@ mod tests {
             )
             select sum(abi_uint(a))::text
             from foo
+            "#,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_order_by_rewrite() {
+        check_sql(
+            vec!["Foo(address a, uint b)"],
+            "select a, sum(b) from foo group by a order by sum(b) desc",
+            r#"
+            with foo as not materialized (
+              select
+                abi_fixed_bytes(data, 0, 32) as a,
+                abi_fixed_bytes(data, 32, 32) as b
+              from logs
+              where chain = 1
+              and topics [1] = '\xf31ba491e89b510fc888156ac880594d589edc875cfc250c79628ea36dd022ed'
+            )
+            select
+              abi_address(a) as a,
+              sum(abi_uint(b))
+            from foo
+            group by a
+            order by sum(abi_uint(b)) desc
             "#,
         )
         .await;
