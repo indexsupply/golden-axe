@@ -11,6 +11,11 @@ create unique index if not exists unique_login_links
 on login_links(email)
 where invalidated_at is null;
 
+create table if not exists invoice_extras (
+    owner_email text not null,
+    extras text not null
+);
+
 create table if not exists plan_changes (
     id bigserial unique,
     owner_email text not null,

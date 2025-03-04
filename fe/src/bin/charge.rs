@@ -32,6 +32,8 @@ fn wait_for_yes() -> bool {
     input.trim().to_lowercase() == "y"
 }
 
+const INVOICE_HEADER: &str = "From:\nIndex Supply, Co.\n1095 Hilltop Dr.\nRedding, CA 96003\n\n";
+
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
@@ -40,11 +42,13 @@ async fn main() {
     let postmark_client = postmark::Client::new(args.postmark_key);
     let customer_charges = query(&pool, args.year, args.month).await.expect("query");
     for (customer, charges) in customer_charges {
+        let invoice_id = format!("Invoice Id: {}{}{}\n", customer.id, args.year, args.month);
+        let invoice_date = format!("Invoice Date: {}-{}-{}\n", args.year, args.month, 1);
         let mut line_items = Vec::new();
         let mut amount: i64 = 0;
         for charge in charges {
             amount += charge.amount;
-            let mut desc = format!(
+            line_items.push(format!(
                 "{} Plan {}/{} to {}/{} ${}.",
                 charge.plan,
                 args.month,
@@ -52,23 +56,18 @@ async fn main() {
                 args.month,
                 charge.to,
                 charge.amount as f64 / 100.0,
-            );
-            if charge.plan == "Indie" {
-                desc.push_str(&format!(
-                    " Chains: {}",
-                    charge
-                        .chains
-                        .iter()
-                        .map(|c| c.to_string())
-                        .collect::<Vec<String>>()
-                        .join(",")
-                ));
-            }
-            line_items.push(desc);
+            ));
         }
         println!("\n\n-----------\n{}\n", customer.owner_email);
         let description = format!(
-            "{}\n\nTotal: ${}\n\nThank you for your business!",
+            "{}{}\n{}{}Indexing Services:\n\n{}\n\nTotal: ${}\n\nThank you for your business!",
+            invoice_id,
+            invoice_date,
+            INVOICE_HEADER,
+            customer
+                .extras
+                .map(|e| format!("{}\n\n", e))
+                .unwrap_or_default(),
             line_items.join("\n"),
             amount as f64 / 100.0,
         );
@@ -98,14 +97,15 @@ async fn main() {
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 struct Customer {
+    id: i64,
     owner_email: String,
     stripe_id: String,
+    extras: Option<String>,
 }
 
 #[derive(Debug)]
 struct Charge {
     plan: String,
-    chains: Vec<i64>,
     from: u8,
     to: u8,
     amount: i64,
@@ -121,20 +121,25 @@ async fn query(pool: &Pool, year: u16, month: u8) -> Result<Charges, shared::Err
             "
             with collapsed as (
                 select
+                    id,
                     owner_email,
                     name,
-                    chains,
+                    amount,
+                    stripe_customer,
                     created_at,
                     lead(created_at) over (
                         partition by owner_email
                         order by created_at
                     ) as stopped_at
                 from plan_changes
+                where daimo_tx is null and stripe_customer is not null
             ), with_days as (
                 select
+                    id,
                     owner_email,
                     name,
-                    chains,
+                    amount,
+                    stripe_customer,
                     extract(day from greatest(
                             created_at,
                             date_trunc('month', make_date($1, $2, 1))
@@ -149,18 +154,17 @@ async fn query(pool: &Pool, year: u16, month: u8) -> Result<Charges, shared::Err
                 or stopped_at > date_trunc('month', make_date($1, $2, 1))
             )
             select
-                accounts.owner_email,
-                accounts.stripe_id,
-                INITCAP(plans.name) as name,
-                chains,
+                id,
+                with_days.owner_email,
+                stripe_customer,
+                extras,
+                INITCAP(name) as name,
                 started_at,
                 stopped_at,
-                (round(plans.amount * ((stopped_at - started_at) + 1) / num_days, 2) * 100)::int8 as amount
+                (round(amount * ((stopped_at - started_at) + 1) / num_days, 2))::int8 as amount
             from with_days
-            left join accounts
-            on accounts.owner_email = with_days.owner_email
-            left join plans
-            on with_days.name = plans.name
+            left join invoice_extras
+            on invoice_extras.owner_email = with_days.owner_email
             where exists (
                 select 1
                 from api_keys
@@ -175,13 +179,14 @@ async fn query(pool: &Pool, year: u16, month: u8) -> Result<Charges, shared::Err
     for row in res {
         charges
             .entry(Customer {
+                id: row.get("id"),
                 owner_email: row.get("owner_email"),
-                stripe_id: row.get::<&str, String>("stripe_id"),
+                stripe_id: row.get::<&str, String>("stripe_customer"),
+                extras: row.get("extras"),
             })
             .or_default()
             .push(Charge {
                 plan: row.get("name"),
-                chains: row.get("chains"),
                 from: row.get::<&str, i32>("started_at") as u8,
                 to: row.get::<&str, i32>("stopped_at") as u8,
                 amount: row.get("amount"),
