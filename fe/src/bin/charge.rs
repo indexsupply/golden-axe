@@ -43,7 +43,7 @@ async fn main() {
     let customer_charges = query(&pool, args.year, args.month).await.expect("query");
     for (customer, charges) in customer_charges {
         let invoice_id = format!("Invoice Id: {}{}{}\n", customer.id, args.year, args.month);
-        let invoice_date = format!("Invoice Date: {}-{}-{}\n", args.year, args.month, 1);
+        let invoice_date = format!("Invoice Date: {}-{}-{}\n", args.year, args.month + 1, 1);
         let mut line_items = Vec::new();
         let mut amount: i64 = 0;
         for charge in charges {
