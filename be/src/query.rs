@@ -433,8 +433,8 @@ impl UserQuery {
 
     fn rewrite_binary_expr(
         &mut self,
-        left: &mut Box<ast::Expr>,
-        right: &mut Box<ast::Expr>,
+        left: &mut ast::Expr,
+        right: &mut ast::Expr,
     ) -> Result<(), api::Error> {
         if let Some(param) = self.get_param(left) {
             self.rewrite_literal(right, &param.clone(), false)?;
@@ -608,6 +608,7 @@ impl UserQuery {
             }
             ast::Expr::InList { expr, list, .. } => {
                 for e in list {
+                    self.rewrite_binary_expr(expr, e)?;
                     self.validate_expression(e)?;
                 }
                 self.validate_expression(expr)
