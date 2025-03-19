@@ -222,7 +222,7 @@ mod tests {
     use axum_flash::Key;
     use axum_test::TestServer;
     use deadpool_postgres::Pool;
-    use fe::{chains, daimo, postmark, stripe};
+    use fe::{daimo, postmark, stripe};
 
     fn test_state(pool: Pool) -> web::State {
         web::State {
@@ -261,19 +261,17 @@ mod tests {
         let pool = shared::pg::test::new(SCHEMA).await;
         let pg = pool.get().await.expect("getting pg from pool");
         delete_chain(&pg, 1).await;
-        let request = chains::Config {
-            name: String::from("Main"),
-            popular: false,
-            chain: 1,
-            url: String::from("https://eth.merkle.io"),
-        };
+        let request = serde_json::json!({
+            "name": "Main",
+            "chain": 1,
+            "url": "https://eth.merkle.io"
+        });
         let server = TestServer::new(service(test_state(pool.clone()))).unwrap();
         server
             .post("/add-chain")
             .json(&request)
             .await
             .assert_status_ok();
-
         let resp = server.post("/add-chain").json(&request).await;
         resp.assert_status_not_ok();
         resp.assert_json(&serde_json::json!({"message": "duplicate for chain: 1"}));
