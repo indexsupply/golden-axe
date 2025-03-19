@@ -1,55 +1,41 @@
 use axum::{extract::State, Json};
+use be::sync;
 use eyre::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::web;
 
-/*
-    Based on this API spec:
-    https://conduitxyz.notion.site/External-Native-Integrations-Guide-f69c5ae4df374f6fbc4513c180748e56
-*/
-
 #[derive(Deserialize, Serialize)]
 pub struct CreateRequest {
-    pub id: String,
-    pub event: String,
+    pub name: String,
     pub chain_id: u64,
-    pub rpc: String,
+    pub url: String,
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct CreateResponse {
-    pub id: String,
-    pub status: String,
+    pub id: u64,
 }
 
 pub async fn add(
     State(state): State<web::State>,
     Json(req): Json<CreateRequest>,
 ) -> Result<Json<CreateResponse>, shared::Error> {
+    sync::test(&req.url, req.chain_id).await?;
     let pg = state.pool.get().await?;
     pg.execute(
-        "insert into config(enabled, chain, url, conduit_id) values (true, $1, $2, $3)",
-        &[&(req.chain_id as i64), &req.rpc, &req.id],
+        "insert into config(enabled, name, chain, url) values (true, $1, $2, $3)",
+        &[&req.name, &(req.chain_id as i64), &req.url],
     )
     .await
     .map_err(|e| {
         shared::pg::unique_violations(
             e,
-            &[
-                (
-                    "config_pkey",
-                    &format!("duplicate for chain: {}", req.chain_id),
-                ),
-                (
-                    "config_conduit_id_key",
-                    &format!("duplicate for id: {}", req.id),
-                ),
-            ],
+            &[(
+                "config_pkey",
+                &format!("duplicate for chain: {}", req.chain_id),
+            )],
         )
     })?;
-    Ok(Json(CreateResponse {
-        id: req.id.clone(),
-        status: String::from("INSTALLED"),
-    }))
+    Ok(Json(CreateResponse { id: req.chain_id }))
 }

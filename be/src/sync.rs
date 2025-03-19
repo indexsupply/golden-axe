@@ -85,6 +85,19 @@ impl RemoteConfig {
     }
 }
 
+pub async fn test(url: &str, chain: u64) -> Result<(), shared::Error> {
+    let url = url.parse().wrap_err("unable to parse rpc url")?;
+    let eth_client = ProviderBuilder::new().on_http(url);
+    match eth_client.get_chain_id().await {
+        Err(e) => Err(shared::Error::User(format!("rpc error {}", e))),
+        Ok(id) if id == chain => Ok(()),
+        Ok(id) => Err(shared::Error::User(format!(
+            "expected chain {} got {}",
+            chain, id
+        ))),
+    }
+}
+
 pub async fn run(config: api::Config) {
     let mut table: HashMap<RemoteConfig, JoinHandle<()>> = HashMap::new();
     loop {

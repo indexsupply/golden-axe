@@ -253,10 +253,9 @@ mod tests {
     async fn test_conduit_add() {
         let pool = shared::pg::test::new(SCHEMA).await;
         let request = conduit_api::CreateRequest {
-            id: String::from("foo"),
-            event: String::from("INSTALLED"),
+            name: String::from("bar"),
             chain_id: 42,
-            rpc: String::from("/foo"),
+            url: String::from("/foo"),
         };
         let server = TestServer::new(service(test_state(pool.clone()))).unwrap();
         server
@@ -271,10 +270,9 @@ mod tests {
         let resp = server
             .post("/conduit/add-chain")
             .json(&conduit_api::CreateRequest {
-                id: String::from("foo"),
-                event: String::from("INSTALLED"),
+                name: String::from("bar"),
                 chain_id: 43,
-                rpc: String::from("/foo"),
+                url: String::from("/foo"),
             })
             .await;
         resp.assert_status_not_ok();
