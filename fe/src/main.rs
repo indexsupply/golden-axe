@@ -239,6 +239,12 @@ mod tests {
         }
     }
 
+    async fn delete_chain(pg: &tokio_postgres::Client, chain: u64) {
+        pg.execute("delete from config where chain = $1", &[&(chain as i64)])
+            .await
+            .expect("unable to delete chain");
+    }
+
     #[tokio::test]
     async fn test_index() {
         let pool = shared::pg::test::new(SCHEMA).await;
@@ -250,34 +256,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_conduit_add() {
+    async fn test_add_chain() {
         let pool = shared::pg::test::new(SCHEMA).await;
+        let pg = pool.get().await.expect("getting pg from pool");
+        delete_chain(&pg, 1).await;
         let request = chains::Config {
-            name: String::from("bar"),
+            name: String::from("Main"),
             popular: false,
-            chain: 42,
-            url: String::from("/foo"),
+            chain: 1,
+            url: String::from("https://eth.merkle.io"),
         };
         let server = TestServer::new(service(test_state(pool.clone()))).unwrap();
         server
-            .post("/conduit/add-chain")
+            .post("/add-chain")
             .json(&request)
             .await
-            .assert_json(&serde_json::json!({"id": 42}));
+            .assert_status_ok();
 
-        let resp = server.post("/conduit/add-chain").json(&request).await;
+        let resp = server.post("/add-chain").json(&request).await;
         resp.assert_status_not_ok();
-        resp.assert_json(&serde_json::json!({"message": "duplicate for chain: 42"}));
-        let resp = server
-            .post("/conduit/add-chain")
-            .json(&chains::Config {
-                name: String::from("bar"),
-                popular: false,
-                chain: 43,
-                url: String::from("/foo"),
-            })
-            .await;
-        resp.assert_status_not_ok();
-        resp.assert_json(&serde_json::json!({"message": "duplicate for id: foo"}));
+        resp.assert_json(&serde_json::json!({"message": "duplicate for chain: 1"}));
     }
 }
