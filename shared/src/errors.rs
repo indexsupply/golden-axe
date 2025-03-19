@@ -6,6 +6,7 @@ pub enum Error {
     User(String),
     Timeout(Option<String>),
     TooManyRequests(Option<String>),
+    Authorization(String),
 
     #[serde(skip)]
     Server(Box<dyn std::error::Error + Send + Sync>),
@@ -58,6 +59,7 @@ pub struct ErrorMessage {
 impl axum::response::IntoResponse for Error {
     fn into_response(self) -> axum::response::Response {
         let (status, message) = match self {
+            Self::Authorization(msg) => (StatusCode::FORBIDDEN, msg.to_string()),
             Self::Timeout(msg) => (
                 StatusCode::REQUEST_TIMEOUT,
                 msg.unwrap_or(String::from("request timed out")),

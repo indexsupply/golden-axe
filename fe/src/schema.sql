@@ -55,6 +55,12 @@ create table if not exists api_keys (
     deleted_at timestamptz
 );
 
+create table if not exists provision_keys(
+    secret text not null,
+    created_at timestamptz default now(),
+    deleted_at timestamptz
+);
+
 create index if not exists api_keys_owner_email
 on api_keys(owner_email);
 

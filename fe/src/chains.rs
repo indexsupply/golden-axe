@@ -8,12 +8,14 @@ use crate::web;
 #[derive(Deserialize, Serialize)]
 pub struct Config {
     pub name: String,
+    #[serde(default)]
     pub popular: bool,
     pub chain: u64,
     pub url: String,
 }
 
 pub async fn add(
+    _: web::Provision,
     State(state): State<web::State>,
     Json(req): Json<Config>,
 ) -> Result<(), shared::Error> {

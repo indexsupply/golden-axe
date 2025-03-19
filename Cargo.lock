@@ -1035,6 +1035,12 @@ checksum = "4c7f02d4ea65f2c1853089ffd8d2787bdbc63de2f0d29dedbcf8ccdfa0ccd4cf"
 
 [[package]]
 name = "base64"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3441f0f7b02788e948e47f457ca01f1d7e6d92c693bc132c22b087d3141c03ff"
+
+[[package]]
+name = "base64"
 version = "0.21.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
@@ -1885,6 +1891,7 @@ dependencies = [
  "getrandom",
  "handlebars",
  "hex",
+ "http-basic-auth",
  "openssl",
  "postgres-openssl",
  "pulldown-cmark",
@@ -2379,6 +2386,15 @@ dependencies = [
  "bytes",
  "fnv",
  "itoa",
+]
+
+[[package]]
+name = "http-basic-auth"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2cfbca660e33a57485816f21a1d48d763c5586376b8f43f32520897a348b930c"
+dependencies = [
+ "base64 0.12.3",
 ]
 
 [[package]]

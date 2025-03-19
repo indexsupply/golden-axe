@@ -1,4 +1,6 @@
-use axum::extract::FromRef;
+use std::net::SocketAddr;
+
+use axum::extract::{ConnectInfo, FromRef, FromRequestParts};
 use axum_extra::extract::cookie::Key;
 use axum_flash::IncomingFlashes;
 use deadpool_postgres::Pool;
@@ -48,5 +50,48 @@ impl FlashMessage {
                 message: f.1.to_string(),
             })
             .collect()
+    }
+}
+
+pub struct Provision {}
+
+#[axum::async_trait]
+impl FromRequestParts<State> for Provision {
+    type Rejection = shared::Error;
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        state: &State,
+    ) -> Result<Self, Self::Rejection> {
+        if let Some(addr) = parts.extensions.get::<ConnectInfo<SocketAddr>>() {
+            if addr.ip().is_loopback() {
+                return Ok(Provision {});
+            }
+        }
+        let header = parts
+            .headers
+            .get("authorization")
+            .ok_or(shared::Error::Authorization(String::from(
+                "missing auth header",
+            )))?
+            .to_str()
+            .map_err(|_| shared::Error::Authorization(String::from("invalid auth header")))?;
+        let creds = http_basic_auth::decode(header).map_err(|_| {
+            shared::Error::Authorization(String::from("unable to parse basic auth"))
+        })?;
+        match state
+            .pool
+            .get()
+            .await?
+            .query_one(
+                "select true from provision_keys where secret = $1 and deleated_at is null",
+                &[&creds.user_id],
+            )
+            .await
+        {
+            Ok(_) => Ok(Provision {}),
+            _ => Err(shared::Error::Authorization(String::from(
+                "unable to auth provision endpoint",
+            ))),
+        }
     }
 }
