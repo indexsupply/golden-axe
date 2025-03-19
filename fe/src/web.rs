@@ -83,7 +83,7 @@ impl FromRequestParts<State> for Provision {
             .get()
             .await?
             .query_one(
-                "select true from provision_keys where secret = $1 and deleated_at is null",
+                "select true from provision_keys where secret = $1 and deleted_at is null",
                 &[&creds.user_id],
             )
             .await
