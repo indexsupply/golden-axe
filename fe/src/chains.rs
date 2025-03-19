@@ -1,41 +1,50 @@
-use axum::{extract::State, Json};
-use be::sync;
 use eyre::Result;
 use serde::{Deserialize, Serialize};
-
-use crate::web;
 
 #[derive(Deserialize, Serialize)]
 pub struct Config {
     pub name: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub popular: bool,
     pub chain: u64,
+    #[serde(skip_serializing)]
     pub url: String,
 }
 
-pub async fn add(
-    _: web::Provision,
-    State(state): State<web::State>,
-    Json(req): Json<Config>,
-) -> Result<(), shared::Error> {
-    sync::test(&req.url, req.chain).await?;
-    let pg = state.pool.get().await?;
-    pg.execute(
-        "insert into config(enabled, name, chain, url) values (true, $1, $2, $3)",
-        &[&req.name, &(req.chain as i64), &req.url],
-    )
-    .await
-    .map_err(|e| {
-        shared::pg::unique_violations(
-            e,
-            &[(
-                "config_pkey",
-                &format!("duplicate for chain: {}", req.chain),
-            )],
+pub mod handlers {
+    use super::Config;
+    use crate::web;
+    use axum::{extract::State, Json};
+    use be::sync;
+
+    pub async fn add(
+        _: web::Provision,
+        State(state): State<web::State>,
+        Json(req): Json<Config>,
+    ) -> Result<(), shared::Error> {
+        sync::test(&req.url, req.chain).await?;
+        let pg = state.pool.get().await?;
+        pg.execute(
+            "insert into config(enabled, name, chain, url) values (true, $1, $2, $3)",
+            &[&req.name, &(req.chain as i64), &req.url],
         )
-    })?;
-    Ok(())
+        .await
+        .map_err(|e| {
+            shared::pg::unique_violations(
+                e,
+                &[(
+                    "config_pkey",
+                    &format!("duplicate for chain: {}", req.chain),
+                )],
+            )
+        })?;
+        Ok(())
+    }
+
+    pub async fn list(State(state): State<web::State>) -> Result<Json<Vec<Config>>, shared::Error> {
+        let pg = state.pool.get().await?;
+        Ok(Json(super::list(&pg).await?))
+    }
 }
 
 pub async fn list(pg: &tokio_postgres::Client) -> Result<Vec<Config>> {
