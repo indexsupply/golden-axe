@@ -95,6 +95,7 @@ create table if not exists user_queries(
 
 create table if not exists config (
     enabled bool default true,
+    name text,
     chain int8 primary key,
     url text not null,
     start_block int8,
@@ -104,21 +105,30 @@ create table if not exists config (
 );
 
 insert into
-    config(enabled, chain, url)
+    config(enabled, chain, name, url)
     values
-        (false, 1, 'https://multi-omniscient-mound.quiknode.pro/fdedc14dec34659ffbb65528ec174998087d0df7'),
-        (false, 100, 'https://sly-fluent-shadow.xdai.quiknode.pro/efa31e398dd8294c4ffb394e62b95750299cd918'),
-        (false, 480, 'https://smart-winter-sun.worldchain-mainnet.quiknode.pro/f9891920fd207eb0143303f53bd71ebf5a4ea66a'),
-        (false, 4801, 'https://maximum-damp-replica.worldchain-sepolia.quiknode.pro/558c716ed53af313e8c9db1e176334ea3f5b588e'),
-        (false, 8453, 'https://capable-thrumming-film.base-mainnet.quiknode.pro/56b49c04b3b9ad2e6162c946d89854181338f420'),
-        (false, 42026, 'https://rpc.donatuz.com'),
-        (false, 42161, 'https://hardworking-shy-arrow.arbitrum-mainnet.quiknode.pro/aa8d2cbd1f0a856b1ea64a66dfa0da3c9b704ca4'),
-        (false, 84532, 'https://special-divine-pond.base-sepolia.quiknode.pro/14a6b6521b135c48a9e71884c14b8beb984d6f93'),
-        (false, 80002, 'https://tiniest-sparkling-dawn.matic-amoy.quiknode.pro/db261d98a880460e6c5a1a5de39fddc189817bec'),
-        (false, 911867, 'https://odyssey.ithaca.xyz'),
-        (false, 984122, 'https://rpc.forma.art'),
-        (true,  7777777, 'https://rpc.zora.energy'),
-        (false, 10058112, 'https://spotlight-sepolia.g.alchemy.com/v2/RBovy_2RtzmHz-3xpxIbzSArz0v_-oc9'),
-        (false, 52085143, 'https://rpc-ethena-testnet-0.t.conduit.xyz')
+        (false, 1,          'Main',                 'https://eth.merkle.io'),
+        (false, 100,        'Gnosis',               'https://rpc.gnosischain.com/'),
+        (false, 137,        'Polygon',              'https://polygon-mainnet.g.alchemy.com/v2/lWFRkcGDDMcVl3pTx56KsZZkQUmKUkHY'),
+        (false, 414,        'Fly',                  'https://rpc-flynet-u82lq6zgmf.t.conduit.xyz'),
+        (false, 480,        'World Chain',          'https://worldchain-mainnet.g.alchemy.com/v2/Mo4gtKR7gCG9V49J09WkrLy95zP1h38e'),
+        (false, 998,        'Hyperliquid Testnet',  'https://rpc.hyperliquid-testnet.xyz/evm'),
+        (false, 999,        'Hyperliquid',          'https://rpc.hyperliquid.xyz/evm'),
+        (false, 1514,       'Story',                'https://mainnet.storyrpc.io'),
+        (false, 1996,       'Sanko',                'https://mainnet.sanko.xyz'),
+        (false, 4801,       'World Chain Sepolia',  'https://worldchain-sepolia.g.alchemy.com/v2/Mo4gtKR7gCG9V49J09WkrLy95zP1h38e'),
+        (false, 8453,       'Base',                 'https://mainnet.base.org'),
+        (false, 10143,      'Monad Testnet',        'https://testnet-rpc.monad.xyz'),
+        (false, 42026,      'Donatuz',              'https://rpc.donatuz.com'),
+        (false, 42161,      'Arbitrum One',         'https://arb1.arbitrum.io/rpc'),
+        (false, 80002,      'Polygon Amoy',         'https://rpc-amoy.polygon.technology'),
+        (false, 80094,      'Berachain',            'https://rpc.berachain.com'),
+        (false, 84532,      'Base Sepolia',         'https://sepolia.base.org'),
+        (false, 911867,     'Odyssey',              'https://odyssey.ithaca.xyz'),
+        (false, 984122,     'Forma',                'https://rpc.forma.art'),
+        (false, 984123,     'Forma Testnet',        'https://rpc.sketchpad-1.forma.art'),
+        (true,  7777777,    'Zora',                 'https://rpc.zora.energy'),
+        (false, 10058112,   'Spotlight Sepolia',    'https://spotlight-sepolia.g.alchemy.com/v2/RBovy_2RtzmHz-3xpxIbzSArz0v_-oc9'),
+        (false, 52085143,   'Ble Testnet',          'https://rpc-ethena-testnet-0.t.conduit.xyz')
     on conflict(chain)
-    do nothing;
+    do update set name = excluded.name, url = excluded.url;
