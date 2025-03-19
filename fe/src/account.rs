@@ -19,7 +19,7 @@ pub mod handlers {
 
     use crate::{
         account::{view_plan_options, PlanOption},
-        api_key, session,
+        api_key, chains, session,
         web::{self, FlashMessage},
     };
 
@@ -41,6 +41,7 @@ pub mod handlers {
             &json!({
                 "api_url": state.be_url,
                 "api_keys": api_keys,
+                "chains": chains::list(&pg).await?,
                 "examples": state.examples,
                 "user": user,
                 "flash": FlashMessage::from(flash.clone()),

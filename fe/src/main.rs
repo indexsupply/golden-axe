@@ -10,7 +10,7 @@ use base64::{prelude::BASE64_STANDARD, Engine};
 use clap::{command, Parser};
 use eyre::{Context, Result};
 use fe::{
-    account, api_docs, api_key, conduit_api, daimo, god_mode, postmark, query, session, stripe, web,
+    account, api_docs, api_key, chains, daimo, god_mode, postmark, query, session, stripe, web,
 };
 use rust_embed::Embed;
 use std::{collections::HashMap, net::SocketAddr, time::Duration};
@@ -208,7 +208,7 @@ fn service(state: web::State) -> IntoMakeServiceWithConnectInfo<Router, SocketAd
         .route("/new-api-key", get(api_key::handlers::new))
         .route("/create-api-key", post(api_key::handlers::create))
         .route("/delete-api-key", post(api_key::handlers::delete))
-        .route("/conduit/add-chain", post(conduit_api::add))
+        .route("/add-chain", post(chains::add))
         .fallback(fallback)
         .layer(service)
         .with_state(state)
@@ -221,7 +221,7 @@ mod tests {
     use axum_flash::Key;
     use axum_test::TestServer;
     use deadpool_postgres::Pool;
-    use fe::{conduit_api, daimo, postmark, stripe};
+    use fe::{chains, daimo, postmark, stripe};
 
     fn test_state(pool: Pool) -> web::State {
         web::State {
@@ -252,9 +252,10 @@ mod tests {
     #[tokio::test]
     async fn test_conduit_add() {
         let pool = shared::pg::test::new(SCHEMA).await;
-        let request = conduit_api::CreateRequest {
+        let request = chains::Config {
             name: String::from("bar"),
-            chain_id: 42,
+            popular: false,
+            chain: 42,
             url: String::from("/foo"),
         };
         let server = TestServer::new(service(test_state(pool.clone()))).unwrap();
@@ -262,16 +263,17 @@ mod tests {
             .post("/conduit/add-chain")
             .json(&request)
             .await
-            .assert_json(&serde_json::json!({"id": "foo", "status": "INSTALLED"}));
+            .assert_json(&serde_json::json!({"id": 42}));
 
         let resp = server.post("/conduit/add-chain").json(&request).await;
         resp.assert_status_not_ok();
         resp.assert_json(&serde_json::json!({"message": "duplicate for chain: 42"}));
         let resp = server
             .post("/conduit/add-chain")
-            .json(&conduit_api::CreateRequest {
+            .json(&chains::Config {
                 name: String::from("bar"),
-                chain_id: 43,
+                popular: false,
+                chain: 43,
                 url: String::from("/foo"),
             })
             .await;

@@ -265,26 +265,18 @@
                             <label for="chain-selection">Chain</label>
                             <select id="chain-selection">
                                 <optgroup label="Popular Chains">
-                                    <option value="8453">Base</option>
-                                    <option value="84532">Base Sepolia</option>
-                                    <option value="1">Main</option>
+                                {{#each chains}}
+                                {{#if popular}}
+                                <option value="{{chain}}">{{name}}</option>
+                                {{/if}}
+                                {{/each}}
                                 </optgroup>
                                 <optgroup label="Good Chains">
-                                    <option value="42161">Arbitrum One</option>
-                                    <option value="80094">Berachain</option>
-                                    <option value="52085143">Ble Testnet</option>
-                                    <option value="42026">Donatuz</option>
-                                    <option value="984122">Forma</option>
-                                    <option value="984123">Forma Testnet</option>
-                                    <option value="100">Gnosis</option>
-                                    <option value="999">Hyperliquid</option>
-                                    <option value="998">Hyperliquid Testnet</option>
-                                    <option value="10143">Monad Testnet</option>
-                                    <option value="911867">Odyssey</option>
-                                    <option value="80002">Polygon Amoy</option>
-                                    <option value="480">World Chain</option>
-                                    <option value="4801">World Chain Sepolia</option>
-                                    <option value="7777777">Zora</option>
+                                {{#each chains}}
+                                {{#unless popular}}
+                                <option value="{{chain}}">{{name}}</option>
+                                {{/unless}}
+                                {{/each}}
                                 </optgroup>
                             </select>
                         </div>

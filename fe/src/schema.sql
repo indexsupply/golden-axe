@@ -101,7 +101,7 @@ create table if not exists config (
     start_block int8,
     batch_size int2 not null default 2000,
     concurrency int2 not null default 10,
-    conduit_id text unique
+    popular bool default false
 );
 
 insert into
