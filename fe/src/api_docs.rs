@@ -2,10 +2,18 @@ use axum::{extract::State, response::Html};
 use pulldown_cmark::{html, Options, Parser};
 use serde_json::json;
 
-use crate::web;
+use crate::{chains, web};
 
 pub async fn index(State(state): State<web::State>) -> Result<Html<String>, shared::Error> {
-    let index = state.templates.render("docs/index.md", &json!({}))?;
+    let pg = state.pool.get().await?;
+    let chains = chains::list(&pg)
+        .await?
+        .into_iter()
+        .filter(|c| c.enabled)
+        .collect::<Vec<_>>();
+    let index = state
+        .templates
+        .render("docs/index.md", &json!({"chains": chains, }))?;
     let mut options = Options::empty();
     options.insert(Options::ENABLE_GFM);
     options.insert(Options::ENABLE_HEADING_ATTRIBUTES);
@@ -18,6 +26,6 @@ pub async fn index(State(state): State<web::State>) -> Result<Html<String>, shar
     Ok(Html(
         state
             .templates
-            .render("docs.html", &json!({"body": body}))?,
+            .render("docs.html", &json!({"body": body }))?,
     ))
 }

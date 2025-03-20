@@ -38,17 +38,9 @@ Here are the currently supported chains.
 
 | Name                         | Id     |
 |------------------------------|--------|
-| Arbitrum One                 | 42161  |
-| Base                         | 8453   |
-| Base Sepolia                 | 84532  |
-| Forma                        | 984122 |
-| Gnosis                       | 100    |
-| Main                         | 1      |
-| Odyssey                      | 911867 |
-| Polygon Amoy                 | 80002  |
-| World Chain                  | 480    |
-| World Chain Sepolia          | 481    |
-| Zora                         | 7777777|
+{{#each chains }}
+|{{name}} | {{chain}} |
+{{/each}}
 
 For `POST` requests, use the `Chain: 8453` header. For `GET` requests use the `?chain=8453` query param.
 
@@ -211,6 +203,7 @@ And the response
 }
 ```
 
+
 ## SQL {#sql .reference}
 
 When you provide an event signature `Foo(uint indexed bar, uint baz)` you effectively have a table named `foo` with a numeric columns named `bar` and `baz` that you can query:
@@ -321,5 +314,70 @@ IN, and NOT IN operators. Other operators include:
     OR
 
 ```
+
+## `POST /add-chain` {#add-chain .reference }
+
+This is a chain provider API and requires authentication. Please email [support@indexsupply.com](mailto:support@indexsupply.com) if you'd like to programmatically add chains to be indexed.
+
+The authentication is basic authentication that uses the user portion of the field to store a secret. The Authorization header should be base64 encoded per the RFC 7617.
+
+JSON Request fields
+
+| Field       | Type    | Description                                |
+|-------------|---------|---------------------                       |
+| name        | string  | Name of the chain. Will show up in the UI |
+| chain       | int     | Unique ID for the chain. Must match rpc response |
+| url         | string  | JSON RPC API url for chain |
+| start_block | int     | Optional. Defaults to the latest at time of deployment. Use start_block=1 to index from beginning. |
+
+Example
+```
+curl https://$secret@www.indexsupply.net/add-chain \
+  -X POST \
+  -H "Content-Type: application/json" \
+  --data '{
+     "name": "Forty Two",
+     "chain": 4242,
+     "url":"https://foo.com",
+     "start_block": 1
+  }'
+```
+
+You will get an empty 200 response if it worked. You can check the status of indexing by either visiting: [api.indexsupply.net/status](https://api.indexsupply.net/status) or you can use the SQL API to query the latest block.
+
+## `GET /chains` {#get-chains .reference }
+
+You can list all of the chains that Index Supply is currently indexing. This is the same list that is in the Chain select dropdown menu on the home page.
+
+There are no arguments or query parameters.
+
+Example
+
+```
+curl https://www.indexsupply.net/list-chains | jq '.[0]'
+
+{
+  "name": "Main",
+  "enabled": true,
+  "popular": true,
+  "chain": 1,
+  "start_block": null
+}
+```
+
+JSON Response fields
+
+| Field       | Type    | Description         |
+|-------------|---------|---------------------|
+| enabled     | bool    | If the chain is currently being indexed. Sometimes chains misbehave and we have to disable them. |
+| name        | string  | Name of the chain. |
+| chain       | int     | Unique ID for the chain. |
+| popular     | bool    | If the chain is popular |
+| start_block | int     | If null then it started somewhere in the middle. You can query for the smallest block_num in the blocks table to find out exact value |
+
+<br>
+<br>
+<hr>
+<p>Thank you for reading. This is the end.</p>
 
 [3]: https://docs.ethers.org/v5/api/utils/abi/formats/#abi-formats--human-readable-abi
