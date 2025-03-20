@@ -381,6 +381,51 @@ JSON Response fields
 | popular     | bool    | If the chain is popular |
 | start_block | int     | If null then it started somewhere in the middle. You can query for the smallest block_num in the blocks table to find out exact value |
 
+## `POST /enable-chain` {#enable-chain .reference }
+
+You can only enable or disable a chain that you have added. The check is tied to the secret used when adding the chain.
+
+The specific status of a chain can be found using the `GET /chain` endpoint.
+
+JSON Request fields
+
+| Field       | Type    | Description              |
+|-------------|---------|---------------------     |
+| chain       | int     | Unique ID for the chain. |
+
+Example
+
+```
+curl -v http://$secret@www.indexsupply.net/enable-chain \
+  -X POST \
+  -H "Content-Type: application/json" \
+  --data '{"chain": 42}'
+```
+
+
+## `POST /disable-chain` {#disable-chain .reference }
+
+You can only enable or disable a chain that you have added. The check is tied to the secret used when adding the chain.
+
+The specific status of a chain can be found using the `GET /chain` endpoint.
+
+Disabling a chain only pauses indexing. It does not delete data. Enabling it will result in Index Supply resuming where it left off.
+
+JSON Request fields
+
+| Field       | Type    | Description              |
+|-------------|---------|---------------------     |
+| chain       | int     | Unique ID for the chain. |
+
+Example
+
+```
+curl -v http://$secret@www.indexsupply.net/disable-chain \
+  -X POST \
+  -H "Content-Type: application/json" \
+  --data '{"chain": 42}'
+```
+
 <br>
 <br>
 <hr>
