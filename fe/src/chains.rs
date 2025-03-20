@@ -4,29 +4,90 @@ use serde::{Deserialize, Serialize};
 #[derive(Deserialize, Serialize)]
 pub struct Config {
     pub name: String,
+    pub enabled: bool,
     #[serde(default, skip_serializing)]
     pub popular: bool,
-    pub chain: u64,
+    pub chain: i64,
+    pub start_block: Option<i64>,
     #[serde(skip_serializing)]
     pub url: String,
 }
 
+#[derive(Deserialize)]
+pub struct EnableRequest {
+    pub chain: i64,
+}
+
 pub mod handlers {
-    use super::Config;
+    use super::{Config, EnableRequest};
     use crate::web;
     use axum::{extract::State, Json};
     use be::sync;
+    use rust_decimal::prelude::One;
+
+    pub async fn enable(
+        provision_key: web::ProvisionKey,
+        State(state): State<web::State>,
+        Json(req): Json<EnableRequest>,
+    ) -> Result<(), shared::Error> {
+        let pg = state.pool.get().await?;
+        let res = pg
+            .execute(
+                "update config set enabled = true where chain = $1 and provision_key = $2",
+                &[&req.chain, &provision_key.secret],
+            )
+            .await?;
+        if res.is_one() {
+            Ok(())
+        } else {
+            Err(shared::Error::User(format!(
+                "unable to enable chain {}",
+                req.chain,
+            )))
+        }
+    }
+
+    pub async fn disable(
+        provision_key: web::ProvisionKey,
+        State(state): State<web::State>,
+        Json(req): Json<EnableRequest>,
+    ) -> Result<(), shared::Error> {
+        let pg = state.pool.get().await?;
+        let res = pg
+            .execute(
+                "update config set enabled = false where chain = $1 and provision_key = $2",
+                &[&req.chain, &provision_key.secret],
+            )
+            .await?;
+        if res.is_one() {
+            Ok(())
+        } else {
+            Err(shared::Error::User(format!(
+                "unable to disable chain {}",
+                req.chain,
+            )))
+        }
+    }
 
     pub async fn add(
-        _: web::Provision,
+        provision_key: web::ProvisionKey,
         State(state): State<web::State>,
         Json(req): Json<Config>,
     ) -> Result<(), shared::Error> {
-        sync::test(&req.url, req.chain).await?;
+        sync::test(&req.url, req.chain as u64).await?;
         let pg = state.pool.get().await?;
         pg.execute(
-            "insert into config(enabled, name, chain, url) values (true, $1, $2, $3)",
-            &[&req.name, &(req.chain as i64), &req.url],
+            "
+            insert into config(enabled, name, chain, url, start_block, provision_key)
+            values (true, $1, $2, $3, $4)
+            ",
+            &[
+                &req.name,
+                &req.chain,
+                &req.url,
+                &req.start_block,
+                &provision_key.secret,
+            ],
         )
         .await
         .map_err(|e| {
@@ -50,16 +111,18 @@ pub mod handlers {
 pub async fn list(pg: &tokio_postgres::Client) -> Result<Vec<Config>> {
     Ok(pg
         .query(
-            "select chain, name, url, popular from config where enabled order by chain",
+            "select enabled, chain, name, url, start_block, popular from config order by chain",
             &[],
         )
         .await?
         .iter()
         .map(|row| Config {
             name: row.get("name"),
+            enabled: row.get("enabled"),
             popular: row.get("popular"),
-            chain: row.get::<&str, i64>("chain") as u64,
+            chain: row.get("chain"),
             url: row.get("url"),
+            start_block: row.get("start_block"),
         })
         .collect())
 }

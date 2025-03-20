@@ -210,6 +210,8 @@ fn service(state: web::State) -> IntoMakeServiceWithConnectInfo<Router, SocketAd
         .route("/delete-api-key", post(api_key::handlers::delete))
         .route("/add-chain", post(chains::handlers::add))
         .route("/list-chains", get(chains::handlers::list))
+        .route("/enable-chain", post(chains::handlers::enable))
+        .route("/disable-chain", post(chains::handlers::disable))
         .fallback(fallback)
         .layer(service)
         .with_state(state)

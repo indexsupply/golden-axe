@@ -36,12 +36,17 @@ pub mod handlers {
         } else {
             None
         };
+        let chains = chains::list(&pg)
+            .await?
+            .into_iter()
+            .filter(|c| c.enabled)
+            .collect::<Vec<_>>();
         let resp = Html(state.templates.render(
             "index.html",
             &json!({
                 "api_url": state.be_url,
                 "api_keys": api_keys,
-                "chains": chains::list(&pg).await?,
+                "chains": chains,
                 "examples": state.examples,
                 "user": user,
                 "flash": FlashMessage::from(flash.clone()),

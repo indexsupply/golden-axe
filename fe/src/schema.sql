@@ -107,7 +107,8 @@ create table if not exists config (
     start_block int8,
     batch_size int2 not null default 2000,
     concurrency int2 not null default 10,
-    popular bool default false
+    popular bool default false,
+    provision_key text
 );
 
 insert into

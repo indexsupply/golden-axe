@@ -53,10 +53,12 @@ impl FlashMessage {
     }
 }
 
-pub struct Provision {}
+pub struct ProvisionKey {
+    pub secret: String,
+}
 
 #[axum::async_trait]
-impl FromRequestParts<State> for Provision {
+impl FromRequestParts<State> for ProvisionKey {
     type Rejection = shared::Error;
     async fn from_request_parts(
         parts: &mut axum::http::request::Parts,
@@ -64,7 +66,9 @@ impl FromRequestParts<State> for Provision {
     ) -> Result<Self, Self::Rejection> {
         if let Some(addr) = parts.extensions.get::<ConnectInfo<SocketAddr>>() {
             if addr.ip().is_loopback() {
-                return Ok(Provision {});
+                return Ok(ProvisionKey {
+                    secret: String::from("localhost"),
+                });
             }
         }
         let header = parts
@@ -88,7 +92,9 @@ impl FromRequestParts<State> for Provision {
             )
             .await
         {
-            Ok(_) => Ok(Provision {}),
+            Ok(_) => Ok(ProvisionKey {
+                secret: creds.user_id.to_string(),
+            }),
             _ => Err(shared::Error::Authorization(String::from(
                 "unable to auth provision endpoint",
             ))),
