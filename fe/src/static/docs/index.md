@@ -32,6 +32,12 @@ And the response
 }
 ```
 
+## TypeScript
+
+There is a TS package [hosted on NPM](https://www.npmjs.com/package/@indexsupply/indexsupply.js) that will enable both node (and possibly other runtimes) and browser access to the Index Supply API.
+
+See the repository for docs and examples: [https://github.com/indexsupply/indexsupply.js](https://github.com/indexsupply/indexsupply.js)
+
 ## Chains {#chains}
 
 Here are the currently supported chains.
