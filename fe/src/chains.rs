@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     pub name: String,
     pub enabled: bool,
-    #[serde(default, skip_serializing)]
+    #[serde(default)]
     pub popular: bool,
     pub chain: i64,
     pub start_block: Option<i64>,
