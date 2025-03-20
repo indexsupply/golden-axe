@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Deserialize, Serialize)]
 pub struct Config {
     pub name: String,
-    #[serde(default = "default_true")]
+    #[serde(default = "default_enabled")]
     pub enabled: bool,
     #[serde(default)]
     pub popular: bool,
@@ -14,7 +14,7 @@ pub struct Config {
     pub url: String,
 }
 
-fn default_true() -> bool {
+fn default_enabled() -> bool {
     true
 }
 
