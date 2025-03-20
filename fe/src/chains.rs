@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Deserialize, Serialize)]
 pub struct Config {
     pub name: String,
+    #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default)]
     pub popular: bool,
@@ -11,6 +12,10 @@ pub struct Config {
     pub start_block: Option<i64>,
     #[serde(skip_serializing)]
     pub url: String,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Deserialize)]
@@ -79,7 +84,7 @@ pub mod handlers {
         pg.execute(
             "
             insert into config(enabled, name, chain, url, start_block, provision_key)
-            values (true, $1, $2, $3, $4)
+            values (true, $1, $2, $3, $4, $5)
             ",
             &[
                 &req.name,
