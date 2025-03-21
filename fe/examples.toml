@@ -1,6 +1,24 @@
 [[queries]]
+chain = 7777777
+desc = "Nested Tuples: Zora Sparked Comment"
+events = [
+    "SparkedComment(bytes32 indexed commentId, (address commenter,address contractAddress,uint256 tokenId,bytes32 nonce) commentIdentifier, uint256 sparksQuantity, address sparker, uint256 timestamp, address referrer)",
+]
+sql = """
+select tx_hash, block_num,
+commentIdentifier->>'commenter' as commenter,
+commentIdentifier->>'contractAddress' as contractAddress,
+commentIdentifier->>'tokenId' as tokenId,
+sparker, timestamp, referrer
+from sparkedcomment
+where block_num >= 22675000
+order by block_num asc
+limit 100
+"""
+
+[[queries]]
 chain = 8453
-desc = "ERC20 Token Balances for All Tokens in Wallet"
+desc = "SUM/CASE: ERC20 Token Balances for All Tokens in Wallet"
 events = ["Transfer(address indexed from, address indexed to, uint256 value)"]
 sql = """
 select
@@ -24,61 +42,8 @@ group by token
 """
 
 [[queries]]
-chain = 480
-desc = "World App User Migration (case expressions)"
-events = ["Transfer(address indexed from, address indexed to, uint256 value)"]
-sql = """
-SELECT
-  block_num,
-  COUNT (DISTINCT "to") AS migrated_users,
-  SUM (CASE
-    WHEN address = 0x2cfc85d8e48f8eab294be644d9e25c3030863003
-    THEN value
-    ELSE 0
-    END
-  ) AS wld,
-  SUM (CASE
-    WHEN address = 0x03c7054bcb39f7b2e5b2c7acb37583e32d70cfa3
-    THEN value
-    ELSE 0
-    END
-  ) AS btc,
-  SUM(CASE
-    WHEN address = 0x4200000000000000000000000000000000000006
-    THEN value
-    ELSE 0
-    END
-  ) AS eth,
-  SUM (CASE
-    WHEN address = 0x79a02482a880bce3f13e09da970dc34db4cd24d1
-    THEN value
-    ELSE 0
-    END
-  ) AS usdc
-FROM transfer
-WHERE "from" = 0xC6968c6DF1a2C31Ac66B42945BbaD91635a0095B
-GROUP BY block_num
-ORDER BY block_num DESC
-LIMIT 20
-"""
-
-[[queries]]
 chain = 8453
-desc = "Daimo Name Registrations"
-events = ["Registered(bytes32 indexed name, address indexed addr)"]
-sql = """
-select
-  block_num,
-  h2s(name) name,
-  addr
-from registered
-where address = 0x4430A644B215a187a3daa5b114fA3f3d9DeBc17D
-order by block_num desc
-"""
-
-[[queries]]
-chain = 8453
-desc = "ERC-1155 Transfer Batch (arrays)"
+desc = "ARRAYS: ERC-1155 Transfer Batch"
 events = [
     "TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] amounts)",
 ]
@@ -96,7 +61,7 @@ and log_idx = 4
 
 [[queries]]
 chain = 8453
-desc = "Unique Senders/Receivers of ERC-721 Transfers per Block"
+desc = "COUNT/DISTINCT: Unique Senders/Receivers of ERC-721 Transfers per Block"
 events = [
     "Transfer(address indexed from, address indexed to, uint indexed tokenId)",
 ]
@@ -114,7 +79,7 @@ limit 1
 
 [[queries]]
 chain = 84532
-desc = "ERC721 Current Token Holders (self join)"
+desc = "SELF JOIN: ERC721 Current Token Holders"
 events = [
     "Transfer(address indexed from, address indexed to, uint indexed tokenId)",
 ]
@@ -131,7 +96,7 @@ and t2.tokenId is null
 
 [[queries]]
 chain = 8453
-desc = "Base Name Registrations"
+desc = "Fun: Base Name Registrations"
 events = [
     "NameRegistered(string name, bytes32 indexed label, address indexed owner, uint256 expires)",
 ]
@@ -145,9 +110,10 @@ where address = 0x4ccb0bb02fcaba27e82a56646e81d8c5bc4119a5
 order by block_num desc
 limit 100
 """
+
 [[queries]]
 chain = 7777777
-desc = "Zora Mint Comments from a Random User"
+desc = "Fun: Zora Mint Comments from a Random User"
 events = [
     "MintComment(address indexed sender, address indexed collection, uint256 indexed tokenId, uint256 quantity, string comment)",
 ]
