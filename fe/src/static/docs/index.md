@@ -538,7 +538,7 @@ Returns a single JSON object
 curl http://$secret@www.indexsupply.net/wl/usage \
   -X POST \
   -H "Content-Type: application/json" \
-  --data '{"org": "my-customer-42", "month": 03, "year": 2025}'
+  --data '{"org": "my-customer-42", "month": 3, "year": 2025}'
 
 {"num_reqs":0}
 ```
