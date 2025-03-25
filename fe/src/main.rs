@@ -11,6 +11,7 @@ use clap::{command, Parser};
 use eyre::{Context, Result};
 use fe::{
     account, api_docs, api_key, chains, daimo, god_mode, postmark, query, session, stripe, web,
+    whitelabel,
 };
 use rust_embed::Embed;
 use std::{collections::HashMap, net::SocketAddr, time::Duration};
@@ -208,10 +209,14 @@ fn service(state: web::State) -> IntoMakeServiceWithConnectInfo<Router, SocketAd
         .route("/new-api-key", get(api_key::handlers::new))
         .route("/create-api-key", post(api_key::handlers::create))
         .route("/delete-api-key", post(api_key::handlers::delete))
-        .route("/add-chain", post(chains::handlers::add))
-        .route("/list-chains", get(chains::handlers::list))
-        .route("/enable-chain", post(chains::handlers::enable))
-        .route("/disable-chain", post(chains::handlers::disable))
+        .route("/wl/add-chain", post(chains::handlers::add))
+        .route("/wl/list-chains", get(chains::handlers::list))
+        .route("/wl/enable-chain", post(chains::handlers::enable))
+        .route("/wl/disable-chain", post(chains::handlers::disable))
+        .route("/wl/create-api-key", post(whitelabel::create_key))
+        .route("/wl/list-api-keys", post(whitelabel::list_keys))
+        .route("/wl/delete-api-key", post(whitelabel::delete_key))
+        .route("/wl/usage", post(whitelabel::usage))
         .fallback(fallback)
         .layer(service)
         .with_state(state)
@@ -270,11 +275,11 @@ mod tests {
         });
         let server = TestServer::new(service(test_state(pool.clone()))).unwrap();
         server
-            .post("/add-chain")
+            .post("/wl/add-chain")
             .json(&request)
             .await
             .assert_status_ok();
-        let resp = server.post("/add-chain").json(&request).await;
+        let resp = server.post("/wl/add-chain").json(&request).await;
         resp.assert_status_not_ok();
         resp.assert_json(&serde_json::json!({"message": "duplicate for chain: 1"}));
     }

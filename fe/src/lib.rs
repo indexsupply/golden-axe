@@ -10,3 +10,4 @@ pub mod query;
 pub mod session;
 pub mod stripe;
 pub mod web;
+pub mod whitelabel;

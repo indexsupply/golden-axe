@@ -78,6 +78,11 @@
                 border-top: 0.5px solid black;
                 padding-top: 5px;
             }
+            h3.whitelabel {
+                font-family: monospace;
+                font-size: xx-large;
+                font-weight: bold;
+            }
             img {
                 background: transparent;
                 width: 98vw;
@@ -172,7 +177,7 @@
     document.addEventListener("DOMContentLoaded", function () {
         let navList = document.querySelector("nav ul");
         let refNavList = document.querySelector("nav ul.reference");
-        document.querySelectorAll("h2:not(.reference)").forEach((h) => {
+        document.querySelectorAll("h2:not(.reference):not(.whitelabel)").forEach((h) => {
             let a = document.createElement("a");
             a.appendChild(document.createTextNode(h.textContent));
             a.href = `#${h.id}`;

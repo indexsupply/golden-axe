@@ -32,7 +32,7 @@ And the response
 }
 ```
 
-## TypeScript
+## TypeScript {#typescript}
 
 There is a TS package [hosted on NPM](https://www.npmjs.com/package/@indexsupply/indexsupply.js) that will enable both node (and possibly other runtimes) and browser access to the Index Supply API.
 
@@ -321,13 +321,19 @@ IN, and NOT IN operators. Other operators include:
 
 ```
 
-## `POST /add-chain` {#add-chain .reference }
+## White Label API {#white-label-api .reference}
 
-This is a chain provider API and requires authentication. Please email [support@indexsupply.com](mailto:support@indexsupply.com) if you'd like to programmatically add chains to be indexed.
+Index Supply can be white labeled. Please reach out to setup an account: [support@indexsupply.com](mailto:support@indexsupply.com)
 
-The authentication is basic authentication that uses the user portion of the field to store a secret. The Authorization header should be base64 encoded per the RFC 7617.
+APIs require an provisioning key that will be established out-of-band.
 
-JSON Request fields
+Authentication is *http basic authentication* with the provisioning key set in the user portion of the authorzation header. The Authorization header should be base64 encoded per RFC 7617. For example: `curl https://$secret:@www.indexsupply.net`.
+
+All requests should be sent to: `www.indexsupply.net` Normal, user based api traffic is sent to `api.indexsupply.net`.
+
+### POST /wl/add-chain {#add-chain .whitelabel}
+
+**JSON Request Fields**
 
 | Field       | Type    | Description                                |
 |-------------|---------|---------------------                       |
@@ -336,9 +342,12 @@ JSON Request fields
 | url         | string  | JSON RPC API url for chain |
 | start_block | int     | Optional. Defaults to the latest at time of deployment. Use start_block=1 to index from beginning. |
 
-Example
+You will get an empty 200 response if it worked. You can check the status of indexing by either visiting: [api.indexsupply.net/status](https://api.indexsupply.net/status) or you can use the SQL API to query the latest block.
+
+**Example**
+
 ```
-curl https://$secret@www.indexsupply.net/add-chain \
+curl https://$secret@www.indexsupply.net/wl/add-chain \
   -X POST \
   -H "Content-Type: application/json" \
   --data '{
@@ -349,18 +358,27 @@ curl https://$secret@www.indexsupply.net/add-chain \
   }'
 ```
 
-You will get an empty 200 response if it worked. You can check the status of indexing by either visiting: [api.indexsupply.net/status](https://api.indexsupply.net/status) or you can use the SQL API to query the latest block.
 
-## `GET /chains` {#get-chains .reference }
+### GET /wl/chains {#get-chains .whitelabel}
 
 You can list all of the chains that Index Supply is currently indexing. This is the same list that is in the Chain select dropdown menu on the home page.
 
 There are no arguments or query parameters.
 
-Example
+**JSON Response Fields**
+
+| Field       | Type    | Description         |
+|-------------|---------|---------------------|
+| enabled     | bool    | If the chain is currently being indexed. Sometimes chains misbehave and we have to disable them. |
+| name        | string  | Name of the chain. |
+| chain       | int     | Unique ID for the chain. |
+| popular     | bool    | If the chain is popular |
+| start_block | int     | If null then it started somewhere in the middle. You can query for the smallest block_num in the blocks table to find out exact value |
+
+**Example**
 
 ```
-curl https://www.indexsupply.net/list-chains | jq '.[0]'
+curl https://www.indexsupply.net/wl/list-chains | jq '.[0]'
 
 {
   "name": "Main",
@@ -371,39 +389,28 @@ curl https://www.indexsupply.net/list-chains | jq '.[0]'
 }
 ```
 
-JSON Response fields
-
-| Field       | Type    | Description         |
-|-------------|---------|---------------------|
-| enabled     | bool    | If the chain is currently being indexed. Sometimes chains misbehave and we have to disable them. |
-| name        | string  | Name of the chain. |
-| chain       | int     | Unique ID for the chain. |
-| popular     | bool    | If the chain is popular |
-| start_block | int     | If null then it started somewhere in the middle. You can query for the smallest block_num in the blocks table to find out exact value |
-
-## `POST /enable-chain` {#enable-chain .reference }
+### POST /wl/enable-chain {#enable-chain .whitelabel}
 
 You can only enable or disable a chain that you have added. The check is tied to the secret used when adding the chain.
 
 The specific status of a chain can be found using the `GET /chain` endpoint.
 
-JSON Request fields
+**JSON Request Fields**
 
 | Field       | Type    | Description              |
 |-------------|---------|---------------------     |
 | chain       | int     | Unique ID for the chain. |
 
-Example
+**Example**
 
 ```
-curl -v http://$secret@www.indexsupply.net/enable-chain \
+curl -v http://$secret@www.indexsupply.net/wl/enable-chain \
   -X POST \
   -H "Content-Type: application/json" \
   --data '{"chain": 42}'
 ```
 
-
-## `POST /disable-chain` {#disable-chain .reference }
+### POST /wl/disable-chain {#disable-chain .whitelabel}
 
 You can only enable or disable a chain that you have added. The check is tied to the secret used when adding the chain.
 
@@ -411,19 +418,129 @@ The specific status of a chain can be found using the `GET /chain` endpoint.
 
 Disabling a chain only pauses indexing. It does not delete data. Enabling it will result in Index Supply resuming where it left off.
 
-JSON Request fields
+**JSON Request Fields**
 
 | Field       | Type    | Description              |
 |-------------|---------|---------------------     |
 | chain       | int     | Unique ID for the chain. |
 
-Example
+**Example**
 
 ```
-curl -v http://$secret@www.indexsupply.net/disable-chain \
+curl -v http://$secret@www.indexsupply.net/wl/disable-chain \
   -X POST \
   -H "Content-Type: application/json" \
   --data '{"chain": 42}'
+```
+
+### POST /wl/create-api-key {#create-api-key .whitelabel}
+
+**JSON Request Fields**
+
+| Field       | Type    | Description                        |
+|-------------|---------|---------------------               |
+| org         | string  | A value to group multiple api keys |
+| secret      | string  | A unique value that your clients will use to authenticate requests to `api.indexsupply.net` |
+| origins     | []string | Optional. A list of allowed origins for the key. This prevents people from stealing the key for browser use. |
+
+Returns an empty 200 response if successful.
+
+**Example**
+
+```
+curl https://$secret@www.indexsupply.net/wl/create-api-key \
+  -X POST \
+  -H "Content-Type: application/json" \
+  --data '{
+     "org": "my-customer-42",
+     "secret": "facebeef",
+     "origins": ["facebeef.com"]
+  }'
+```
+
+### POST /wl/list-api-keys {#list-api-keys .whitelabel}
+
+**JSON Request Fields**
+
+| Field       | Type    | Description                        |
+|-------------|---------|---------------------               |
+| org         | string  | A value to group multiple api keys |
+
+**JSON Response Fields**
+
+A JSON array is returned with the following object fields
+
+| Field       | Type    | Description         |
+|-------------|---------|---------------------|
+| org         | string  | A value to group multiple api keys |
+| secret      | string  | The value provided when the key was created |
+| created_at  | int     | UNIX time when key was created |
+| deleted_at  | null or int | UNIX time when key was deleted or null if active |
+
+**Example**
+
+```
+curl https://$secret@www.indexsupply.net/wl/list-api-keys \
+  -X POST \
+  -H "Content-Type: application/json" \
+  --data '{"org": "my-customer-42"}'
+
+[
+  {
+    "org":"my-customer-42",
+    "secret":"facebeef",
+    "created_at":1742940562,
+    "deleted_at":null
+  }
+]
+```
+
+### POST /wl/delete-api-key {#delete-api-key .whitelabel}
+
+**JSON Request Fields**
+
+| Field       | Type    | Description                        |
+|-------------|---------|---------------------               |
+| secret      | string  | The value provided when the key was created |
+
+Returns an empty 200 response if successful.
+
+**Example**
+```
+curl http://$secret@www.indexsupply.net/wl/delete-api-key \
+  -X POST \
+  -H "Content-Type: application/json" \
+  --data '{"secret": "facebeef"}'
+```
+
+### POST /wl/usage {#usage .whitelabel}
+
+Usage data is kept for the current and previous months. Callers should save the data if they would like to keep track of historical usage.
+
+**JSON Request Fields**
+
+| Field       | Type    | Description                        |
+|-------------|---------|---------------------               |
+| org         | string  | A value to group multiple api keys |
+| month       | int     | The month of usage. 1-12           |
+| year        | int     | The year of usage. Really only useful for January |
+
+**JSON Response Fields**
+
+Returns a single JSON object
+
+| Field       | Type    | Description                        |
+|-------------|---------|---------------------               |
+| num_reqs    | int     | Numher of requests made during the month. |
+
+**Example**
+```
+curl http://$secret@www.indexsupply.net/wl/usage \
+  -X POST \
+  -H "Content-Type: application/json" \
+  --data '{"org": "my-customer-42", "month": 03, "year": 2025}'
+
+{"num_reqs":0}
 ```
 
 <br>
