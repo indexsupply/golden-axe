@@ -1,4 +1,4 @@
-Index Supply is a hosted HTTP API for running SQL queries on Ethereum Event Logs.
+Index Supply is a hosted HTTP API for running SQL queries on Ethereum Logs.
 
 You can use this API from your backend or from your user's browser.
 
@@ -40,15 +40,11 @@ See the repository for docs and examples: [https://github.com/indexsupply/indexs
 
 ## Chains {#chains}
 
-Here are the currently supported chains.
-
 | Name                         | Id     |
 |------------------------------|--------|
 {{#each chains }}
 |{{name}} | {{chain}} |
 {{/each}}
-
-For `POST` requests, use the `Chain: 8453` header. For `GET` requests use the `?chain=8453` query param.
 
 Email [support@indexsupply.com](mailto:support@indexsupply.com) to request new chains.
 
