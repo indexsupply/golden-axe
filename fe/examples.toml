@@ -5,14 +5,12 @@ events = [
     "SparkedComment(bytes32 indexed commentId, (address commenter,address contractAddress,uint256 tokenId,bytes32 nonce) commentIdentifier, uint256 sparksQuantity, address sparker, uint256 timestamp, address referrer)",
 ]
 sql = """
-select tx_hash, block_num,
+select
 commentIdentifier->>'commenter' as commenter,
 commentIdentifier->>'contractAddress' as contractAddress,
 commentIdentifier->>'tokenId' as tokenId,
 sparker, timestamp, referrer
 from sparkedcomment
-where block_num >= 22675000
-order by block_num asc
 limit 100
 """
 
