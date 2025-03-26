@@ -115,8 +115,6 @@
                 row.style.color = 'red';
               } else if (delta > 50) {
                 row.style.color = 'orange';
-              } else if (delta > 10) {
-                row.style.color = 'yellow';
               } else {
                 row.style.color = 'black';
               }
@@ -164,7 +162,7 @@
           let pos = rows.length;
           for (let i = 0; i < rows.length; i++) {
             const chain = rows[i].dataset.chain;
-            if (newRow.dataset.chain < chain) {
+            if (Number(newRow.dataset.chain) < Number(chain)) {
               pos = i;
               break;
             }
