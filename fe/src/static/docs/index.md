@@ -107,108 +107,102 @@ Arrays of these types will be a JSON array of the type.
 
 All inner (3rd dimension) arrays will have the same length.
 
-## `GET /query` {#get-query .reference }
+### GET /query {#get-query .reference }
 
-### Request {#get-query-request}
+Executes the supplied query against the latest block and returns a JSON encoded [response body](#query-response)
+
+**URL Request Fields**
+
+| Field            | Type     | Description         |
+|-------------     |--------- |---------------------|
+| api-key | string | API key from [your account page](https://www.indexsupply.net/account) |
+| chain            | int      | Chain id. See [chains](#chains) |
+| event_signatures | []string | [human readable event signatures][3] |
+| query | string  | SQL referencing tables/columns from `event_signatures`|
+
+**Example**
 
 ```
-GET /query?chain={}&query={}&event_signatures={}
+curl -G https://api.indexsupply.net/query \
+    --data-urlencode 'chain=8453' \
+    --data-urlencode 'query=select a from foo' \
+    --data-urlencode 'event_signatures=Foo(uint a)'
 ```
 
-Query Parameters
+Multiple event signatures enabled by adding more `event_signatures` query parameters.
 
-- `chain`. See [chains](#chains) for possible values.
-- `query`. A SQL query referencing tables and columns from the `event_signatures`. See [SQL](#sql) for more details on the query language.
-- `event_signatures`. A single [human readable event signature][3]
+**Example**
 
-## `GET /query-live` {#get-query-live .reference }
+```
+curl -G https://api.indexsupply.net/query \
+    --data-urlencode 'chain=8453' \
+    --data-urlencode 'query=select a, b from foo, bar where foo.c = bar.c' \
+    --data-urlencode 'event_signatures=Foo(uint a, uint c)' \
+    --data-urlencode 'event_signatures=Bar(uint b, uint c)'
+```
 
-The request parameters for `/query-live` is identical to [`GET /query`](#get-query-request).
+### GET /query-live {#get-query-live .reference }
+
+Executes the supplied query against the latest block and returns an HTTP SSE stream of JSON encoded [response bodies](#query-response). The HTTP SSE stream will include the results of the query for the entire range of blocks in the chain (unless a block predicate was added to the SQL query) and so long as the connection is open it will stream new results subsequently indexed blocks.
+
+**URL Request Fields**
+
+| Field            | Type     | Description         |
+|-------------     |--------- |---------------------|
+| api-key | string | API key from [your account page](https://www.indexsupply.net/account) |
+| chain            | int      | Chain id. See [chains](#chains) |
+| event_signatures | []string | [human readable event signatures][3] |
+| query | string  | SQL referencing tables/columns from `event_signatures`|
 
 The response is a standard [response](#query-response) object but delivered via HTTP SSE. The SSE protocol will keep the connection open indefinitely and each new block will trigger a new event. Events are plain text, prefixed with `data: ` and separated by a `\n\n`.
 
-### Request
-
 ```
-GET /query-live?chain={}&query={}&event_signatures={}
-```
-
-## `POST /query` {#post-query .reference }
-
-### Request {#post-query-request .reference}
-```
-POST /query
-Chain: 84532
-
-[
-  {
-    "query": "select a from foo",
-    "event_signatures": ["Foo(uint a)"]
-  }
-]
+curl -G https://api.indexsupply.net/query-live \
+    --data-urlencode 'chain=8453' \
+    --data-urlencode 'query=select a from transfer limit 1' \
+    --data-urlencode 'event_signatures=Transfer(address indexed a, address indexed b, uint c)'
 ```
 
-Multiple requests can be [batched](#queries-batched) by adding objects to the request array
+### POST /query {#post-query .reference }
+
+This endpoind accepts a JSON array of objects with the following fields. The array may contain more than one request object if callers would like for the queries to run inside of a database transaction. This enables a consistent reads.
+
+Similar to `GET` requests which accept the `api-key` and `chain` in the URL, when making a `POST` request the `api-key` and `chain` must also be included in the URL.
+
+**JSON Body**
+
+An array of objects with the following fields:
+
+| Field            | Type     | Description         |
+|-------------     |--------- |---------------------|
+| event_signatures | []string | [human readable event signatures][3] |
+| query | string  | SQL referencing tables/columns from `event_signatures`|
+
+**URL Request Fields**
+
+| Field            | Type     | Description         |
+|-------------     |--------- |---------------------|
+| api-key | string | API key from [your account page](https://www.indexsupply.net/account) |
+| chain            | int      | Chain id. See [chains](#chains) |
+
+**Example**
 
 ```
-POST /query
-Chain: 84532
-
-[
-  {
-    "query": "select a from foo",
-    "event_signatures": ["Foo(uint a)"]
-  },
-  {
-    "query": "select a from bar",
-    "event_signatures": ["Bar(uint a)"]
-  }
-]
-```
-
-Here is a curl example of a batch request
-
-```
-curl -X POST https://api.indexsupply.net/query \
+curl -X POST https://api.indexsupply.net/query?chain=8453 \
     -H "Content-Type: application/json" \
-    -H "Chain: 8453" \
     -d '[
         {
-            "event_signatures": ["Transfer(address indexed from, address indexed to, uint256 value)"],
-            "query": "select tx_hash from transfer limit 1"
+            "event_signatures": ["Foo(uint a)"],
+            "query": "select a from foo"
         },
         {
-            "event_signatures": ["Transfer(address indexed from, address indexed to, uint256 indexed value)"],
-            "query": "select tx_hash from transfer limit 1"
+            "event_signatures": ["Bar(uint b)"],
+            "query": "select b from bar"
         }
     ]'
 ```
 
-And the response
-```
-{
-  "block_height": 22803982,
-  "result": [
-    [
-      [
-        "tx_hash"
-      ],
-      [
-        "0x8bd891398f3745cc8a6b90f0df78a41cdfcaf2745534da6a6034d198841026f4"
-      ]
-    ],
-    [
-      [
-        "tx_hash"
-      ],
-      [
-        "0x8bd891398f3745cc8a6b90f0df78a41cdfcaf2745534da6a6034d198841026f4"
-      ]
-    ]
-  ]
-}
-```
-
+<hr>
 
 ## SQL {#sql .reference}
 
@@ -219,6 +213,7 @@ select baz from foo where bar = 1
 ```
 
 ### EVM Columns {#evm-columns}
+
 In addition to event data, there are other EVM columns available:
 
 | Column    | Type    | Description                        |
@@ -320,6 +315,8 @@ IN, and NOT IN operators. Other operators include:
     OR
 
 ```
+
+<hr>
 
 ## White Label API {#white-label-api .reference}
 

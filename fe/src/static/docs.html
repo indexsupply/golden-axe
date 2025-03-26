@@ -75,8 +75,9 @@
                 font-size: x-large;
             }
             h3.reference {
-                border-top: 0.5px solid black;
-                padding-top: 5px;
+                font-family: monospace;
+                font-size: xx-large;
+                font-weight: bold;
             }
             h3.whitelabel {
                 font-family: monospace;
@@ -186,7 +187,7 @@
             li.appendChild(a);
             navList.appendChild(li);
         });
-        document.querySelectorAll("h2.reference").forEach((h) => {
+        document.querySelectorAll("h3.reference, h2.reference").forEach((h) => {
             let a = document.createElement("a");
             a.appendChild(document.createTextNode(h.textContent));
             a.href = `#${h.id}`;
