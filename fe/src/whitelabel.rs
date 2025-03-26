@@ -1,4 +1,6 @@
 use axum::{extract::State, Json};
+use eyre::Context;
+use getrandom::getrandom;
 use serde::{Deserialize, Serialize};
 
 use crate::web;
@@ -6,23 +8,30 @@ use crate::web;
 #[derive(Deserialize)]
 pub struct CreateKeyRequest {
     org: String,
-    secret: String,
     origins: Option<Vec<String>>,
+}
+
+#[derive(Serialize)]
+pub struct CreateKeyResponse {
+    secret: String,
 }
 
 pub async fn create_key(
     provision_key: web::ProvisionKey,
     State(state): State<web::State>,
     Json(req): Json<CreateKeyRequest>,
-) -> Result<(), shared::Error> {
+) -> Result<Json<CreateKeyResponse>, shared::Error> {
+    let mut rndbytes = vec![0u8; 16];
+    getrandom(&mut rndbytes).wrap_err("unable to generate secret")?;
+    let secret = format!("wl{}", hex::encode(rndbytes));
     let pg = state.pool.get().await?;
     pg.execute(
         "insert into wl_api_keys(provision_key, org, secret, origins) values ($1, $2, $3, $4)",
-        &[&provision_key.secret, &req.org, &req.secret, &req.origins],
+        &[&provision_key.secret, &req.org, &secret, &req.origins],
     )
     .await
     .map_err(|e| shared::pg::unique_violations(e, &[("unique_api_keys", "key already exists")]))?;
-    Ok(())
+    Ok(Json(CreateKeyResponse { secret }))
 }
 
 #[derive(Deserialize)]

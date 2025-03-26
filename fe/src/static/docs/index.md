@@ -433,10 +433,15 @@ curl -v http://$secret@www.indexsupply.net/wl/disable-chain \
 | Field       | Type    | Description                        |
 |-------------|---------|---------------------               |
 | org         | string  | A value to group multiple api keys |
-| secret      | string  | A sequre, random, unique value that your clients will use to authenticate requests to `api.indexsupply.net`. Must be unique across all of Index Supply so it's advisable to use 32 random bytes. |
 | origins     | []string | Optional. A list of allowed origins for the key. This prevents people from stealing the key for browser use. |
 
-Returns an empty 200 response if successful.
+**JSON Response Fields**
+
+A JSON object is returned with the following object fields
+
+| Field       | Type    | Description         |
+|-------------|---------|---------------------|
+| secret      | string  | An api key ready for Index Supply API access |
 
 **Example**
 
@@ -446,9 +451,10 @@ curl https://$secret@www.indexsupply.net/wl/create-api-key \
   -H "Content-Type: application/json" \
   --data '{
      "org": "my-customer-42",
-     "secret": "facebeef",
      "origins": ["facebeef.com"]
   }'
+
+{"secret":"wlad6a25c102590ce83d52a41203904d72"}
 ```
 
 ### POST /wl/list-api-keys {#list-api-keys .whitelabel}
