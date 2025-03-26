@@ -473,6 +473,7 @@ A JSON array is returned with the following object fields
 |-------------|---------|---------------------|
 | org         | string  | A value to group multiple api keys |
 | secret      | string  | The value provided when the key was created |
+| origins     | []string| The value provided when the key was created |
 | created_at  | int     | UNIX time when key was created |
 | deleted_at  | null or int | UNIX time when key was deleted or null if active |
 

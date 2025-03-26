@@ -26,7 +26,7 @@ pub async fn create_key(
     let secret = format!("wl{}", hex::encode(rndbytes));
     let pg = state.pool.get().await?;
     pg.execute(
-        "insert into wl_api_keys(provision_key, org, secret, origins) values ($1, $2, $3, $4)",
+        "insert into wl_api_keys(provision_key, org, secret, origins) values ($1, $2, $3, coalesce($4, '{}'::text[]))",
         &[&provision_key.secret, &req.org, &secret, &req.origins],
     )
     .await
@@ -82,6 +82,7 @@ pub async fn usage(
 pub struct ListKeysResponse {
     org: String,
     secret: String,
+    origins: Vec<String>,
     created_at: i64,
     deleted_at: Option<i64>,
 }
@@ -103,6 +104,7 @@ pub async fn list_keys(
             select
                 org,
                 secret,
+                origins,
                 extract(epoch from created_at)::int8 as created_at,
                 extract(epoch from deleted_at)::int8 as deleted_at
             from wl_api_keys
@@ -116,6 +118,7 @@ pub async fn list_keys(
         .map(|row| ListKeysResponse {
             org: row.get("org"),
             secret: row.get("secret"),
+            origins: row.get("origins"),
             created_at: row.get("created_at"),
             deleted_at: row.get("deleted_at"),
         })
