@@ -440,7 +440,7 @@ curl -v http://$secret@www.indexsupply.net/wl/disable-chain \
 | Field       | Type    | Description                        |
 |-------------|---------|---------------------               |
 | org         | string  | A value to group multiple api keys |
-| secret      | string  | A unique value that your clients will use to authenticate requests to `api.indexsupply.net` |
+| secret      | string  | A sequre, random, unique value that your clients will use to authenticate requests to `api.indexsupply.net`. Must be unique across all of Index Supply so it's advisable to use 32 random bytes. |
 | origins     | []string | Optional. A list of allowed origins for the key. This prevents people from stealing the key for browser use. |
 
 Returns an empty 200 response if successful.
