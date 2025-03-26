@@ -151,4 +151,4 @@ insert into
         (false, 10058112,   'Spotlight Sepolia',    'https://spotlight-sepolia.g.alchemy.com/v2/RBovy_2RtzmHz-3xpxIbzSArz0v_-oc9'),
         (false, 52085143,   'Ble Testnet',          'https://rpc-ethena-testnet-0.t.conduit.xyz')
     on conflict(chain)
-    do update set name = excluded.name, url = excluded.url;
+    do nothing;
