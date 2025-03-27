@@ -335,7 +335,7 @@ All requests should be sent to: `www.indexsupply.net` Normal, user based api tra
 | url         | string  | JSON RPC API url for chain |
 | start_block | int     | Optional. Defaults to the latest at time of deployment. Use start_block=1 to index from beginning. |
 
-You will get an empty 200 response if it worked. You can check the status of indexing by either visiting: [api.indexsupply.net/status](https://api.indexsupply.net/status) or you can use the SQL API to query the latest block.
+You will get an empty 200 response if it worked. You can check the status of indexing by either visiting: [www.indexsupply.net/status](https://www.indexsupply.net/status) or you can use the SQL API to query the latest block.
 
 **Example**
 

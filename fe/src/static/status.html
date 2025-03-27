@@ -137,7 +137,7 @@
             return div;
         }
 
-        function addUpdate(event) {
+        function addUpdate(event, chains) {
             let { source, chain, num } = JSON.parse(event.data);
             const chainRow = document.querySelector(`#response .row[data-chain="${chain}"]`);
             if (chainRow) {
@@ -151,7 +151,8 @@
                 const chainRow = document.createElement("div");
                 chainRow.className = "row";
                 chainRow.dataset.chain = chain;
-                newDiv(chainRow, "chain", chain);
+                chainRow.title = chain;
+                newDiv(chainRow, "chain", chains[chain].name);
                 if (source == "Local") {
                     newDiv(chainRow, "local", num.toLocaleString());
                     newDiv(chainRow, "remote", 0);
@@ -182,15 +183,25 @@
           }
         }
 
-        function startHandler() {
-            sseHandler = new EventSource("/status");
-            sseHandler.onmessage = addUpdate;
+        function startHandler(chains) {
+            sseHandler = new EventSource("https://api.indexsupply.net/status");
+            sseHandler.onmessage = (event) => { addUpdate(event, chains) };
             sseHandler.onerror = function (e) {
                 console.log(`sse error: `, e);
             };
         }
-        document.addEventListener("DOMContentLoaded", function () {
-            startHandler();
+
+        async function loadChains() {
+          let resp = await fetch('/wl/list-chains');
+          let json = await resp.json();
+          const chains = {};
+          json.forEach(obj => chains[obj.chain] = obj);
+          return chains;
+        }
+
+        document.addEventListener("DOMContentLoaded", async function () {
+          let chains = await loadChains();
+          startHandler(chains);
         });
     </script>
 </html>

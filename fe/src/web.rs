@@ -1,12 +1,16 @@
 use std::net::SocketAddr;
 
-use axum::extract::{ConnectInfo, FromRef, FromRequestParts};
+use axum::{
+    extract::{ConnectInfo, FromRef, FromRequestParts},
+    response::{Html, IntoResponse},
+};
 use axum_extra::extract::cookie::Key;
 use axum_flash::IncomingFlashes;
 use deadpool_postgres::Pool;
 use serde::Serialize;
+use serde_json::json;
 
-use crate::{daimo, postmark, query, stripe};
+use crate::{chains, daimo, postmark, query, stripe};
 
 #[derive(Clone)]
 pub struct State {
@@ -100,4 +104,20 @@ impl FromRequestParts<State> for ProvisionKey {
             ))),
         }
     }
+}
+
+pub async fn status(
+    axum::extract::State(state): axum::extract::State<State>,
+) -> Result<impl IntoResponse, shared::Error> {
+    let pg = state.pool.get().await?;
+    let chains = chains::list(&pg)
+        .await?
+        .into_iter()
+        .filter(|c| c.enabled)
+        .collect::<Vec<_>>();
+    Ok(Html(
+        state
+            .templates
+            .render("status.html", &json!({"chains": chains}))?,
+    ))
 }

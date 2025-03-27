@@ -8,10 +8,10 @@ use std::{
 
 use axum::{
     extract::{rejection::JsonRejection, ConnectInfo, FromRequest, FromRequestParts, State},
-    http::{request::Parts, HeaderMap, StatusCode},
+    http::{request::Parts, StatusCode},
     response::{
         sse::{Event as SSEvent, KeepAlive},
-        Html, IntoResponse, Sse,
+        Sse,
     },
 };
 use axum_extra::{headers::UserAgent, TypedHeader};
@@ -43,21 +43,6 @@ pub async fn handle_service_error(error: tower::BoxError) -> Error {
 }
 
 pub async fn handle_status(
-    State(conf): State<Config>,
-    headers: HeaderMap,
-) -> axum::response::Response {
-    if headers
-        .get("accept")
-        .and_then(|a| a.to_str().ok())
-        .is_none_or(|v| v.contains("html"))
-    {
-        Html(include_str!("html/status.html")).into_response()
-    } else {
-        handle_sse(State(conf)).await.into_response()
-    }
-}
-
-async fn handle_sse(
     State(conf): State<Config>,
 ) -> axum::response::Sse<impl Stream<Item = Result<SSEvent, Infallible>>> {
     let mut rx = conf.stat_updates.wait();

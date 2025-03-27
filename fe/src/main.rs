@@ -190,6 +190,7 @@ fn service(state: web::State) -> IntoMakeServiceWithConnectInfo<Router, SocketAd
     let service = tower::ServiceBuilder::new().layer(tracing);
     Router::new()
         .route("/", get(account::handlers::index))
+        .route("/status", get(web::status))
         .route("/godmode", get(god_mode::index))
         .route("/docs", get(api_docs::index))
         .route("/query", get(account::handlers::index))
