@@ -313,7 +313,6 @@ impl Downloader {
                 .ok_or(eyre!("missing latest block"))?;
             let remote_num = latest_remote.header.number;
             let (local_num, local_hash) = self.get_local_latest(pgtx).await?;
-            let local_num: u64 = local_num.to();
 
             self.stat_updates
                 .update(api::ChainUpdateSource::Remote, self.chain, remote_num);
@@ -421,13 +420,16 @@ impl Downloader {
         Ok(logs)
     }
 
-    async fn get_local_latest(&self, tx: &Transaction<'_>) -> Result<(U64, BlockHash), Error> {
+    async fn get_local_latest(&self, tx: &Transaction<'_>) -> Result<(u64, BlockHash), Error> {
         let q = "SELECT num, hash from blocks where chain = $1 order by num desc limit 1";
         let row = tx
             .query_one(q, &[&self.chain])
             .await
             .wrap_err("getting local latest")?;
-        Ok((row.try_get("num")?, row.try_get("hash")?))
+        Ok((
+            row.try_get::<&str, i64>("num")? as u64,
+            row.try_get("hash")?,
+        ))
     }
 }
 
