@@ -1,6 +1,7 @@
 create table if not exists wl_api_keys(
     provision_key text not null,
     org text not null,
+    name text,
     secret text not null,
     origins text[] default '{}',
     created_at timestamptz default now(),

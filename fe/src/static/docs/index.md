@@ -433,7 +433,8 @@ curl -v http://$secret@www.indexsupply.net/wl/disable-chain \
 | Field       | Type    | Description                        |
 |-------------|---------|---------------------               |
 | org         | string  | A value to group multiple api keys |
-| origins     | []string | Optional. A list of allowed origins for the key. This prevents people from stealing the key for browser use. |
+| name        | string  | An optional label for the api key  |
+| origins     | []string | An optional list of allowed origins for the key. This prevents people from stealing the key for browser use. |
 
 **JSON Response Fields**
 
@@ -451,6 +452,7 @@ curl https://$secret@www.indexsupply.net/wl/create-api-key \
   -H "Content-Type: application/json" \
   --data '{
      "org": "my-customer-42",
+     "name": "my-prod-server",
      "origins": ["facebeef.com"]
   }'
 
@@ -472,6 +474,7 @@ A JSON array is returned with the following object fields
 | Field       | Type    | Description         |
 |-------------|---------|---------------------|
 | org         | string  | A value to group multiple api keys |
+| name        | string  | Optional label for the api key            |
 | secret      | string  | The value provided when the key was created |
 | origins     | []string| The value provided when the key was created |
 | created_at  | int     | UNIX time when key was created |
@@ -488,6 +491,7 @@ curl https://$secret@www.indexsupply.net/wl/list-api-keys \
 [
   {
     "org":"my-customer-42",
+    "name": "my-prod-server",
     "secret":"facebeef",
     "created_at":1742940562,
     "deleted_at":null
@@ -511,6 +515,27 @@ curl http://$secret@www.indexsupply.net/wl/delete-api-key \
   -X POST \
   -H "Content-Type: application/json" \
   --data '{"secret": "facebeef"}'
+```
+
+### POST /wl/update-api-key-origins {#update-api-key-origins .whitelabel}
+
+This endpoint will overwrite the previous list of origins with the provided list.
+
+**JSON Request Fields**
+
+| Field       | Type    | Description                        |
+|-------------|---------|---------------------               |
+| secret      | string  | The value provided when the key was created |
+| origins     | string[]| A list of origins that are allowed to use the key |
+
+Returns an empty 200 response if successful.
+
+**Example**
+```
+curl http://$secret@www.indexsupply.net/wl/update-api-key-origins \
+  -X POST \
+  -H "Content-Type: application/json" \
+  --data '{"secret": "facebeef", "origins": ["https://example.com"]}'
 ```
 
 ### POST /wl/usage {#usage .whitelabel}

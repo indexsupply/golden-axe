@@ -217,6 +217,10 @@ fn service(state: web::State) -> IntoMakeServiceWithConnectInfo<Router, SocketAd
         .route("/wl/create-api-key", post(whitelabel::create_key))
         .route("/wl/list-api-keys", post(whitelabel::list_keys))
         .route("/wl/delete-api-key", post(whitelabel::delete_key))
+        .route(
+            "/wl/update-api-key-origins",
+            post(whitelabel::update_origins),
+        )
         .route("/wl/usage", post(whitelabel::usage))
         .fallback(fallback)
         .layer(service)

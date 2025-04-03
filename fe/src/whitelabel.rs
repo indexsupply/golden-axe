@@ -8,6 +8,7 @@ use crate::web;
 #[derive(Deserialize)]
 pub struct CreateKeyRequest {
     org: String,
+    name: Option<String>,
     origins: Option<Vec<String>>,
 }
 
@@ -26,8 +27,17 @@ pub async fn create_key(
     let secret = format!("wl{}", hex::encode(rndbytes));
     let pg = state.pool.get().await?;
     pg.execute(
-        "insert into wl_api_keys(provision_key, org, secret, origins) values ($1, $2, $3, coalesce($4, '{}'::text[]))",
-        &[&provision_key.secret, &req.org, &secret, &req.origins],
+        "
+        insert into wl_api_keys(provision_key, org, name, secret, origins)
+        values ($1, $2, $3, $4, coalesce($5, '{}'::text[]))
+        ",
+        &[
+            &provision_key.secret,
+            &req.org,
+            &req.name,
+            &secret,
+            &req.origins,
+        ],
     )
     .await
     .map_err(|e| shared::pg::unique_violations(e, &[("unique_api_keys", "key already exists")]))?;
@@ -81,6 +91,7 @@ pub async fn usage(
 #[derive(Serialize)]
 pub struct ListKeysResponse {
     org: String,
+    name: Option<String>,
     secret: String,
     origins: Vec<String>,
     created_at: i64,
@@ -103,6 +114,7 @@ pub async fn list_keys(
             "
             select
                 org,
+                name,
                 secret,
                 origins,
                 extract(epoch from created_at)::int8 as created_at,
@@ -117,6 +129,7 @@ pub async fn list_keys(
         .iter()
         .map(|row| ListKeysResponse {
             org: row.get("org"),
+            name: row.get("name"),
             secret: row.get("secret"),
             origins: row.get("origins"),
             created_at: row.get("created_at"),
@@ -148,5 +161,33 @@ pub async fn delete_key(
         Ok(())
     } else {
         Err(shared::Error::User(String::from("unable to delete key")))
+    }
+}
+
+#[derive(Deserialize)]
+pub struct UpdateOriginsRequest {
+    secret: String,
+    origins: Vec<String>,
+}
+
+pub async fn update_origins(
+    provision_key: web::ProvisionKey,
+    State(state): State<web::State>,
+    Json(req): Json<UpdateOriginsRequest>,
+) -> Result<(), shared::Error> {
+    let pg = state.pool.get().await?;
+    let res = pg
+        .execute(
+            "update wl_api_keys set origins = $3 where provision_key = $1 and secret = $2",
+            &[&provision_key.secret, &req.secret, &req.origins],
+        )
+        .await
+        .map_err(|_| shared::Error::User(String::from("unable to update origins")))?;
+    if res == 1 {
+        Ok(())
+    } else {
+        Err(shared::Error::User(String::from(
+            "unable to update origins",
+        )))
     }
 }
