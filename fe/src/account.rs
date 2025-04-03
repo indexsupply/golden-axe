@@ -255,9 +255,7 @@ async fn view_plan_options(
             stripe_amount: money(o.stripe_amount),
             show_purchase_button: match &latest_plan {
                 None => true,
-                Some(p) if p.name == "Indie" => o.name == "Pro" || o.owner_email.is_some(),
-                Some(p) if p.name == "Pro" => o.name == "Dedicated" || o.owner_email.is_some(),
-                _ => false,
+                Some(p) => p.name != o.name,
             },
         })
         .collect())
