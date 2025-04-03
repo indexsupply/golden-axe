@@ -223,7 +223,7 @@ fn service(config: api::Config) -> IntoMakeServiceWithConnectInfo<Router, Socket
 #[cfg(test)]
 mod tests {
     use alloy::{
-        primitives::{B256, U256, U64},
+        primitives::{fixed_bytes, B256, U256, U64},
         sol,
         sol_types::{JsonAbiExt, SolEvent},
     };
@@ -233,21 +233,19 @@ mod tests {
     use super::service;
     use super::SCHEMA_BE;
     use be::{api, api_sql, sync};
+    use shared::jrpc;
 
     macro_rules! add_log {
         ($pool:expr, $chain:expr, $block_num:expr, $event:expr) => {{
-            let log = alloy::rpc::types::Log {
-                inner: alloy::primitives::Log {
-                    data: $event.encode_log_data(),
-                    address: alloy::primitives::Address::with_last_byte(0xab),
-                },
-                block_number: Some($block_num),
-                block_hash: Some(B256::with_last_byte(0xab)),
-                block_timestamp: Some(1),
-                transaction_hash: Some(B256::with_last_byte(0xab)),
-                transaction_index: Some(1),
-                log_index: Some(1),
-                removed: false,
+            let log_data = $event.encode_log_data();
+            let log_topics = log_data.topics().to_vec();
+            let log = jrpc::Log {
+                data: log_data.data,
+                topics: log_topics,
+                address: fixed_bytes!("00000000000000000000000000000000000000ab"),
+                block_number: $block_num,
+                tx_hash: B256::with_last_byte(0xab),
+                log_idx: U64::from(1),
             };
             let mut pg = $pool
                 .get()
@@ -264,16 +262,12 @@ mod tests {
             pgtx.execute(&partition_stmt, &[])
                 .await
                 .expect("creating partition");
-            sync::copy(&pgtx, $chain, vec![log.clone()])
+            sync::copy(&pgtx, $chain, vec![log])
                 .await
                 .expect("unable to copy new logs");
             pgtx.execute(
                 "insert into blocks(chain, num, hash) values ($1, $2, $3)",
-                &[
-                    &$chain,
-                    &U64::from(log.block_number.unwrap()),
-                    &log.block_hash.unwrap(),
-                ],
+                &[&$chain, &($block_num), &B256::with_last_byte(0xab)],
             )
             .await
             .expect("unable to update blocks table");
@@ -298,7 +292,7 @@ mod tests {
             #[sol(abi)]
             event Foo(uint a);
         };
-        add_log!(pool, api::Chain(1), 1, Foo { a: U256::from(42) });
+        add_log!(pool, api::Chain(1), U64::from(1), Foo { a: U256::from(42) });
 
         let config = api::Config::new(pool.clone(), pool.clone(), pool.clone());
         let server = TestServer::new(service(config)).unwrap();
@@ -342,7 +336,7 @@ mod tests {
         tokio::spawn(async move {
             let bcaster = config.api_updates.clone();
             for i in 1..=3 {
-                add_log!(pool, api::Chain(1), i, Foo { a: U256::from(42) });
+                add_log!(pool, api::Chain(1), U64::from(i), Foo { a: U256::from(42) });
                 bcaster.broadcast(api::Chain(1), i);
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
@@ -384,7 +378,7 @@ mod tests {
         tokio::spawn(async move {
             let bcaster = config.api_updates.clone();
             for i in 1..=3 {
-                add_log!(pool, api::Chain(1), i, Foo { a: U256::from(42) });
+                add_log!(pool, api::Chain(1), U64::from(i), Foo { a: U256::from(42) });
                 bcaster.broadcast(api::Chain(1), i);
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
