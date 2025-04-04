@@ -123,18 +123,16 @@ impl Client {
     }
 
     pub async fn send_one(&self, request: serde_json::Value) -> Result<Response, Error> {
-        let decoded = self
-            .http_client
-            .post(&self.url)
-            .json(&request)
-            .send()
-            .await?
-            .json::<Response>()
-            .await?;
-        if let Some(e) = decoded.error {
-            Err(e)
-        } else {
-            Ok(decoded)
+        match self.send(request).await {
+            Ok(res) if res.len() == 1 => Ok(res.into_iter().next().unwrap()),
+            Ok(_) => Err(Error {
+                code: 0,
+                message: String::from("expected 1 result"),
+            }),
+            Err(e) => Err(Error {
+                code: 0,
+                message: e.to_string(),
+            }),
         }
     }
 
@@ -144,10 +142,24 @@ impl Client {
             .post(&self.url)
             .json(&request)
             .send()
+            .await?
+            .bytes()
             .await?;
-        let decoded = response.json::<Vec<Response>>().await?;
+
+        let decoded = match serde_json::from_slice::<Vec<Response>>(&response) {
+            Ok(responses) => responses,
+            Err(_) => match serde_json::from_slice::<Response>(&response) {
+                Ok(single) => vec![single],
+                Err(err) => {
+                    return Err(Error {
+                        code: 0,
+                        message: format!("{:?} - {}", err, String::from_utf8_lossy(&response)),
+                    });
+                }
+            },
+        };
         match decoded.iter().find_map(|r| r.error.clone()) {
-            Some(e) => Err(e),
+            Some(err) => Err(err),
             None => Ok(decoded),
         }
     }
