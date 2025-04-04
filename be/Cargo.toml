@@ -10,11 +10,7 @@ name = "be"
 path = "src/main.rs"
 
 [dependencies]
-alloy = { version = "0.8.3", features = [
-    "postgres",
-    "providers",
-    "rpc-types-eth",
-] }
+alloy = { version = "0.8.3", features = ["postgres"] }
 axum = { version = "0.7.5" }
 axum-extra = { version = "0.9", features = ["form", "typed-header"] }
 clap = { version = "4.5.7", features = ["derive", "env"] }
