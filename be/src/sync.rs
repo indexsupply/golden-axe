@@ -5,10 +5,7 @@ use std::{collections::HashMap, fmt, sync::Arc, time::Duration};
 use tokio::task::{self, JoinHandle};
 use url::Url;
 
-use alloy::{
-    primitives::{BlockHash, U16, U64},
-    providers::{Provider, ProviderBuilder},
-};
+use alloy::primitives::{BlockHash, U16, U64};
 use eyre::{eyre, Context, Result};
 use futures::pin_mut;
 use tokio_postgres::{binary_copy::BinaryCopyInWriter, Transaction};
@@ -91,15 +88,26 @@ impl RemoteConfig {
 }
 
 pub async fn test(url: &str, chain: u64) -> Result<(), shared::Error> {
-    let url = url.parse().wrap_err("unable to parse rpc url")?;
-    let eth_client = ProviderBuilder::new().on_http(url);
-    match eth_client.get_chain_id().await {
+    let parsed: Url = url.parse().wrap_err("unable to parse rpc url")?;
+    let jrpc_client = jrpc::Client::new(parsed.as_str());
+    let resp = jrpc_client
+        .send_one(serde_json::json!({
+            "id": "1",
+            "jsonrpc": "2.0",
+            "method": "eth_chainId",
+            "params": [],
+        }))
+        .await;
+    match resp {
         Err(e) => Err(shared::Error::User(format!("rpc error {}", e))),
-        Ok(id) if id == chain => Ok(()),
-        Ok(id) => Err(shared::Error::User(format!(
-            "expected chain {} got {}",
-            chain, id
-        ))),
+        Ok(resp) => match resp.to::<U64>() {
+            Ok(id) if id.to::<u64>() == chain => Ok(()),
+            Ok(id) => Err(shared::Error::User(format!(
+                "expected chain {} got {}",
+                chain, id
+            ))),
+            Err(e) => Err(shared::Error::User(format!("rpc error {}", e))),
+        },
     }
 }
 
