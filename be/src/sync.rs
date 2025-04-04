@@ -233,15 +233,30 @@ impl Downloader {
 
     #[tracing::instrument(skip_all fields(event, chain = self.chain.0))]
     pub async fn run(&self) {
-        self.init_blocks().await.unwrap();
-        let mut delta = self.delta().await.unwrap();
+        if let Err(e) = self.init_blocks().await {
+            tracing::error!("init {:?}", e);
+            return;
+        }
+        let mut delta = match self.delta().await {
+            Ok(d) => d,
+            Err(e) => {
+                tracing::error!("delta {:?}", e);
+                return;
+            }
+        };
         let mut batch_size = self.batch_size;
         loop {
             let res = if delta < 1000 {
                 self.incremental().await
             } else {
                 let res = self.batch(delta, self.batch_size).await;
-                delta = self.delta().await.unwrap();
+                delta = match self.delta().await {
+                    Ok(d) => d,
+                    Err(e) => {
+                        tracing::error!("delta {:?}", e);
+                        return;
+                    }
+                };
                 res
             };
             match res {
@@ -436,7 +451,7 @@ impl Downloader {
     }
 }
 
-#[tracing::instrument(level="info" fields(chain, logs) skip_all)]
+#[tracing::instrument(level="debug" fields(chain, logs) skip_all)]
 pub async fn copy(pgtx: &Transaction<'_>, chain: api::Chain, logs: Vec<jrpc::Log>) -> Result<u64> {
     const Q: &str = "
         copy logs (
