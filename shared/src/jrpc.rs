@@ -57,6 +57,7 @@ pub struct Block {
 #[derive(Deserialize, Debug)]
 #[serde(untagged)]
 enum EthItem {
+    Uint(U64),
     Block(Block),
     Tx(Tx),
     Log(Vec<Log>),
@@ -87,6 +88,7 @@ macro_rules! impl_try_from_response {
 impl_try_from_response!(Block, EthItem::Block);
 impl_try_from_response!(Tx, EthItem::Tx);
 impl_try_from_response!(Vec<Log>, EthItem::Log);
+impl_try_from_response!(U64, EthItem::Uint);
 
 #[derive(Debug, Deserialize)]
 pub struct Response {
