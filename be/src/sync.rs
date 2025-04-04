@@ -364,7 +364,7 @@ impl Downloader {
         let (local_num, _) = self.local_latest().await?;
         let remote = self.remote_block_latest().await?;
         let delta = remote.number.to::<u64>() - local_num;
-        tracing::Span::current().record("n", delta);
+        tracing::Span::current().record("δ", delta);
         Ok(delta)
     }
 
