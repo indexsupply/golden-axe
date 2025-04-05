@@ -136,6 +136,7 @@ impl Client {
         }
     }
 
+    #[tracing::instrument(level="debug" skip_all, fields(request, bytes))]
     pub async fn send(&self, request: serde_json::Value) -> Result<Vec<Response>, Error> {
         let response = self
             .http_client
@@ -145,6 +146,9 @@ impl Client {
             .await?
             .bytes()
             .await?;
+        tracing::Span::current()
+            .record("request", request.to_string())
+            .record("bytes", response.len());
 
         let decoded = match serde_json::from_slice::<Vec<Response>>(&response) {
             Ok(responses) => responses,

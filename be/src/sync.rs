@@ -237,29 +237,16 @@ impl Downloader {
             tracing::error!("init {:?}", e);
             return;
         }
-        let mut delta = match self.delta().await {
-            Ok(d) => d,
-            Err(e) => {
-                tracing::error!("delta {:?}", e);
-                return;
-            }
-        };
         let mut batch_size = self.batch_size;
         loop {
-            let res = if delta < 1000 {
-                self.incremental().await
-            } else {
-                let res = self.batch(delta, self.batch_size).await;
-                delta = match self.delta().await {
-                    Ok(d) => d,
-                    Err(e) => {
-                        tracing::error!("delta {:?}", e);
-                        return;
-                    }
-                };
-                res
+            let latest = match self.remote_block_latest().await {
+                Ok(b) => b,
+                Err(e) => {
+                    tracing::error!("getting latest {:?}", e);
+                    return;
+                }
             };
-            match res {
+            match self.download(batch_size, latest).await {
                 Err(Error::Wait) => {
                     tokio::time::sleep(Duration::from_secs(1)).await;
                 }
@@ -285,40 +272,16 @@ impl Downloader {
         }
     }
 
-    #[tracing::instrument(level="info" skip_all fields(block, logs))]
-    async fn incremental(&self) -> Result<u64, Error> {
-        let (local_num, local_hash) = self.local_latest().await?;
-        let (block, logs) = self
-            .remote_block_with_logs(U64::from(local_num + 1))
-            .await?;
-        if block.parent_hash != local_hash {
-            self.delete_after(local_num).await?;
-            return Err(Error::Retry(format!(
-                "reorg local={}/{} remote={}/{} remote-parent={}",
-                local_num, local_hash, block.number, block.hash, block.parent_hash
-            )));
-        }
-
-        let mut pg = self.be_pool.get().await.wrap_err("pg pool")?;
-        let pgtx = pg.transaction().await?;
-        let num_copied = copy(&pgtx, self.chain, logs).await?;
-        pgtx.execute(
-            "insert into blocks(chain, num, hash) values ($1, $2, $3)",
-            &[&self.chain, &block.number, &block.hash],
-        )
-        .await?;
-        pgtx.commit().await.wrap_err("unable to commit tx")?;
-        tracing::Span::current()
-            .record("block", block.number.to::<u64>())
-            .record("logs", num_copied);
-        Ok(block.number.to())
-    }
-
     #[tracing::instrument(level="info" skip_all, fields(from, to, parts, blocks, logs))]
-    async fn batch(&self, delta: u64, batch_size: u16) -> Result<u64, Error> {
+    async fn download(&self, batch_size: u16, latest: jrpc::Block) -> Result<u64, Error> {
         let (local_num, _) = self.local_latest().await?;
+        let remote_num = latest.number.to::<u64>();
+        if local_num >= remote_num {
+            return Err(Error::Wait);
+        }
+        let delta = remote_num - local_num;
         let from = local_num + 1;
-        let to = from + delta.min((batch_size - 1) as u64);
+        let to = local_num + delta.min(batch_size as u64);
         let part_size = (batch_size / self.concurrency).max(1);
         tracing::Span::current()
             .record("from", from)
@@ -344,8 +307,11 @@ impl Downloader {
             let resp = task.await.expect("waiting on task")?;
             logs.extend(resp.to::<Vec<jrpc::Log>>()?);
         }
-        let last_block = self.remote_block(U64::from(to)).await?;
-
+        let last_block = if latest.number.to::<u64>() != to {
+            self.remote_block(U64::from(to)).await?
+        } else {
+            latest
+        };
         let mut pg = self.be_pool.get().await.wrap_err("pg pool")?;
         let pgtx = pg.transaction().await?;
         let num_copied = copy(&pgtx, self.chain, logs).await?;
