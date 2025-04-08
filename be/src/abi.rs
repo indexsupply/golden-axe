@@ -37,6 +37,14 @@ impl Event {
         }
     }
 
+    pub fn sql2(&self, column: &str) -> HashMap<Ident, String> {
+        self.fields
+            .topics_sql()
+            .into_iter()
+            .chain(self.fields.data_sql(column))
+            .collect()
+    }
+
     pub fn sql(&self) -> HashMap<Ident, String> {
         self.fields
             .topics_sql()

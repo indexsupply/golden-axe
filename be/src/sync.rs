@@ -239,14 +239,7 @@ impl Downloader {
         }
         let mut batch_size = self.batch_size;
         loop {
-            let latest = match self.remote_block_latest().await {
-                Ok(b) => b,
-                Err(e) => {
-                    tracing::error!("getting latest {:?}", e);
-                    return;
-                }
-            };
-            match self.download(batch_size, latest).await {
+            match self.download(batch_size).await {
                 Err(Error::Wait) => {
                     tokio::time::sleep(Duration::from_secs(1)).await;
                 }
@@ -272,66 +265,102 @@ impl Downloader {
         }
     }
 
-    #[tracing::instrument(level="info" skip_all, fields(from, to, parts, blocks, logs))]
-    async fn download(&self, batch_size: u16, latest: jrpc::Block) -> Result<u64, Error> {
-        let (local_num, _) = self.local_latest().await?;
-        let remote_num = latest.number.to::<u64>();
-        if local_num >= remote_num {
+    /*
+    Request remote latest n and local latest k.
+    If k == n-1 we simply can download logs for block n-1
+    If k <  n-2 we will make n-1-k requests to download n-1-k blocks
+    and another request to download n-1-k logs.
+
+    After downloading n-k blocks/logs we check n's parent hash with k's hash.
+    If the hashes aren't equal we delete k's block/logs
+    and start the process over again.
+
+    If the hashes match, we copy blocks, transactions, and logs into their tables
+
+    */
+    #[tracing::instrument(level="info" skip_all, fields(from, to, parts, blocks, txs, logs))]
+    async fn download(&self, batch_size: u16) -> Result<u64, Error> {
+        let latest = self.remote_block_latest().await?;
+        let (local_num, local_hash) = self.local_latest().await?;
+        if local_num >= latest.number.to() {
             return Err(Error::Wait);
         }
-        let delta = remote_num - local_num;
-        let from = local_num + 1;
-        let to = local_num + delta.min(batch_size as u64);
+        let delta = latest.number.to::<u64>() - local_num;
+        let (from, to) = (local_num + 1, local_num + delta.min(batch_size as u64));
         let part_size = (batch_size / self.concurrency).max(1);
         tracing::Span::current()
             .record("from", from)
             .record("to", to)
-            .record("blocks", to - from + 1)
-            .record("parts", part_size);
-        let mut tasks = Vec::new();
+            .record("parts", part_size)
+            .record("blocks", to - from + 1);
+        let mut log_tasks = Vec::new();
+        let mut block_tasks = Vec::new();
         for i in (from..=to).step_by(part_size as usize) {
             let j = (i + part_size as u64 - 1).min(to);
-            let jc = self.jrpc_client.clone();
-            tasks.push(task::spawn(async move {
-                jc.send_one(serde_json::json!({
+            println!("i={} j={}", i, j);
+            let rpc = self.jrpc_client.clone();
+            log_tasks.push(task::spawn(async move {
+                rpc.send_one(serde_json::json!({
                     "id": "1",
                     "jsonrpc": "2.0",
                     "method": "eth_getLogs",
                     "params": [{"fromBlock": U64::from(i), "toBlock": U64::from(j)}],
                 }))
                 .await
+            }));
+            let rpc = self.jrpc_client.clone();
+            block_tasks.push(task::spawn(async move {
+                let requests = (i..=j)
+                    .map(|n| {
+                        serde_json::json!({
+                            "id": "1",
+                            "jsonrpc": "2.0",
+                            "method": "eth_getBlockByNumber",
+                            "params": [U64::from(n), true],
+                        })
+                    })
+                    .collect();
+                rpc.send(serde_json::Value::Array(requests)).await
             }))
         }
         let mut logs: Vec<jrpc::Log> = vec![];
-        for task in tasks {
+        for task in log_tasks {
             let resp = task.await.expect("waiting on task")?;
             logs.extend(resp.to::<Vec<jrpc::Log>>()?);
         }
-        let last_block = if latest.number.to::<u64>() != to {
-            self.remote_block(U64::from(to)).await?
-        } else {
-            latest
-        };
+        let mut blocks: Vec<jrpc::Block> = Vec::new();
+        for task in block_tasks {
+            blocks.extend(
+                task.await
+                    .expect("waiting on task")?
+                    .into_iter()
+                    .map(|resp| resp.to())
+                    .collect::<Result<Vec<_>, _>>()?,
+            );
+        }
+        blocks.sort_by(|a, b| a.number.cmp(&b.number));
+
+        let (first_block, last_block) = (blocks.first().unwrap(), blocks.last().unwrap());
+        if first_block.parent_hash != local_hash {
+            self.delete_after(local_num).await?;
+            return Err(Error::Fatal(eyre!("reorg")));
+        }
+        let last_block_number = last_block.number.to::<u64>();
+
         let mut pg = self.be_pool.get().await.wrap_err("pg pool")?;
         let pgtx = pg.transaction().await?;
-        let num_copied = copy(&pgtx, self.chain, logs).await?;
+        let num_logs = copy(&pgtx, self.chain, logs).await?;
         pgtx.execute(
             "insert into blocks(chain, num, hash) values ($1, $2, $3)",
             &[&self.chain, &last_block.number, &last_block.hash],
         )
         .await?;
+        let num_txs = copy_txs(&pgtx, self.chain, blocks).await?;
         pgtx.commit().await.wrap_err("unable to commit tx")?;
-        tracing::Span::current().record("logs", num_copied);
-        Ok(last_block.number.to())
-    }
-
-    #[tracing::instrument(level="info" skip_all fields(n))]
-    async fn delta(&self) -> Result<u64, Error> {
-        let (local_num, _) = self.local_latest().await?;
-        let remote = self.remote_block_latest().await?;
-        let delta = remote.number.to::<u64>() - local_num;
-        tracing::Span::current().record("δ", delta);
-        Ok(delta)
+        tracing::Span::current()
+            .record("logs", num_logs)
+            .record("txs", num_txs);
+        Ok(last_block_number)
     }
 
     async fn delete_after(&self, n: u64) -> Result<(), Error> {
@@ -389,32 +418,6 @@ impl Downloader {
             .await?
             .to()?)
     }
-
-    async fn remote_block_with_logs(&self, n: U64) -> Result<(jrpc::Block, Vec<jrpc::Log>), Error> {
-        let res = self
-            .jrpc_client
-            .send(serde_json::json!([{
-                "id": "1",
-                "jsonrpc": "2.0",
-                "method": "eth_getBlockByNumber",
-                "params": [n, true],
-            }, {
-                "id": "2",
-                "jsonrpc": "2.0",
-                "method": "eth_getLogs",
-                "params": [{"fromBlock": n, "toBlock": n}],
-            }]))
-            .await?;
-        if res.len() != 2 {
-            return Err(Error::Retry(String::from(
-                "expected 2 results from batch rpc call",
-            )));
-        }
-        let mut iter = res.into_iter();
-        let block: jrpc::Block = iter.next().unwrap().to()?;
-        let logs: Vec<jrpc::Log> = iter.next().unwrap().to()?;
-        Ok((block, logs))
-    }
 }
 
 #[tracing::instrument(level="debug" fields(chain, logs) skip_all)]
@@ -458,6 +461,69 @@ pub async fn copy(pgtx: &Transaction<'_>, chain: api::Chain, logs: Vec<jrpc::Log
                 &log.data.to_vec(),
             ])
             .await?;
+    }
+    writer.finish().await.wrap_err("unable to copy in logs")
+}
+
+#[tracing::instrument(level="debug" fields(chain, logs) skip_all)]
+pub async fn copy_txs(
+    pgtx: &Transaction<'_>,
+    chain: api::Chain,
+    blocks: Vec<jrpc::Block>,
+) -> Result<u64> {
+    const Q: &str = r#"
+        copy txs (
+            chain,
+            block_num,
+            hash,
+            idx,
+            type,
+            "from",
+            "to",
+            input,
+            value,
+            gas,
+            gas_price
+        )
+        from stdin binary
+    "#;
+    let sink = pgtx.copy_in(Q).await.expect("unable to start copy in");
+    let writer = BinaryCopyInWriter::new(
+        sink,
+        &[
+            tokio_postgres::types::Type::INT8,
+            tokio_postgres::types::Type::INT8,
+            tokio_postgres::types::Type::BYTEA,
+            tokio_postgres::types::Type::INT4,
+            tokio_postgres::types::Type::INT2,
+            tokio_postgres::types::Type::BYTEA,
+            tokio_postgres::types::Type::BYTEA,
+            tokio_postgres::types::Type::BYTEA,
+            tokio_postgres::types::Type::NUMERIC,
+            tokio_postgres::types::Type::INT8,
+            tokio_postgres::types::Type::INT8,
+        ],
+    );
+    pin_mut!(writer);
+    for block in blocks {
+        for tx in block.transactions {
+            writer
+                .as_mut()
+                .write(&[
+                    &chain,
+                    &block.number,
+                    &tx.hash,
+                    &tx.idx,
+                    &tx.ty,
+                    &tx.from.to_vec(),
+                    &tx.to.unwrap_or_default().to_vec(),
+                    &tx.input.to_vec(),
+                    &tx.value,
+                    &tx.gas,
+                    &tx.gase_price,
+                ])
+                .await?;
+        }
     }
     writer.finish().await.wrap_err("unable to copy in logs")
 }

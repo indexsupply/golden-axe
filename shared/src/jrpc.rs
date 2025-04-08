@@ -39,10 +39,18 @@ pub struct Log {
 
 #[derive(Deserialize, Debug)]
 pub struct Tx {
+    #[serde(rename = "type")]
+    pub ty: U64,
     pub hash: BlockHash,
+    #[serde(rename = "transactionIndex")]
+    pub idx: U64,
     pub from: Address,
     pub to: Option<Address>,
+    pub input: Bytes,
     pub value: U256,
+    pub gas: U256,
+    #[serde(rename = "gasPrice")]
+    pub gase_price: U256,
 }
 
 #[derive(Deserialize, Debug)]
@@ -136,7 +144,7 @@ impl Client {
         }
     }
 
-    #[tracing::instrument(level="debug" skip_all, fields(request, bytes))]
+    #[tracing::instrument(level="debug" skip_all, fields(request, response))]
     pub async fn send(&self, request: serde_json::Value) -> Result<Vec<Response>, Error> {
         let response = self
             .http_client
@@ -148,7 +156,7 @@ impl Client {
             .await?;
         tracing::Span::current()
             .record("request", request.to_string())
-            .record("bytes", response.len());
+            .record("response", String::from_utf8(response.to_vec()).unwrap());
 
         let decoded = match serde_json::from_slice::<Vec<Response>>(&response) {
             Ok(responses) => responses,
