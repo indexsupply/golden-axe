@@ -6,6 +6,7 @@ use eyre::{Context, Result};
 use itertools::Itertools;
 use sqlparser::{
     ast::{self, Ident, OrderByExpr},
+    keywords::IS,
     parser::Parser,
 };
 use std::{collections::HashSet, str::FromStr};
@@ -18,6 +19,12 @@ use crate::{
 macro_rules! no {
     ($e:expr) => {
         Err(api::Error::User(format!("{} not supported", $e)))
+    };
+}
+
+macro_rules! ident {
+    ($name:expr) => {
+        &Ident::new($name.to_string())
     };
 }
 
@@ -48,7 +55,7 @@ pub fn sql(
     Ok(query)
 }
 
-const METADATA: [&str; 7] = [
+const LOG_METADATA: [&str; 7] = [
     "address",
     "block_num",
     "chain",
@@ -56,6 +63,19 @@ const METADATA: [&str; 7] = [
     "tx_hash",
     "topics",
     "data",
+];
+
+const TX_METADATA: [&str; 10] = [
+    "block_num",
+    "hash",
+    "idx",
+    "type",
+    "input",
+    "from",
+    "to",
+    "value",
+    "gas",
+    "gas_price",
 ];
 
 #[derive(Debug)]
@@ -82,7 +102,11 @@ impl Relation {
     /// Inserts the field into selected_fields if the fields name is on the event or in metadata
     /// The field's name is lowercased when compared to the event fields.
     fn select_field(&mut self, field: &Ident) -> bool {
-        if self.get_field(field).is_some() || METADATA.contains(&field.to_string().as_str()) {
+        let tx_data_selected = TX_METADATA.contains(&field.value.as_str());
+        let log_data_selected = LOG_METADATA.contains(&field.to_string().as_str());
+        let event_selected = self.get_field(field).is_some();
+
+        if event_selected || log_data_selected || tx_data_selected {
             self.selected_fields.insert(field.clone());
             true
         } else {
@@ -91,17 +115,21 @@ impl Relation {
     }
 
     fn to_sql(&self, chain: api::Chain, from: Option<u64>) -> String {
+        let is_tx = true;
         let mut res: Vec<String> = Vec::new();
         res.push(format!("{} as not materialized (", self.table_name));
         res.push("select".to_string());
         let mut select_list = Vec::new();
         self.selected_fields.iter().sorted().for_each(|f| {
-            if METADATA.contains(&f.to_string().as_str()) {
+            if LOG_METADATA.contains(&f.to_string().as_str()) {
+                select_list.push(f.to_string());
+            }
+            if TX_METADATA.contains(&f.value.as_str()) {
                 select_list.push(f.to_string());
             }
         });
         if let Some(event) = &self.event {
-            let statements = event.sql();
+            let statements = event.sql2("substring(input from 5)");
             for selected in self.selected_fields.iter().sorted() {
                 for (col, sql) in &statements {
                     if col.value.to_lowercase() == selected.value.to_lowercase() {
@@ -111,9 +139,19 @@ impl Relation {
             }
         }
         res.push(select_list.join(","));
-        res.push(format!("from logs where chain = {}", chain,));
-        if let Some(topic) = self.event.as_ref().map(|e| e.sighash()) {
-            res.push(format!(r#"and topics[1] = '\x{}'"#, hex::encode(topic)))
+        if is_tx {
+            res.push(format!("from txs where chain = {}", chain));
+            if let Some(topic) = self.event.as_ref().map(|e| e.sighash()) {
+                res.push(format!(
+                    r#"and substring(input, 1, 4) = '\x{}'"#,
+                    hex::encode(&topic[..4])
+                ));
+            }
+        } else {
+            res.push(format!("from logs where chain = {}", chain,));
+            if let Some(topic) = self.event.as_ref().map(|e| e.sighash()) {
+                res.push(format!(r#"and topics[1] = '\x{}'"#, hex::encode(topic)))
+            }
         }
         if let Some(n) = from {
             res.push(format!("and block_num >= {}", n))
@@ -144,6 +182,12 @@ impl UserQuery {
         relations.push(Relation {
             event: None,
             table_name: Ident::new("logs"),
+            table_alias: HashSet::new(),
+            selected_fields: HashSet::new(),
+        });
+        relations.push(Relation {
+            event: None,
+            table_name: Ident::new("txs"),
             table_alias: HashSet::new(),
             selected_fields: HashSet::new(),
         });

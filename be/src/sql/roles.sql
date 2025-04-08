@@ -10,6 +10,7 @@ revoke all on all tables in schema public from uapi;
 revoke execute on all functions in schema public from uapi;
 
 grant select on logs TO uapi;
+grant select on txs TO uapi;
 grant select on blocks TO uapi;
 
 alter role uapi set statement_timeout = '30s';
