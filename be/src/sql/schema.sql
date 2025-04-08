@@ -17,6 +17,43 @@ create table if not exists logs (
     data bytea
 ) partition by list(chain);
 
+create table if not exists txs (
+    -- Fixed-width columns first, in descending order of size
+    chain int8 NOT NULL,
+    block_num int8 NOT NULL,
+    gas int8 NOT NULL,
+    gas_price int8 NOT NULL,
+    idx int4 NOT NULL,
+    type int2,
+
+    -- Variable-width columns next
+    hash bytea NOT NULL,
+    "from" bytea NOT NULL,
+    "to" bytea NOT NULL,
+    input bytea,
+    value numeric
+) partition by list(chain);
+
+create table if not exists txs_c1
+partition of txs
+for values in (1)
+partition by range (block_num);
+
+create table if not exists txs_c1_b22
+partition of txs_c1
+for values from (22000000) to (24000000);
+alter table txs_c1_b22 set (toast_tuple_target = 128);
+
+create table if not exists txs_c8453
+partition of txs
+for values in (8453)
+partition by range (block_num);
+
+create table if not exists txs_c8453_b28
+partition of txs_c8453
+for values from (28000000) to (30000000);
+alter table txs_c8453_b28 set (toast_tuple_target = 128);
+
 create or replace function b2i(data bytea) returns int4 as $$
 declare
 	n int4 = 0;
