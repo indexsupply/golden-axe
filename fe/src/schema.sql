@@ -90,6 +90,7 @@ create view account_limits as
     with current_plans as (
         select distinct on (owner_email) owner_email, rate, timeout, connections
         from plan_changes
+        where (daimo_tx is not null or stripe_customer is not null)
         order by owner_email, created_at desc
     )
     select
