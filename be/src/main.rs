@@ -108,8 +108,17 @@ async fn account_limits(config: api::Config) {
     loop {
         let config = config.clone();
         let result = tokio::spawn(async move {
-            if let Some(limits) = config.gafe.load_account_limits().await {
-                *config.account_limits.lock().unwrap() = limits;
+            if let Some(new_limits) = config.gafe.load_account_limits().await {
+                let mut limits = config.account_limits.lock().unwrap();
+                // Delete keys in memory that are no longer in the database
+                // Delete keys that have changed
+                // Add keys that are in the database but not in memory
+                limits.retain(|k, v| {
+                    new_limits.contains_key(k) && new_limits.get(k).is_some_and(|l| l.eq(v))
+                });
+                new_limits.into_iter().for_each(|(k, v)| {
+                    limits.entry(k).or_insert(v);
+                });
             }
         })
         .await;

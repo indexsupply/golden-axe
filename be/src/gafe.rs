@@ -8,6 +8,7 @@ use std::{
 use deadpool_postgres::Pool;
 use governor::{Quota, RateLimiter};
 use nonzero::nonzero;
+use tokio::sync::Semaphore;
 
 use crate::api;
 
@@ -19,6 +20,17 @@ pub struct AccountLimit {
     pub rate: i32,
     pub rate_limiter: Arc<governor::DefaultKeyedRateLimiter<String>>,
     pub connections: i32,
+    pub conn_limiter: Arc<Semaphore>,
+}
+
+impl PartialEq for AccountLimit {
+    fn eq(&self, other: &Self) -> bool {
+        self.secret == other.secret
+            && self.origins == other.origins
+            && self.timeout == other.timeout
+            && self.rate == other.rate
+            && self.connections == other.connections
+    }
 }
 
 impl AccountLimit {
@@ -32,6 +44,7 @@ impl AccountLimit {
                 Quota::per_minute(nonzero!(10u32)),
             )),
             connections: 10,
+            conn_limiter: Arc::new(Semaphore::new(10)),
         }
     }
     // something is wrong with our system so don't impact users
@@ -45,6 +58,7 @@ impl AccountLimit {
                 Quota::per_second(nonzero!(10u32)),
             )),
             connections: 10,
+            conn_limiter: Arc::new(Semaphore::new(10)),
         }
     }
 }
@@ -109,6 +123,9 @@ impl Connection {
                         NonZeroU32::new(row.get::<&str, i32>("rate") as u32).unwrap(),
                     ))),
                     connections: row.get("connections"),
+                    conn_limiter: Arc::new(Semaphore::new(
+                        row.get::<&str, i32>("connections") as usize
+                    )),
                 })
                 .map(|al| (al.secret.clone(), Arc::new(al)))
                 .collect(),

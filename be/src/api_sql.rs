@@ -78,11 +78,20 @@ pub async fn handle_get(
 pub async fn handle_sse(
     Extension(log): Extension<RequestLog>,
     State(config): State<api::Config>,
+    account_limit: Arc<gafe::AccountLimit>,
     Form(mut req): Form<Request>,
 ) -> axum::response::Sse<impl Stream<Item = Result<SSEvent, Infallible>>> {
     log.add(vec![req.clone()]);
     let mut rx = config.api_updates.wait(req.chain.expect("missing chain"));
     let stream = async_stream::stream! {
+        let _permit = match account_limit.conn_limiter.clone().try_acquire_owned() {
+            Ok(p) => p,
+            Err(_) => {
+                tracing::error!("{:?} too many connected clients", req.api_key);
+                yield Ok(SSEvent::default().json_data(api::Error::TooManyRequests(Some(String::from("too many connected clients")))).expect("sse serialize error"));
+                return;
+            },
+        };
         loop {
             match query(config.ro_pool.clone(), &vec![req.clone()]).await {
                 Ok(resp) =>  {
