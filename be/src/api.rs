@@ -309,7 +309,7 @@ pub async fn limit(
         }
     }
     if account_limit
-        .rate
+        .rate_limiter
         .check_key(&origin_ip.to_string())
         .is_err()
     {

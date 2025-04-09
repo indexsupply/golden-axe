@@ -16,7 +16,9 @@ pub struct AccountLimit {
     secret: String,
     pub origins: HashSet<String>,
     pub timeout: Duration,
-    pub rate: Arc<governor::DefaultKeyedRateLimiter<String>>,
+    pub rate: i32,
+    pub rate_limiter: Arc<governor::DefaultKeyedRateLimiter<String>>,
+    pub connections: i32,
 }
 
 impl AccountLimit {
@@ -25,9 +27,11 @@ impl AccountLimit {
             secret: String::default(),
             origins: HashSet::new(),
             timeout: Duration::from_secs(10),
-            rate: Arc::new(governor::DefaultKeyedRateLimiter::dashmap(
+            rate: 10,
+            rate_limiter: Arc::new(governor::DefaultKeyedRateLimiter::dashmap(
                 Quota::per_minute(nonzero!(10u32)),
             )),
+            connections: 10,
         }
     }
     // something is wrong with our system so don't impact users
@@ -36,9 +40,11 @@ impl AccountLimit {
             secret: String::default(),
             origins: HashSet::new(),
             timeout: Duration::from_secs(10),
-            rate: Arc::new(governor::DefaultKeyedRateLimiter::dashmap(
+            rate: 10,
+            rate_limiter: Arc::new(governor::DefaultKeyedRateLimiter::dashmap(
                 Quota::per_second(nonzero!(10u32)),
             )),
+            connections: 10,
         }
     }
 }
@@ -78,7 +84,7 @@ impl Connection {
             })
             .ok()?
             .query(
-                "select secret, timeout, rate, origins from account_limits",
+                "select secret, timeout, rate, connections, origins from account_limits",
                 &[],
             )
             .await
@@ -92,15 +98,17 @@ impl Connection {
                 .map(|row| AccountLimit {
                     secret: row.get("secret"),
                     timeout: Duration::from_secs(row.get::<&str, i32>("timeout") as u64),
-                    rate: Arc::new(RateLimiter::keyed(Quota::per_second(
-                        NonZeroU32::new(row.get::<&str, i32>("rate") as u32).unwrap(),
-                    ))),
                     origins: row
                         .get::<&str, Vec<String>>("origins")
                         .into_iter()
                         .map(|s| s.to_lowercase())
                         .map(|s| s.trim().to_string())
                         .collect(),
+                    rate: row.get("rate"),
+                    rate_limiter: Arc::new(RateLimiter::keyed(Quota::per_second(
+                        NonZeroU32::new(row.get::<&str, i32>("rate") as u32).unwrap(),
+                    ))),
+                    connections: row.get("connections"),
                 })
                 .map(|al| (al.secret.clone(), Arc::new(al)))
                 .collect(),
