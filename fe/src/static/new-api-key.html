@@ -15,9 +15,9 @@
                 letter-spacing: -0.005em;
                 line-height: 1.58;
 
-                margin: 100px auto 0 auto;
                 max-width: 500px;
                 margin: 0 auto;
+                padding: 0 0 50px 0;
             }
             form {
                 width: 100%;
@@ -52,12 +52,14 @@
         </p>
         <p><code>https://api.indexsupply.net/query?api-key=XXX&...</code></p>
         <p><code>Api-Key: XXX</code></p>
-        <form method="post" action="/create-api-key">
+        <form method="post" autocomplete="off" action="/create-api-key">
             <h2>Requests Per Second</h2>
             <p><span class="capitalize">{{plan.name}}</span> includes {{ plan.rate }} requests per second</p>
-            <p>The rate limit is applied per ip address. Each client IP address has the ability to make {{plan.rate}} requests per second.</p>
+            <p>The rate limit is applied per connection. Each connection has the ability to make {{plan.rate}} requests per second.</p>
             <h2>Request Timeout</h2>
             <p><span class="capitalize">{{plan.name}}</span> has a {{plan.timeout}} second request timeout</p>
+            <h2>Connected Clients</h2>
+            <p><span class="capitalize">{{plan.name}}</span> allows for {{plan.connections}} connections across all API Keys.</p>
             <h2>Origin Domains</h2>
             <p>
                 <em>Optionally </em>provide a comma separated list of domain names.

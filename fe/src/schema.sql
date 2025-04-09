@@ -55,8 +55,8 @@ create table if not exists plan_options (
 );
 
 insert into plan_options (name, owner_email, rate, timeout, connections, features, daimo_amount, stripe_amount) values
-('Indie', null, 5, 10, 10, '{"5 requests per second per client", "10 concurrent connections", "Best Effort Support"}', 40000, 5000),
-('Pro', null, 10, 10, 200, '{"10 requests per second per client", "200 concurrent connections", "Same Day Support"}', 280000, 25000),
+('Indie', null, 5, 5, 10, '{"5 requests per second per client", "5 second request timeout", "10 concurrent connections", "Best Effort Support"}', 40000, 5000),
+('Pro', null, 10, 10, 200, '{"10 requests per second per client", "10 second request timeout", "200 concurrent connections", "Same Day Support"}', 280000, 25000),
 ('Dedicated', null, 10, 10, 1000, '{"Custom Chains", "Custom Performance", "On-call Support"}', 2200000, 200000),
 ('Ryan''s Special', 'r@32k.io', 10, 60, 10, '{"Foo", "Bar", "Baz"}', 100, 100)
 on conflict (name) do nothing;
