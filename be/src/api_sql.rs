@@ -1,7 +1,7 @@
 use std::{
     convert::Infallible,
     sync::{Arc, Mutex},
-    time::{self},
+    time::{self, Duration},
 };
 
 use alloy::{
@@ -54,24 +54,28 @@ pub async fn handle_post(
     api_key: api::Key,
     chain: api::Chain,
     State(config): State<api::Config>,
+    account_limit: Arc<gafe::AccountLimit>,
     api::Json(mut req): api::Json<Vec<Request>>,
 ) -> Result<Json<Response>, api::Error> {
+    let ttl = account_limit.timeout;
     // It's possible to specify chain/api_key in either the header or the query params for POST
     req.iter_mut().for_each(|r| {
         r.chain.get_or_insert(chain);
         r.api_key.get_or_insert(api_key.clone());
     });
     log.add(req.clone());
-    Ok(Json(query(config.ro_pool, &req).await?))
+    Ok(Json(query(config.ro_pool, ttl, &req).await?))
 }
 
 pub async fn handle_get(
     Extension(log): Extension<RequestLog>,
     State(config): State<api::Config>,
+    account_limit: Arc<gafe::AccountLimit>,
     Form(req): Form<Request>,
 ) -> Result<Json<Response>, api::Error> {
+    let ttl = account_limit.timeout;
     log.add(vec![req.clone()]);
-    Ok(Json(query(config.ro_pool, &vec![req]).await?))
+    Ok(Json(query(config.ro_pool, ttl, &vec![req]).await?))
 }
 
 #[tracing::instrument(skip_all)]
@@ -81,6 +85,7 @@ pub async fn handle_sse(
     account_limit: Arc<gafe::AccountLimit>,
     Form(mut req): Form<Request>,
 ) -> axum::response::Sse<impl Stream<Item = Result<SSEvent, Infallible>>> {
+    let ttl = account_limit.timeout;
     log.add(vec![req.clone()]);
     let mut rx = config.api_updates.wait(req.chain.expect("missing chain"));
     let stream = async_stream::stream! {
@@ -93,7 +98,7 @@ pub async fn handle_sse(
             },
         };
         loop {
-            match query(config.ro_pool.clone(), &vec![req.clone()]).await {
+            match query(config.ro_pool.clone(), ttl, &vec![req.clone()]).await {
                 Ok(resp) =>  {
                     req.block_height = Some(resp.block_height + 1);
                     yield Ok(SSEvent::default().json_data(resp).expect("sse serialize query"));
@@ -168,7 +173,11 @@ pub async fn log_request(
     Ok(resp)
 }
 
-async fn query(be_pool: Pool, requests: &Vec<Request>) -> Result<Response, api::Error> {
+async fn query(
+    be_pool: Pool,
+    timeout: Duration,
+    requests: &Vec<Request>,
+) -> Result<Response, api::Error> {
     let mut pg = be_pool.get().await?;
     let pgtx = pg
         .build_transaction()
@@ -176,6 +185,11 @@ async fn query(be_pool: Pool, requests: &Vec<Request>) -> Result<Response, api::
         .start()
         .await
         .wrap_err("starting sql api read tx")?;
+    pgtx.execute(
+        &format!("set local statement_timeout = {}", timeout.as_millis()),
+        &[],
+    )
+    .await?;
     let mut result: Vec<Rows> = Vec::new();
     for r in requests {
         let query = query::sql(

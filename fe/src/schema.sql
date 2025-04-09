@@ -94,6 +94,7 @@ create view account_limits as
         order by owner_email, created_at desc
     )
     select
+        current_plans.owner_email,
         secret,
         timeout,
         rate,
@@ -103,7 +104,7 @@ create view account_limits as
     inner join current_plans on current_plans.owner_email = api_keys.owner_email
     where api_keys.deleted_at is null
     union all
-    select secret, 30, 10, 200, coalesce(origins, '{}')
+    select org, secret, 10, 10, 200, coalesce(origins, '{}')
     from wl_api_keys
     where deleted_at is null;
 
