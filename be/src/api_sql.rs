@@ -89,13 +89,23 @@ pub async fn handle_sse(
     log.add(vec![req.clone()]);
     let mut rx = config.api_updates.wait(req.chain.expect("missing chain"));
     let stream = async_stream::stream! {
+        let _active_connection = config
+            .active_connections
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("active connection");
         let _permit = match account_limit.conn_limiter.clone().try_acquire_owned() {
             Ok(p) => p,
             Err(_) => {
                 tracing::error!("{:?} too many connected clients", req.api_key);
-                yield Ok(SSEvent::default().json_data(api::Error::TooManyRequests(Some(String::from("too many connected clients")))).expect("sse serialize error"));
+                yield Ok(SSEvent::default()
+                    .json_data(api::Error::TooManyRequests(Some(String::from(
+                        "too many connected clients",
+                    ))))
+                    .expect("sse serialize error"));
                 return;
-            },
+            }
         };
         loop {
             match query(config.ro_pool.clone(), ttl, &[req.clone()]).await {

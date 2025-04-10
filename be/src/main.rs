@@ -85,6 +85,7 @@ async fn main() {
         .expect("binding to tcp for http server");
 
     tokio::spawn(account_limits(config.clone()));
+    tokio::spawn(stats_updates(config.clone()));
     tokio::spawn(sync(args.clone(), config.clone()));
     axum::serve(listener, service(config.clone()))
         .await
@@ -101,6 +102,37 @@ async fn sync(args: Args, config: api::Config) {
             }
             tokio::time::sleep(Duration::from_secs(10)).await;
         }
+    }
+}
+
+async fn stats_updates(config: api::Config) {
+    loop {
+        let config = config.clone();
+        let result = tokio::spawn(async move {
+            let pg = config
+                .be_pool
+                .get()
+                .await
+                .expect("unable to get a pg connection");
+            let row = pg
+                .query_one(
+                    "SELECT pg_size_pretty(pg_database_size('ga')), pg_database_size('ga')",
+                    &[],
+                )
+                .await
+                .expect("unable to query db");
+            let pretty_size: String = row.get(0);
+            let size: i64 = row.get(1);
+            config.stat_updates.update(serde_json::json!({
+                "database_size_pretty": pretty_size,
+                "database_size": size,
+            }));
+        })
+        .await;
+        if let Err(e) = result {
+            tracing::error!("stats_updates error: {}", e);
+        }
+        tokio::time::sleep(Duration::from_secs(5)).await;
     }
 }
 

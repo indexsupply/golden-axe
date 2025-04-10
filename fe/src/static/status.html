@@ -84,6 +84,9 @@
             .row .diff {
                 max-width: 20px;
             }
+            #stats {
+                font-family: monospace;
+            }
             .highlight {
                 background-color: lightyellow;
                 transition: background-color 0.25s ease-in-out;
@@ -109,6 +112,12 @@
                     <div>local</div>
                     <div>remote</div>
                 </div>
+            </div>
+            <hr>
+            <div id="stats">
+                <p>Active Connections: <span id="active-connections"></span></p>
+                <p>Database Size: <span id="database-size"></span></p>
+                <p>Download Rate: <span id="database-rate"></span></p>
             </div>
         </main>
     </body>
@@ -137,11 +146,11 @@
             return div;
         }
 
-        function addUpdate(event, chains) {
-            let { source, chain, num } = JSON.parse(event.data);
+        function addUpdate(update, chains) {
+            let { chain, num } = update;
             const chainRow = document.querySelector(`#response .row[data-chain="${chain}"]`);
             if (chainRow) {
-                if (source == "Local") {
+                if (update["new_block"]== "local") {
                     chainRow.querySelector("div.local").textContent = num.toLocaleString();
                 } else {
                     chainRow.querySelector("div.remote").textContent = num.toLocaleString();
@@ -153,7 +162,7 @@
                 chainRow.dataset.chain = chain;
                 chainRow.title = chain;
                 newDiv(chainRow, "chain", chains[chain].name);
-                if (source == "Local") {
+                if (update["new_block"] == "local") {
                     newDiv(chainRow, "local", num.toLocaleString());
                     newDiv(chainRow, "remote", 0);
                 } else {
@@ -163,6 +172,31 @@
                 computeDiff(chainRow);
                 insertRow(chainRow);
             }
+        }
+
+        function updateActiveConnections(n) {
+          document.getElementById("active-connections").textContent = n;
+        }
+
+        let lastUpdateTime = Date.now();
+        let lastValue = 0;
+
+        function updateRate(bytes) {
+          const now = Date.now();
+          const deltaTime = (now - lastUpdateTime) / 1000; // seconds
+          const deltaBytes = bytes - lastValue;
+          const mbps = deltaBytes / 1e6 / deltaTime;
+
+          lastUpdateTime = now;
+          lastValue = bytes;
+
+          return mbps;
+        }
+
+        function updateDatabaseSize(update) {
+          let mbps = updateRate(update["database_size"]);
+          document.getElementById("database-rate").textContent = `${mbps.toFixed(2)} MB/s`;
+          document.getElementById("database-size").textContent = update["database_size_pretty"];
         }
 
         function insertRow(newRow) {
@@ -185,7 +219,16 @@
 
         function startHandler(chains) {
             sseHandler = new EventSource("https://api.indexsupply.net/status");
-            sseHandler.onmessage = (event) => { addUpdate(event, chains) };
+            sseHandler.onmessage = (event) => {
+              const parsed = JSON.parse(event.data);
+              if ("new_block" in parsed) {
+                addUpdate(parsed, chains)
+              } else if ("active_connections" in parsed) {
+                updateActiveConnections(parsed.active_connections);
+              } else if ("database_size" in parsed) {
+                updateDatabaseSize(parsed);
+              }
+            };
             sseHandler.onerror = function (e) {
                 console.log(`sse error: `, e);
             };

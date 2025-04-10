@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use deadpool_postgres::Pool;
 use serde::ser::SerializeStruct;
 use serde_json::{json, Value};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Semaphore};
 use url::Url;
 
 use crate::gafe;
@@ -46,10 +46,17 @@ pub async fn handle_status(
     State(conf): State<Config>,
 ) -> axum::response::Sse<impl Stream<Item = Result<SSEvent, Infallible>>> {
     let mut rx = conf.stat_updates.wait();
+    let config = conf.clone();
     let stream = async_stream::stream! {
         loop {
             let update = rx.recv().await.expect("unable to receive new block update");
-            yield Ok(SSEvent::default().json_data(update).expect("unable to serialize json"));
+            yield Ok(SSEvent::default()
+                .json_data(update)
+                .expect("unable to serialize json"));
+            let active_connections = MAX_ACTIVE_CONNECTIONS - config.active_connections.available_permits();
+            yield Ok(SSEvent::default()
+                .json_data(serde_json::json!({ "active_connections": active_connections }))
+                .expect("unable to serialize json"));
         }
     };
     Sse::new(stream).keep_alive(KeepAlive::default())
@@ -61,19 +68,23 @@ pub struct Config {
     pub fe_pool: Pool,
     pub ro_pool: Pool,
     pub api_updates: Arc<Broadcaster>,
-    pub stat_updates: Arc<Broadcaster2>,
+    pub stat_updates: Arc<JsonBroadcaster>,
+    pub active_connections: Arc<Semaphore>,
     pub open_limit: Arc<gafe::AccountLimit>,
     pub free_limit: Arc<gafe::AccountLimit>,
     pub account_limits: Arc<Mutex<HashMap<String, Arc<gafe::AccountLimit>>>>,
     pub gafe: gafe::Connection,
 }
 
+const MAX_ACTIVE_CONNECTIONS: usize = 10000;
+
 impl Config {
     pub fn new(be_pool: Pool, fe_pool: Pool, ro_pool: Pool) -> Config {
         Config {
             gafe: gafe::Connection::new(fe_pool.clone()),
             api_updates: Arc::new(Broadcaster::default()),
-            stat_updates: Arc::new(Broadcaster2::default()),
+            stat_updates: Arc::new(JsonBroadcaster::default()),
+            active_connections: Arc::new(Semaphore::new(MAX_ACTIVE_CONNECTIONS)),
             account_limits: Arc::new(Mutex::new(HashMap::new())),
             free_limit: Arc::new(gafe::AccountLimit::free()),
             open_limit: Arc::new(gafe::AccountLimit::open()),
@@ -217,24 +228,11 @@ where
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
-pub enum ChainUpdateSource {
-    Local,
-    Remote,
+pub struct JsonBroadcaster {
+    clients: broadcast::Sender<serde_json::Value>,
 }
 
-#[derive(Clone, Debug, Serialize)]
-pub struct ChainUpdate {
-    pub source: ChainUpdateSource,
-    pub chain: Chain,
-    pub num: u64,
-}
-
-pub struct Broadcaster2 {
-    clients: broadcast::Sender<ChainUpdate>,
-}
-
-impl Default for Broadcaster2 {
+impl Default for JsonBroadcaster {
     fn default() -> Self {
         Self {
             clients: broadcast::channel(16).0,
@@ -242,12 +240,12 @@ impl Default for Broadcaster2 {
     }
 }
 
-impl Broadcaster2 {
-    pub fn wait(&self) -> broadcast::Receiver<ChainUpdate> {
+impl JsonBroadcaster {
+    pub fn wait(&self) -> broadcast::Receiver<serde_json::Value> {
         self.clients.subscribe()
     }
-    pub fn update(&self, source: ChainUpdateSource, chain: Chain, num: u64) {
-        let _ = self.clients.send(ChainUpdate { source, chain, num });
+    pub fn update(&self, data: serde_json::Value) {
+        let _ = self.clients.send(data);
     }
 }
 

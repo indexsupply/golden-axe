@@ -155,7 +155,7 @@ pub struct Downloader {
     pub concurrency: u16,
     pub filter: Filter,
     pub start_block: BlockNumberOrTag,
-    stat_updates: Arc<api::Broadcaster2>,
+    stat_updates: Arc<api::JsonBroadcaster>,
     api_updates: Arc<api::Broadcaster>,
 }
 
@@ -164,7 +164,7 @@ impl Downloader {
         config: RemoteConfig,
         be_pool: Pool,
         api_updates: Arc<api::Broadcaster>,
-        stat_updates: Arc<api::Broadcaster2>,
+        stat_updates: Arc<api::JsonBroadcaster>,
     ) -> Downloader {
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
@@ -210,8 +210,11 @@ impl Downloader {
                 }
                 Ok(last) => {
                     self.api_updates.broadcast(self.chain, last);
-                    self.stat_updates
-                        .update(api::ChainUpdateSource::Local, self.chain, last);
+                    self.stat_updates.update(serde_json::json!({
+                        "new_block": "local",
+                        "chain": self.chain,
+                        "num": last,
+                    }));
                     batch_size = self.batch_size
                 }
             }
@@ -314,8 +317,11 @@ impl Downloader {
             let remote_num = latest_remote.header.number;
             let (local_num, local_hash) = self.get_local_latest(pgtx).await?;
 
-            self.stat_updates
-                .update(api::ChainUpdateSource::Remote, self.chain, remote_num);
+            self.stat_updates.update(serde_json::json!({
+                "new_block": "remote",
+                "chain": self.chain,
+                "num": remote_num,
+            }));
             tracing::Span::current()
                 .record("local", local_num)
                 .record("remote", remote_num);
