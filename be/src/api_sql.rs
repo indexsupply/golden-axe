@@ -75,7 +75,7 @@ pub async fn handle_get(
 ) -> Result<Json<Response>, api::Error> {
     let ttl = account_limit.timeout;
     log.add(vec![req.clone()]);
-    Ok(Json(query(config.ro_pool, ttl, &vec![req]).await?))
+    Ok(Json(query(config.ro_pool, ttl, &[req]).await?))
 }
 
 #[tracing::instrument(skip_all)]
@@ -98,7 +98,7 @@ pub async fn handle_sse(
             },
         };
         loop {
-            match query(config.ro_pool.clone(), ttl, &vec![req.clone()]).await {
+            match query(config.ro_pool.clone(), ttl, &[req.clone()]).await {
                 Ok(resp) =>  {
                     req.block_height = Some(resp.block_height + 1);
                     yield Ok(SSEvent::default().json_data(resp).expect("sse serialize query"));
@@ -176,8 +176,19 @@ pub async fn log_request(
 async fn query(
     be_pool: Pool,
     timeout: Duration,
-    requests: &Vec<Request>,
+    requests: &[Request],
 ) -> Result<Response, api::Error> {
+    let queries = requests
+        .iter()
+        .map(|r| {
+            query::sql(
+                r.chain.unwrap_chain()?,
+                r.block_height,
+                &r.query,
+                r.event_signatures.iter().map(|s| s.as_str()).collect(),
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let mut pg = be_pool.get().await?;
     let pgtx = pg
         .build_transaction()
@@ -190,30 +201,25 @@ async fn query(
         &[],
     )
     .await?;
+    let block_height = pgtx
+        .query_one(
+            "select coalesce(max(num), 0)::text from blocks where chain = $1",
+            &[&requests
+                .first()
+                .expect("no queries in request")
+                .chain
+                .unwrap_chain()?],
+        )
+        .await?
+        .get::<usize, U64>(0)
+        .to::<u64>();
     let mut result: Vec<Rows> = Vec::new();
-    for r in requests {
-        let query = query::sql(
-            r.chain.unwrap_chain()?,
-            r.block_height,
-            &r.query,
-            r.event_signatures.iter().map(|s| s.as_str()).collect(),
-        )?;
-        result.push(handle_rows(pgtx.query(&query, &[]).await?)?);
+    for q in queries {
+        result.push(handle_rows(pgtx.query(&q, &[]).await?)?);
     }
     Ok(Response {
+        block_height,
         result,
-        block_height: pgtx
-            .query_one(
-                "select coalesce(max(num), 0)::text from blocks where chain = $1",
-                &[&requests
-                    .first()
-                    .expect("no queries in request")
-                    .chain
-                    .unwrap_chain()?],
-            )
-            .await?
-            .get::<usize, U64>(0)
-            .to::<u64>(),
     })
 }
 
