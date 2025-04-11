@@ -59,11 +59,24 @@ pub struct Block {
     #[serde(rename = "parentHash")]
     pub parent_hash: BlockHash,
     pub number: U64,
+    pub timestamp: U64,
     pub transactions: Vec<Tx>,
+    #[serde(rename = "gasLimit")]
+    pub gas_limit: U256,
+    #[serde(rename = "gasUsed")]
+    pub gas_used: U256,
+    #[serde(rename = "receiptsRoot")]
+    pub receipts_root: FixedBytes<32>,
+    #[serde(rename = "stateRoot")]
+    pub state_root: FixedBytes<32>,
+    #[serde(rename = "extraData")]
+    pub extra_data: Bytes,
+    pub miner: Address,
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(untagged)]
+#[allow(clippy::large_enum_variant)]
 enum EthItem {
     Uint(U64),
     Block(Block),
