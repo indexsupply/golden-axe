@@ -178,17 +178,20 @@
           document.getElementById("active-connections").textContent = n;
         }
 
-        let lastUpdateTime = Date.now();
-        let lastValue = 0;
+        let lastRateTime = Date.now();
+        let lastRateValue= 0;
 
         function updateRate(bytes) {
+          if (lastRateValue === 0)  {
+            return 0;
+          }
           const now = Date.now();
-          const deltaTime = (now - lastUpdateTime) / 1000; // seconds
-          const deltaBytes = bytes - lastValue;
+          const deltaTime = (now - lastRateTime) / 1000; // seconds
+          const deltaBytes = bytes - lastRateValue;
           const mbps = deltaBytes / 1e6 / deltaTime;
 
-          lastUpdateTime = now;
-          lastValue = bytes;
+          lastRateTime = now;
+          lastRateValue = bytes;
 
           return mbps;
         }
