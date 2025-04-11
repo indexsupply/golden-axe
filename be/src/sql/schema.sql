@@ -4,6 +4,13 @@ create table if not exists blocks(
     chain int8 not null,
     num int8,
     hash bytea,
+    timestamp timestamptz,
+    gas_limit numeric,
+    gas_used numeric,
+    receipts_root bytea,
+    state_root bytea,
+    extra_data bytea,
+    miner bytea,
     primary key (chain, num)
 );
 

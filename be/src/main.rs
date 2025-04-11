@@ -262,7 +262,7 @@ mod tests {
             pgtx.execute(&partition_stmt, &[])
                 .await
                 .expect("creating partition");
-            sync::copy(&pgtx, $chain, vec![log])
+            sync::copy_logs(&pgtx, $chain, vec![log])
                 .await
                 .expect("unable to copy new logs");
             pgtx.execute(

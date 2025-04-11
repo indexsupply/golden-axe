@@ -6,7 +6,6 @@ use eyre::{Context, Result};
 use itertools::Itertools;
 use sqlparser::{
     ast::{self, Ident, OrderByExpr},
-    keywords::IS,
     parser::Parser,
 };
 use std::{collections::HashSet, str::FromStr};
