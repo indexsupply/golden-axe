@@ -179,15 +179,12 @@
         }
 
         let lastRateTime = Date.now();
-        let lastRateValue= 0;
+        let lastRateValue = 0;
 
         function updateRate(bytes) {
-          if (lastRateValue === 0)  {
-            return 0;
-          }
           const now = Date.now();
           const deltaTime = (now - lastRateTime) / 1000; // seconds
-          const deltaBytes = bytes - lastRateValue;
+          const deltaBytes = lastRateValue ? bytes - lastRateValue : 0;
           const mbps = deltaBytes / 1e6 / deltaTime;
 
           lastRateTime = now;
