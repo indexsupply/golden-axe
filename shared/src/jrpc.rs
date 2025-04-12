@@ -27,6 +27,8 @@ impl From<reqwest::Error> for Error {
 pub struct Log {
     #[serde(rename = "blockNumber")]
     pub block_number: U64,
+    #[serde(rename = "blockTimestamp")]
+    pub block_timestamp: Option<U64>,
     #[serde(rename = "transactionHash")]
     pub tx_hash: FixedBytes<32>,
     #[serde(rename = "logIndex")]
@@ -42,8 +44,11 @@ pub struct Tx {
     #[serde(rename = "type")]
     pub ty: U64,
     pub hash: BlockHash,
+    #[serde(rename = "blockTimestamp")]
+    pub block_timestamp: Option<U64>,
     #[serde(rename = "transactionIndex")]
     pub idx: U64,
+    pub nonce: U256,
     pub from: Address,
     pub to: Option<Address>,
     pub input: Bytes,
@@ -59,6 +64,7 @@ pub struct Block {
     #[serde(rename = "parentHash")]
     pub parent_hash: BlockHash,
     pub number: U64,
+    pub nonce: U256,
     pub timestamp: U64,
     pub transactions: Vec<Tx>,
     #[serde(rename = "gasLimit")]
