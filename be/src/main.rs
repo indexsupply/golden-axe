@@ -244,6 +244,7 @@ mod tests {
                 topics: log_topics,
                 address: fixed_bytes!("00000000000000000000000000000000000000ab"),
                 block_number: $block_num,
+                block_timestamp: None,
                 tx_hash: B256::with_last_byte(0xab),
                 log_idx: U64::from(1),
             };

@@ -2,64 +2,47 @@ create extension if not exists pg_golden_axe;
 
 create table if not exists blocks(
     chain int8 not null,
-    num int8,
-    hash bytea,
-    timestamp timestamptz,
-    gas_limit numeric,
-    gas_used numeric,
-    receipts_root bytea,
-    state_root bytea,
-    extra_data bytea,
-    miner bytea,
-    primary key (chain, num)
-);
+    num int8 not null,
+    timestamp timestamptz not null,
 
-create table if not exists logs (
-    chain int8,
-    block_num int8,
-    log_idx int4,
-    tx_hash bytea,
-    address bytea,
-    topics bytea[],
-    data bytea
+    gas_limit numeric not null,
+    gas_used numeric not null,
+    nonce bytea not null,
+    hash bytea not null,
+    receipts_root bytea not null,
+    state_root bytea not null,
+    extra_data bytea not null,
+    miner bytea not null
 ) partition by list(chain);
 
 create table if not exists txs (
-    -- Fixed-width columns first, in descending order of size
-    chain int8 NOT NULL,
-    block_num int8 NOT NULL,
-    gas int8 NOT NULL,
-    gas_price int8 NOT NULL,
-    idx int4 NOT NULL,
-    type int2,
+    chain int8 not null,
+    block_num int8 not null,
+    block_timestamp timestamptz not null,
+    gas int8 not null,
+    gas_price int8 not null,
+    idx int4 not null,
+    type int2 not null,
 
-    -- Variable-width columns next
-    hash bytea NOT NULL,
-    "from" bytea NOT NULL,
-    "to" bytea NOT NULL,
-    input bytea,
-    value numeric
+    nonce bytea not null,
+    hash bytea not null,
+    "from" bytea not null,
+    "to" bytea not null,
+    input bytea not null,
+    value numeric not null
 ) partition by list(chain);
 
-create table if not exists txs_c1
-partition of txs
-for values in (1)
-partition by range (block_num);
+create table if not exists logs (
+    chain int8 not null,
+    block_num int8 not null,
+    block_timestamp timestamptz not null,
+    log_idx int4 not null,
 
-create table if not exists txs_c1_b22
-partition of txs_c1
-for values from (22000000) to (24000000);
-alter table txs_c1_b22 set (toast_tuple_target = 128);
-
-create table if not exists txs_c8453
-partition of txs
-for values in (8453)
-partition by range (block_num);
-
-create table if not exists txs_c8453_b28
-partition of txs_c8453
-for values from (28000000) to (30000000);
-alter table txs_c8453_b28 set (toast_tuple_target = 128);
+    tx_hash bytea not null,
+    address bytea not null,
+    topics bytea[] not null,
+    data bytea not null
+) partition by list(chain);
 
 create or replace function b2i(data bytea) returns int4 as $$
 declare

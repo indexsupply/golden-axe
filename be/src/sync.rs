@@ -1,9 +1,10 @@
 use deadpool_postgres::Pool;
+use handlebars::{self, Handlebars};
 use itertools::Itertools;
 use shared::jrpc;
 use std::{collections::HashMap, fmt, sync::Arc};
 use time::OffsetDateTime;
-use tokio::task::{self, JoinHandle};
+use tokio::task::JoinHandle;
 use url::Url;
 
 use alloy::primitives::{BlockHash, U16, U64};
@@ -163,13 +164,17 @@ pub async fn run(config: api::Config) {
 
 pub struct Downloader {
     pub chain: api::Chain,
-    pub be_pool: Pool,
-    pub jrpc_client: Arc<jrpc::Client>,
     pub batch_size: u16,
     pub concurrency: u16,
-    stat_updates: Arc<api::JsonBroadcaster>,
     pub start_block: Option<i64>,
+
+    be_pool: Pool,
+    jrpc_client: Arc<jrpc::Client>,
+
     api_updates: Arc<api::Broadcaster>,
+    stat_updates: Arc<api::JsonBroadcaster>,
+
+    partition_max_block: Option<u64>,
 }
 
 impl Downloader {
@@ -180,20 +185,20 @@ impl Downloader {
         stat_updates: Arc<api::JsonBroadcaster>,
     ) -> Downloader {
         let jrpc_client = Arc::new(jrpc::Client::new(config.url.as_ref()));
-        let start_block = config.start_block;
         Downloader {
-            api_updates,
-            stat_updates,
-            start_block,
-            be_pool,
             chain: config.chain.into(),
-            jrpc_client,
             batch_size: config.batch_size,
             concurrency: config.concurrency,
+            start_block: config.start_block,
+            be_pool,
+            jrpc_client,
+            api_updates,
+            stat_updates,
+            partition_max_block: None,
         }
     }
 
-    async fn init_blocks(&self) -> Result<(), Error> {
+    async fn init_blocks(&mut self) -> Result<(), Error> {
         if !self
             .be_pool
             .get()
@@ -214,26 +219,18 @@ impl Downloader {
             None => self.remote_block_latest().await?,
         };
         tracing::info!("initializing blocks table at: {}", block.number);
+        self.setup_tables(block.number.to())
+            .await
+            .expect("setting up table for initial block");
         let mut pg = self.be_pool.get().await.wrap_err("getting pg")?;
         let pgtx = pg.transaction().await?;
-        pgtx.execute(
-            "
-            insert into blocks(chain, num, hash)
-            values ($1, $2, $3) on conflict(chain, num) do nothing
-            ",
-            &[&self.chain, &block.number, &block.hash],
-        )
-        .await?;
-        let stmt = format!(
-            r#"create table if not exists "logs_{}" partition of logs for values in ({})"#,
-            self.chain.0, self.chain.0
-        );
-        pgtx.execute(&stmt, &[]).await?;
-        Ok(pgtx.commit().await.map(|_| ()).wrap_err("committing tx")?)
+        copy_blocks(&pgtx, self.chain, &[block]).await?;
+        pgtx.commit().await?;
+        Ok(())
     }
 
     #[tracing::instrument(skip_all fields(event, chain = self.chain.0))]
-    pub async fn run(&self) {
+    pub async fn run(mut self) {
         if let Err(e) = self.init_blocks().await {
             tracing::error!("init {:?}", e);
             return;
@@ -266,95 +263,63 @@ impl Downloader {
         }
     }
 
-    /*
-    Request remote latest n and local latest k.
-    If k == n-1 we simply can download logs for block n-1
-    If k <  n-2 we will make n-1-k requests to download n-1-k blocks
-    and another request to download n-1-k logs.
+    //timescaledb
+    #[tracing::instrument(level="debug" skip(self), fields(table_generation = self.partition_max_block))]
+    pub async fn setup_tables(&mut self, new_block: u64) -> Result<(), Error> {
+        if let Some(max) = self.partition_max_block {
+            if new_block < max + 1 {
+                return Ok(());
+            }
+        }
+        const N: u64 = 2000000;
+        let from = match self.partition_max_block {
+            Some(max) if new_block < max + 1 => return Ok(()),
+            Some(max) => ((max + 1) / N) * N,
+            None => (new_block / N) * N,
+        };
+        let to = from + N;
+        self.partition_max_block = Some(to - 1);
+        let query = Handlebars::new()
+            .render_template(
+                "
+                create table if not exists blocks_c{{chain}}
+                partition of blocks
+                for values in ({{chain}})
+                partition by range (num);
 
-    After downloading n-k blocks/logs we check n's parent hash with k's hash.
-    If the hashes aren't equal we delete k's block/logs
-    and start the process over again.
+                create table if not exists blocks_c{{chain}}_b{{from}}
+                partition of blocks_c{{chain}}
+                for values from ({{from}}) to ({{to}});
 
-    If the hashes match, we copy blocks, transactions, and logs into their tables
-    */
-    #[tracing::instrument(level="info" skip_all, fields(from, to, parts, blocks, txs, logs))]
-    async fn download(&self, batch_size: u16) -> Result<u64, Error> {
-        let latest = self.remote_block_latest().await?;
-        let (local_num, local_hash) = self.local_latest().await?;
-        if local_num >= latest.number.to() {
-            return Err(Error::Wait);
-        }
-        let delta = latest.number.to::<u64>() - local_num;
-        let (from, to) = (local_num + 1, local_num + delta.min(batch_size as u64));
-        let part_size = (batch_size / self.concurrency).max(1);
-        tracing::Span::current()
-            .record("from", from)
-            .record("to", to)
-            .record("parts", part_size);
-        let mut log_tasks = Vec::new();
-        let mut block_tasks = Vec::new();
-        for i in (from..=to).step_by(part_size as usize) {
-            let j = (i + part_size as u64 - 1).min(to);
-            let rpc = self.jrpc_client.clone();
-            log_tasks.push(task::spawn(async move {
-                rpc.send_one(serde_json::json!({
-                    "id": "1",
-                    "jsonrpc": "2.0",
-                    "method": "eth_getLogs",
-                    "params": [{"fromBlock": U64::from(i), "toBlock": U64::from(j)}],
-                }))
-                .await
-            }));
-            let rpc = self.jrpc_client.clone();
-            block_tasks.push(task::spawn(async move {
-                let requests = (i..=j)
-                    .map(|n| {
-                        serde_json::json!({
-                            "id": "1",
-                            "jsonrpc": "2.0",
-                            "method": "eth_getBlockByNumber",
-                            "params": [U64::from(n), true],
-                        })
-                    })
-                    .collect();
-                rpc.send(serde_json::Value::Array(requests)).await
-            }))
-        }
-        let mut logs: Vec<jrpc::Log> = vec![];
-        for task in log_tasks {
-            let resp = task.await.expect("waiting on task")?;
-            logs.extend(resp.to::<Vec<jrpc::Log>>()?);
-        }
-        let mut blocks: Vec<jrpc::Block> = vec![];
-        for task in block_tasks {
-            blocks.extend(
-                task.await
-                    .expect("waiting on task")?
-                    .into_iter()
-                    .map(|resp| resp.to())
-                    .collect::<Result<Vec<_>, _>>()?,
-            );
-        }
-        blocks.sort_by(|a, b| a.number.cmp(&b.number));
+                create table if not exists txs_c{{chain}}
+                partition of txs
+                for values in ({{chain}})
+                partition by range (block_num);
 
-        let (first_block, last_block) = (blocks.first().unwrap(), blocks.last().unwrap());
-        if first_block.parent_hash != local_hash {
-            self.delete_after(local_num).await?;
-            return Err(Error::Fatal(eyre!("reorg")));
-        }
+                create table if not exists txs_c{{chain}}_b{{from}}
+                partition of txs_c{{chain}}
+                for values from ({{from}}) to ({{to}});
+                alter table txs_c{{chain}}_b{{from}} set (toast_tuple_target = 128);
 
-        let mut pg = self.be_pool.get().await.wrap_err("pg pool")?;
+                create table if not exists logs_c{{chain}}
+                partition of logs
+                for values in ({{chain}})
+                partition by range (block_num);
+
+                create table if not exists logs_c{{chain}}_b{{from}}
+                partition of logs_c{{chain}}
+                for values from ({{from}}) to ({{to}});
+                alter table logs_c{{chain}}_b{{from}} set (toast_tuple_target = 128);
+                ",
+                &serde_json::json!({"chain": self.chain.0, "from": from, "to": to,}),
+            )
+            .wrap_err("rendering sql template")?;
+        tracing::info!("new table range from={} to={}", from, to);
+        let mut pg = self.be_pool.get().await.wrap_err("getting pg tx")?;
         let pgtx = pg.transaction().await?;
-        let num_logs = copy_logs(&pgtx, self.chain, logs).await?;
-        let num_txs = copy_txs(&pgtx, self.chain, &blocks).await?;
-        let num_blocks = copy_blocks(&pgtx, self.chain, &blocks).await?;
-        pgtx.commit().await.wrap_err("unable to commit tx")?;
-        tracing::Span::current()
-            .record("blocks", num_blocks)
-            .record("logs", num_logs)
-            .record("txs", num_txs);
-        Ok(last_block.number.to())
+        pgtx.batch_execute(&query).await?;
+        pgtx.commit().await.wrap_err("committing tx")?;
+        Ok(())
     }
 
     async fn delete_after(&self, n: u64) -> Result<(), Error> {
@@ -377,6 +342,95 @@ impl Downloader {
         .await?;
         pgtx.commit().await.wrap_err("unable to commit tx")?;
         Ok(())
+    }
+
+    /*
+    Request remote latest n and local latest k.
+    If k == n-1 we simply can download logs for block n-1
+    If k <  n-2 we will make n-1-k requests to download n-1-k blocks
+    and another request to download n-1-k logs.
+
+    After downloading n-k blocks/logs we check n's parent hash with k's hash.
+    If the hashes aren't equal we delete k's block/logs
+    and start the process over again.
+
+    If the hashes match, we copy blocks, transactions, and logs into their tables
+    */
+    #[tracing::instrument(level="info" skip_all, fields(from, to, blocks, txs, logs))]
+    async fn download(&mut self, batch_size: u16) -> Result<u64, Error> {
+        let latest = self.remote_block_latest().await?;
+        let (local_num, local_hash) = self.local_latest().await?;
+        if local_num >= latest.number.to() {
+            return Err(Error::Wait);
+        }
+
+        let delta = latest.number.to::<u64>() - local_num;
+        let (from, to) = (local_num + 1, local_num + delta.min(batch_size as u64));
+        self.setup_tables(to).await?;
+        tracing::Span::current()
+            .record("from", from)
+            .record("to", to);
+        let (mut logs, mut blocks) = (
+            self.download_logs(from, to).await?,
+            self.download_blocks(from, to).await?,
+        );
+        add_timestamp(&mut blocks, &mut logs);
+        let (first_block, last_block) = (blocks.first().unwrap(), blocks.last().unwrap());
+
+        if first_block.parent_hash != local_hash {
+            self.delete_after(local_num).await?;
+            return Err(Error::Fatal(eyre!("reorg")));
+        }
+        let mut pg = self.be_pool.get().await.wrap_err("pg pool")?;
+        let pgtx = pg.transaction().await?;
+        let num_logs = copy_logs(&pgtx, self.chain, logs).await?;
+        let num_txs = copy_txs(&pgtx, self.chain, &blocks).await?;
+        let num_blocks = copy_blocks(&pgtx, self.chain, &blocks).await?;
+        pgtx.commit().await.wrap_err("unable to commit tx")?;
+        tracing::Span::current()
+            .record("blocks", num_blocks)
+            .record("logs", num_logs)
+            .record("txs", num_txs);
+        Ok(last_block.number.to())
+    }
+
+    #[tracing::instrument(level="info" skip_all, fields(from, to))]
+    async fn download_logs(&self, from: u64, to: u64) -> Result<Vec<jrpc::Log>, Error> {
+        Ok(self
+            .jrpc_client
+            .send_one(serde_json::json!({
+                "id": "1",
+                "jsonrpc": "2.0",
+                "method": "eth_getLogs",
+                "params": [{"fromBlock": U64::from(from), "toBlock": U64::from(to)}],
+            }))
+            .await?
+            .to()?)
+    }
+
+    #[tracing::instrument(level="info" skip_all, fields(from, to))]
+    async fn download_blocks(&self, from: u64, to: u64) -> Result<Vec<jrpc::Block>, Error> {
+        Ok(self
+            .jrpc_client
+            .send(
+                (from..=to)
+                    .map(|n| {
+                        serde_json::json!({
+                            "id": "1",
+                            "jsonrpc": "2.0",
+                            "method": "eth_getBlockByNumber",
+                            "params": [U64::from(n), true],
+                        })
+                    })
+                    .collect(),
+            )
+            .await?
+            .into_iter()
+            .map(|resp| resp.to::<jrpc::Block>())
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .sorted_by(|a, b| a.number.cmp(&b.number))
+            .collect())
     }
 
     async fn local_latest(&self) -> Result<(u64, BlockHash), Error> {
@@ -419,6 +473,22 @@ impl Downloader {
     }
 }
 
+fn add_timestamp(blocks: &mut [jrpc::Block], logs: &mut Vec<jrpc::Log>) {
+    for block in blocks.iter_mut() {
+        for tx in block.transactions.iter_mut() {
+            tx.block_timestamp = Some(block.timestamp);
+        }
+    }
+    let indexed: HashMap<u64, &jrpc::Block> = blocks.iter().map(|b| (b.number.to(), b)).collect();
+    for log in logs {
+        if log.block_timestamp.is_none() {
+            if let Some(block) = indexed.get(&log.block_number.to()) {
+                log.block_timestamp = Some(block.timestamp);
+            }
+        }
+    }
+}
+
 #[tracing::instrument(level="debug" fields(chain) skip_all)]
 pub async fn copy_logs(
     pgtx: &Transaction<'_>,
@@ -429,8 +499,9 @@ pub async fn copy_logs(
         copy logs (
             chain,
             block_num,
-            tx_hash,
+            block_timestamp,
             log_idx,
+            tx_hash,
             address,
             topics,
             data
@@ -443,8 +514,9 @@ pub async fn copy_logs(
         &[
             tokio_postgres::types::Type::INT8,
             tokio_postgres::types::Type::INT8,
-            tokio_postgres::types::Type::BYTEA,
+            tokio_postgres::types::Type::TIMESTAMPTZ,
             tokio_postgres::types::Type::INT4,
+            tokio_postgres::types::Type::BYTEA,
             tokio_postgres::types::Type::BYTEA,
             tokio_postgres::types::Type::BYTEA_ARRAY,
             tokio_postgres::types::Type::BYTEA,
@@ -457,8 +529,11 @@ pub async fn copy_logs(
             .write(&[
                 &chain,
                 &log.block_number,
-                &log.tx_hash,
+                &OffsetDateTime::from_unix_timestamp(
+                    log.block_timestamp.expect("missing log ts").to::<u64>() as i64,
+                )?,
                 &log.log_idx,
+                &log.tx_hash,
                 &log.address,
                 &log.topics,
                 &log.data.to_vec(),
@@ -478,15 +553,17 @@ pub async fn copy_txs(
         copy txs (
             chain,
             block_num,
-            hash,
+            block_timestamp,
+            gas,
+            gas_price,
             idx,
             type,
+            hash,
+            nonce,
             "from",
             "to",
             input,
-            value,
-            gas,
-            gas_price
+            value
         )
         from stdin binary
     "#;
@@ -496,15 +573,17 @@ pub async fn copy_txs(
         &[
             tokio_postgres::types::Type::INT8,
             tokio_postgres::types::Type::INT8,
-            tokio_postgres::types::Type::BYTEA,
+            tokio_postgres::types::Type::TIMESTAMPTZ,
+            tokio_postgres::types::Type::INT8,
+            tokio_postgres::types::Type::INT8,
             tokio_postgres::types::Type::INT4,
             tokio_postgres::types::Type::INT2,
             tokio_postgres::types::Type::BYTEA,
             tokio_postgres::types::Type::BYTEA,
             tokio_postgres::types::Type::BYTEA,
+            tokio_postgres::types::Type::BYTEA,
+            tokio_postgres::types::Type::BYTEA,
             tokio_postgres::types::Type::NUMERIC,
-            tokio_postgres::types::Type::INT8,
-            tokio_postgres::types::Type::INT8,
         ],
     );
     pin_mut!(writer);
@@ -515,15 +594,19 @@ pub async fn copy_txs(
                 .write(&[
                     &chain,
                     &block.number,
-                    &tx.hash,
+                    &OffsetDateTime::from_unix_timestamp(
+                        tx.block_timestamp.expect("missing tx ts").to::<u64>() as i64,
+                    )?,
+                    &tx.gas,
+                    &tx.gase_price,
                     &tx.idx,
                     &tx.ty,
+                    &tx.hash,
+                    &tx.nonce,
                     &tx.from.to_vec(),
                     &tx.to.unwrap_or_default().to_vec(),
                     &tx.input.to_vec(),
                     &tx.value,
-                    &tx.gas,
-                    &tx.gase_price,
                 ])
                 .await?;
         }
@@ -541,10 +624,11 @@ pub async fn copy_blocks(
         copy blocks (
             chain,
             num,
-            hash,
             timestamp,
             gas_limit,
             gas_used,
+            hash,
+            nonce,
             receipts_root,
             state_root,
             extra_data,
@@ -558,10 +642,11 @@ pub async fn copy_blocks(
         &[
             tokio_postgres::types::Type::INT8,
             tokio_postgres::types::Type::INT8,
-            tokio_postgres::types::Type::BYTEA,
             tokio_postgres::types::Type::TIMESTAMPTZ,
             tokio_postgres::types::Type::NUMERIC,
             tokio_postgres::types::Type::NUMERIC,
+            tokio_postgres::types::Type::BYTEA,
+            tokio_postgres::types::Type::BYTEA,
             tokio_postgres::types::Type::BYTEA,
             tokio_postgres::types::Type::BYTEA,
             tokio_postgres::types::Type::BYTEA,
@@ -575,10 +660,11 @@ pub async fn copy_blocks(
             .write(&[
                 &chain,
                 &block.number,
-                &block.hash,
                 &OffsetDateTime::from_unix_timestamp(block.timestamp.to())?,
                 &block.gas_limit,
                 &block.gas_used,
+                &block.hash,
+                &block.nonce,
                 &block.receipts_root,
                 &block.state_root,
                 &block.extra_data.to_vec(),
