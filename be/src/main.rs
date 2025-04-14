@@ -116,7 +116,7 @@ async fn stats_updates(config: api::Config) {
                 .expect("unable to get a pg connection");
             let row = pg
                 .query_one(
-                    "SELECT pg_size_pretty(pg_database_size('ga2')), pg_database_size('ga2')",
+                    "SELECT pg_size_pretty(pg_database_size(current_database())), pg_database_size(current_database())",
                     &[],
                 )
                 .await

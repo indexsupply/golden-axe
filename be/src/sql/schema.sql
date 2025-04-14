@@ -23,7 +23,7 @@ create table if not exists txs (
     type int2 not null,
 
     gas numeric not null,
-    gas_price numierc not null,
+    gas_price numeric not null,
     nonce bytea not null,
     hash bytea not null,
     "from" bytea not null,
