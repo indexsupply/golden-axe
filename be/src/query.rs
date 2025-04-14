@@ -455,6 +455,18 @@ impl UserQuery {
         left: &mut ast::Expr,
         right: &mut ast::Expr,
     ) -> Result<(), api::Error> {
+        if let ast::Expr::Function(f) = left {
+            if f.name.to_string() == "abi_address" {
+                self.rewrite_literal(
+                    right,
+                    &abi::Parameter::Address {
+                        name: None,
+                        indexed: None,
+                    },
+                    false,
+                )?;
+            }
+        }
         if let Some(param) = self.get_param(left) {
             self.rewrite_literal(right, &param.clone(), false)?;
         }
