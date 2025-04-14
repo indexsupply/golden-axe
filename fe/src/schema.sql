@@ -64,6 +64,7 @@ on conflict (name) do nothing;
 create table if not exists api_keys (
     owner_email text not null,
     secret text not null,
+    ip_connections int,
     origins text[] not null default '{}',
     created_at timestamptz default now(),
     deleted_at timestamptz
@@ -99,12 +100,13 @@ create view account_limits as
         timeout,
         rate,
         connections,
+        ip_connections,
         origins
     from api_keys
     inner join current_plans on current_plans.owner_email = api_keys.owner_email
     where api_keys.deleted_at is null
     union all
-    select org, secret, 10, 10, 200, coalesce(origins, '{}')
+    select org, secret, 10, 10, 200, 200, coalesce(origins, '{}')
     from wl_api_keys
     where deleted_at is null;
 

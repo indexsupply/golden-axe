@@ -58,6 +58,7 @@ governor = "0.6.3"
 nonzero = "0.2.0"
 bytes = "1.9.0"
 serde_html_form = "0.2.7"
+dashmap = "6.1.0"
 
 [dev-dependencies]
 shared = { path = "../shared", features = ["test"] }

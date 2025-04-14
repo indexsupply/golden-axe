@@ -12,17 +12,18 @@ use axum::{
     extract::State,
     response::{
         sse::{Event as SSEvent, KeepAlive},
-        Sse,
+        IntoResponse, Sse,
     },
     Extension, Json,
 };
 use axum_extra::extract::Form;
 use deadpool_postgres::Pool;
-use eyre::{Context, Result};
+use eyre::Context;
 use futures::Stream;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tokio::sync::OwnedSemaphorePermit;
 use tokio_postgres::types::Type;
 
 use crate::{
@@ -82,33 +83,21 @@ pub async fn handle_get(
 pub async fn handle_sse(
     Extension(log): Extension<RequestLog>,
     State(config): State<api::Config>,
+    origin_ip: api::OriginIp,
     account_limit: Arc<gafe::AccountLimit>,
     Form(mut req): Form<Request>,
-) -> axum::response::Sse<impl Stream<Item = Result<SSEvent, Infallible>>> {
-    let ttl = account_limit.timeout;
+) -> Result<axum::response::Sse<impl Stream<Item = Result<SSEvent, Infallible>>>, api::Error> {
+    let active_connections = config.new_connection().await?;
+    let plan_limit = account_limit.conn_limiter()?;
+    let ip_limit = account_limit.conn_ip_limiter(&origin_ip.to_string())?;
+
     log.add(vec![req.clone()]);
     let mut rx = config.api_updates.wait(req.chain.expect("missing chain"));
     let stream = async_stream::stream! {
-        let _active_connection = config
-            .active_connections
-            .clone()
-            .acquire_owned()
-            .await
-            .expect("active connection");
-        let _permit = match account_limit.conn_limiter.clone().try_acquire_owned() {
-            Ok(p) => p,
-            Err(_) => {
-                tracing::error!("{:?} too many connected clients", req.api_key);
-                yield Ok(SSEvent::default()
-                    .json_data(api::Error::TooManyRequests(Some(String::from(
-                        "too many connected clients",
-                    ))))
-                    .expect("sse serialize error"));
-                return;
-            }
-        };
+        // hold onto permits!
+        let _ = (active_connections, plan_limit, ip_limit);
         loop {
-            match query(config.ro_pool.clone(), ttl, &[req.clone()]).await {
+            match query(config.ro_pool.clone(), account_limit.timeout, &[req.clone()]).await {
                 Ok(resp) =>  {
                     req.block_height = Some(resp.block_height + 1);
                     yield Ok(SSEvent::default().json_data(resp).expect("sse serialize query"));
@@ -131,7 +120,7 @@ pub async fn handle_sse(
             }
         }
     };
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
 #[derive(Clone)]

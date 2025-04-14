@@ -5,10 +5,11 @@ use std::{
     time::Duration,
 };
 
+use dashmap::DashMap;
 use deadpool_postgres::Pool;
 use governor::{Quota, RateLimiter};
 use nonzero::nonzero;
-use tokio::sync::Semaphore;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::api;
 
@@ -21,6 +22,8 @@ pub struct AccountLimit {
     pub rate_limiter: Arc<governor::DefaultKeyedRateLimiter<String>>,
     pub connections: i32,
     pub conn_limiter: Arc<Semaphore>,
+    pub ip_connections: Option<i32>,
+    pub ip_conn_limiter: DashMap<String, Arc<Semaphore>>,
 }
 
 impl PartialEq for AccountLimit {
@@ -45,6 +48,8 @@ impl AccountLimit {
             )),
             connections: 10,
             conn_limiter: Arc::new(Semaphore::new(10)),
+            ip_connections: Some(1),
+            ip_conn_limiter: DashMap::new(),
         }
     }
     // something is wrong with our system so don't impact users
@@ -59,6 +64,30 @@ impl AccountLimit {
             )),
             connections: 10,
             conn_limiter: Arc::new(Semaphore::new(10)),
+            ip_connections: None,
+            ip_conn_limiter: DashMap::new(),
+        }
+    }
+
+    pub fn conn_limiter(&self) -> Result<OwnedSemaphorePermit, api::Error> {
+        self.conn_limiter.clone().try_acquire_owned().map_err(|_| {
+            api::Error::TooManyRequests(Some("too many connections from this account".into()))
+        })
+    }
+
+    pub fn conn_ip_limiter(&self, ip: &str) -> Result<Option<OwnedSemaphorePermit>, api::Error> {
+        match self.ip_connections {
+            Some(i) => self
+                .ip_conn_limiter
+                .entry(ip.to_string())
+                .or_insert_with(|| Arc::new(Semaphore::new(i as usize)))
+                .clone()
+                .try_acquire_owned()
+                .map(Some)
+                .map_err(|_| {
+                    api::Error::TooManyRequests(Some("too many connections from this IP".into()))
+                }),
+            None => Ok(None),
         }
     }
 }
@@ -126,6 +155,8 @@ impl Connection {
                     conn_limiter: Arc::new(Semaphore::new(
                         row.get::<&str, i32>("connections") as usize
                     )),
+                    ip_connections: row.get("ip_connections"),
+                    ip_conn_limiter: DashMap::new(),
                 })
                 .map(|al| (al.secret.clone(), Arc::new(al)))
                 .collect(),

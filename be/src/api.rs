@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use deadpool_postgres::Pool;
 use serde::ser::SerializeStruct;
 use serde_json::{json, Value};
-use tokio::sync::{broadcast, Semaphore};
+use tokio::sync::{broadcast, OwnedSemaphorePermit, Semaphore};
 use url::Url;
 
 use crate::gafe;
@@ -92,6 +92,13 @@ impl Config {
             fe_pool,
             ro_pool,
         }
+    }
+
+    pub async fn new_connection(&self) -> Result<OwnedSemaphorePermit, Error> {
+        self.active_connections
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| Error::TooManyRequests(Some("too many connections".into())))
     }
 }
 

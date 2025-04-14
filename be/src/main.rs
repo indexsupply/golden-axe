@@ -151,6 +151,7 @@ async fn account_limits(config: api::Config) {
                 new_limits.into_iter().for_each(|(k, v)| {
                     limits.entry(k).or_insert(v);
                 });
+                println!("{:?}", limits);
             }
         })
         .await;
