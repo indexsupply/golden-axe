@@ -19,11 +19,11 @@ create table if not exists txs (
     chain int8 not null,
     block_num int8 not null,
     block_timestamp timestamptz not null,
-    gas int8 not null,
-    gas_price int8 not null,
     idx int4 not null,
     type int2 not null,
 
+    gas numeric not null,
+    gas_price numierc not null,
     nonce bytea not null,
     hash bytea not null,
     "from" bytea not null,
