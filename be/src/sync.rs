@@ -597,10 +597,10 @@ pub async fn copy_txs(
                     &OffsetDateTime::from_unix_timestamp(
                         tx.block_timestamp.expect("missing tx ts").to::<u64>() as i64,
                     )?,
-                    &tx.gas,
-                    &tx.gase_price,
                     &tx.idx,
                     &tx.ty,
+                    &tx.gas,
+                    &tx.gase_price,
                     &tx.hash,
                     &tx.nonce,
                     &tx.from.to_vec(),
