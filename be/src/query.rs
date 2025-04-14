@@ -275,33 +275,48 @@ impl UserQuery {
                 alias: None,
                 expr: expr.clone(),
             }),
-            ast::Expr::Function(f) => match &f.args {
-                ast::FunctionArguments::List(list) => match list.args.first() {
-                    Some(ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Expr(expr))) => {
-                        Some(ast::ExprWithAlias {
-                            alias: None,
-                            expr: ast::Expr::Function(ast::Function {
-                                name: f.name.clone(),
-                                args: ast::FunctionArguments::List(ast::FunctionArgumentList {
-                                    duplicate_treatment: list.duplicate_treatment,
-                                    args: vec![ast::FunctionArg::Unnamed(
-                                        ast::FunctionArgExpr::Expr(
-                                            self.abi_decode_expr(expr)?.expr,
-                                        ),
-                                    )],
-                                    clauses: vec![],
-                                }),
-                                null_treatment: None,
-                                filter: None,
-                                over: None,
-                                within_group: vec![],
+            ast::Expr::Function(f) => {
+                if let ast::FunctionArguments::List(list) = &f.args {
+                    let args = list
+                        .args
+                        .iter()
+                        .map(|a| match a {
+                            ast::FunctionArg::Named {
+                                name,
+                                arg: ast::FunctionArgExpr::Expr(expr),
+                                operator,
+                            } => Some(ast::FunctionArg::Named {
+                                name: name.clone(),
+                                arg: ast::FunctionArgExpr::Expr(self.abi_decode_expr(expr)?.expr),
+                                operator: operator.clone(),
                             }),
+                            ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Expr(expr)) => {
+                                Some(ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Expr(
+                                    self.abi_decode_expr(expr)?.expr,
+                                )))
+                            }
+                            _ => None,
                         })
-                    }
-                    _ => None,
-                },
-                _ => None,
-            },
+                        .collect::<Option<Vec<_>>>()?;
+                    Some(ast::ExprWithAlias {
+                        expr: ast::Expr::Function(ast::Function {
+                            name: f.name.clone(),
+                            args: ast::FunctionArguments::List(ast::FunctionArgumentList {
+                                args,
+                                duplicate_treatment: list.duplicate_treatment,
+                                clauses: list.clauses.clone(),
+                            }),
+                            over: f.over.clone(),
+                            filter: f.filter.clone(),
+                            within_group: f.within_group.clone(),
+                            null_treatment: f.null_treatment,
+                        }),
+                        alias: None,
+                    })
+                } else {
+                    None
+                }
+            }
             ast::Expr::Case {
                 operand,
                 conditions,
@@ -1117,6 +1132,25 @@ mod tests {
                 where address = '\x00000000000000000000000000000000deadbeef'
                 and tx_hash = '\xface000000000000000000000000000000000000000000000000000000000000'
             "#,
+        ).await;
+    }
+
+    #[tokio::test]
+    async fn test_coalesce() {
+        check_sql(
+            vec!["Foo(uint a)"],
+            r#"select coalesce(sum(a), -1) from foo"#,
+            r#"
+                with foo as not materialized (
+                  select abi_fixed_bytes(data, 0, 32) as a
+                  from logs
+                  where chain = 1
+                  and topics [1] = '\x1176bd96090075e8a903f0c486668395688fc8c045fd7d1d173b9852e4613ca1'
+                )
+                select coalesce(sum(abi_uint(a)), -1)
+                from foo
+            "#,
+
         ).await;
     }
 
