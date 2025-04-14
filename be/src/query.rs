@@ -297,7 +297,10 @@ impl UserQuery {
                 alias: None,
                 expr: ast::Expr::Case {
                     operand: operand.clone(),
-                    conditions: conditions.clone(),
+                    conditions: conditions
+                        .iter()
+                        .map(|e| self.abi_decode_expr(e).map(|e| e.expr))
+                        .collect::<Option<_>>()?,
                     results: results
                         .iter()
                         .map(|e| self.abi_decode_expr(e).map(|e| e.expr))
@@ -1230,14 +1233,14 @@ mod tests {
                     select
                         sum(
                             case
-                            when bar = '\x0000000000000000000000000000000000000000000000000000000000000000'
+                            when abi_uint(bar) = 0
                             then abi_uint(baz) * -1
                             else 0
                             end
                         ) as a,
                         sum(
                             case
-                            when bar = '\x0000000000000000000000000000000000000000000000000000000000000001'
+                            when abi_uint(bar) = 1
                             then abi_uint(baz)
                             else 0
                             end
