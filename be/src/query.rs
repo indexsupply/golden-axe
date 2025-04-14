@@ -639,7 +639,8 @@ impl UserQuery {
 
     fn validate_function(&mut self, function: &mut ast::Function) -> Result<(), api::Error> {
         let name = function.name.to_string().to_lowercase();
-        const VALID_FUNCS: [&str; 12] = [
+        const VALID_FUNCS: [&str; 13] = [
+            "coalesce",
             "min",
             "max",
             "sum",
