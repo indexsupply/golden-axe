@@ -215,6 +215,20 @@ impl UserQuery {
 
     fn abi_decode_expr(&mut self, expr: &ast::Expr) -> Option<ast::ExprWithAlias> {
         match &expr {
+            ast::Expr::IsNull(expr) => match self.abi_decode_expr(expr) {
+                Some(expr) => Some(ast::ExprWithAlias {
+                    alias: expr.alias,
+                    expr: ast::Expr::IsNull(Box::new(expr.expr)),
+                }),
+                None => None,
+            },
+            ast::Expr::IsNotNull(expr) => match self.abi_decode_expr(expr) {
+                Some(expr) => Some(ast::ExprWithAlias {
+                    alias: expr.alias,
+                    expr: ast::Expr::IsNotNull(Box::new(expr.expr)),
+                }),
+                None => None,
+            },
             ast::Expr::Nested(expr) => match self.abi_decode_expr(expr) {
                 Some(expr) => Some(ast::ExprWithAlias {
                     alias: expr.alias,
@@ -296,7 +310,9 @@ impl UserQuery {
             } => Some(ast::ExprWithAlias {
                 alias: None,
                 expr: ast::Expr::Case {
-                    operand: operand.clone(),
+                    operand: operand
+                        .as_ref()
+                        .and_then(|o| self.abi_decode_expr(o).map(|e| Box::new(e.expr))),
                     conditions: conditions
                         .iter()
                         .map(|e| self.abi_decode_expr(e).map(|e| e.expr))
@@ -1209,6 +1225,36 @@ mod tests {
                 from transfer
             "#,
         ).await;
+    }
+
+    #[tokio::test]
+    async fn test_case_is_null() {
+        check_sql(
+            vec!["Foo(uint256 a)"],
+            r#"
+                select
+                    case
+                    when sum(a) is null then 0
+                    else sum(a)
+                    end a
+                from foo
+           "#,
+            r#"
+            with foo as not materialized (
+              select abi_fixed_bytes(data, 0, 32) as a
+              from logs
+              where chain = 1
+              and topics [1] = '\x1176bd96090075e8a903f0c486668395688fc8c045fd7d1d173b9852e4613ca1'
+            )
+            select
+                case
+                when sum(abi_uint(a)) is null then 0
+                else sum(abi_uint(a))
+                end as a
+            from foo
+            "#,
+        )
+        .await;
     }
 
     #[tokio::test]
