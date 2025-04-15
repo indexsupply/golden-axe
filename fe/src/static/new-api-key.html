@@ -59,7 +59,7 @@
             <p>Requests may contain multiple queries and each query consumes 1 of {{(commas plan.queries)}} queries per day.</p>
             <h2>Query Timeout</h2>
             <p><span class="capitalize">{{plan.name}}</span> has a {{plan.timeout}} second request timeout</p>
-            <h2>Concurrent Connections</h2>
+            <h2>Active Connections</h2>
             {{#if (gt plan.connections 0)}}
             <p><span class="capitalize">{{plan.name}}</span> allows for {{plan.connections}} active connections across all API Keys.</p>
             {{else}}
