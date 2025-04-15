@@ -100,7 +100,7 @@ create view account_limits as
         timeout,
         rate,
         connections,
-        ip_connections,
+        least(ip_connections, connections) as ip_connections,
         origins
     from api_keys
     inner join current_plans on current_plans.owner_email = api_keys.owner_email

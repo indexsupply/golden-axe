@@ -33,6 +33,7 @@ impl PartialEq for AccountLimit {
             && self.timeout == other.timeout
             && self.rate == other.rate
             && self.connections == other.connections
+            && self.ip_connections == other.ip_connections
     }
 }
 
@@ -127,7 +128,7 @@ impl Connection {
             })
             .ok()?
             .query(
-                "select secret, timeout, rate, connections, origins from account_limits",
+                "select secret, timeout, rate, connections, ip_connections, origins from account_limits",
                 &[],
             )
             .await

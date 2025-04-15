@@ -94,8 +94,7 @@ pub async fn handle_sse(
 
     let mut rx = config.api_updates.wait(req.chain.expect("missing chain"));
     let stream = async_stream::stream! {
-        // hold onto permits!
-        let _ = (active_connections, plan_limit, ip_limit);
+        let _hold_onto_permits = (active_connections, plan_limit, ip_limit);
         loop {
             match query(config.ro_pool.clone(), account_limit.timeout, &[req.clone()]).await {
                 Ok(resp) =>  {
