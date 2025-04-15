@@ -40,6 +40,7 @@ create table if not exists plan_changes (
     rate int default 10,
     timeout int default 10,
     connections int default 10,
+    queries int default 100000,
     created_at timestamptz default now()
 );
 
@@ -48,18 +49,24 @@ create table if not exists plan_options (
     owner_email text,
     features text[] not null default '{}',
     rate int default 10,
-    connections int default 10,
     timeout int default 10,
+    connections int default 10,
+    queries int default 100000,
     daimo_amount int8 not null,
     stripe_amount int8 not null
 );
 
-insert into plan_options (name, owner_email, rate, timeout, connections, features, daimo_amount, stripe_amount) values
-('Indie', null, 5, 5, 10, '{"5 requests per second per client", "5 second request timeout", "10 concurrent connections", "Best Effort Support"}', 40000, 5000),
-('Pro', null, 10, 10, 200, '{"10 requests per second per client", "10 second request timeout", "200 concurrent connections", "Same Day Support"}', 280000, 25000),
-('Dedicated', null, 10, 10, 1000, '{"Custom Chains", "Custom Performance", "On-call Support"}', 2200000, 200000),
-('Ryan''s Special', 'r@32k.io', 10, 60, 10, '{"Foo", "Bar", "Baz"}', 100, 100)
-on conflict (name) do nothing;
+insert into plan_options (name, owner_email, rate, timeout, connections, queries, features, daimo_amount, stripe_amount) values
+('Indie', null, 5, 5, 10, 100000, '{"5 queries \/ second \/ connection", "5 second query timeout", "10 active connections", "100,000 queries per day", "Best Effort Support"}', 40000, 5000),
+('Pro', null, 10, 10, 10000, 500000, '{"10 queries \/ second \/ connection", "10 second query timeout", "Unlimited connections", "500,000 queries per day", "Same Day Support"}', 280000, 25000),
+('Dedicated', null, 10, 10, 10000, 500000, '{"Custom Chains", "Custom Performance", "On-call Support"}', 2200000, 200000),
+('Ryan''s Special', 'r@32k.io', 10, 60, 1000, 500000, '{"10 requests per second", "60 second query timeout", "Unlimited connections"}', 100, 100)
+on conflict (name) do update set
+  rate = excluded.rate,
+  timeout = excluded.timeout,
+  connections = excluded.connections,
+  queries = excluded.queries,
+  features = excluded.features;
 
 create table if not exists api_keys (
     owner_email text not null,
@@ -89,7 +96,7 @@ create table if not exists collabs(
 drop view if exists account_limits;
 create view account_limits as
     with current_plans as (
-        select distinct on (owner_email) owner_email, rate, timeout, connections
+        select distinct on (owner_email) owner_email, rate, timeout, connections, queries
         from plan_changes
         where (daimo_tx is not null or stripe_customer is not null)
         order by owner_email, created_at desc
@@ -100,13 +107,14 @@ create view account_limits as
         timeout,
         rate,
         connections,
+        queries,
         least(ip_connections, connections) as ip_connections,
         origins
     from api_keys
     inner join current_plans on current_plans.owner_email = api_keys.owner_email
     where api_keys.deleted_at is null
     union all
-    select org, secret, 10, 10, 200, 200, coalesce(origins, '{}')
+    select org, secret, 10, 10, 1000, 500000, 1000, coalesce(origins, '{}')
     from wl_api_keys
     where deleted_at is null;
 

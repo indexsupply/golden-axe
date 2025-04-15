@@ -104,7 +104,7 @@ pub mod handlers {
         let session = state.stripe.create_session(&user.email, &redirect).await?;
         pg.execute(
             "
-            insert into plan_changes (owner_email, name, rate, timeout, connections, amount, stripe_session)
+            insert into plan_changes (owner_email, name, rate, timeout, connections, queries, amount, stripe_session)
             values ($1, $2, $3, $4, $5, $6, $7)
             ",
             &[
@@ -113,6 +113,7 @@ pub mod handlers {
                 &new_plan.rate,
                 &new_plan.timeout,
                 &new_plan.connections,
+                &new_plan.queries,
                 &new_plan.stripe_amount,
                 &session.id,
             ],
@@ -141,7 +142,7 @@ pub mod handlers {
             .await?;
         pg.execute(
             "
-            insert into plan_changes (owner_email, name, rate, timeout, connections, amount, daimo_id)
+            insert into plan_changes (owner_email, name, rate, timeout, connections, queries, amount, daimo_id)
             values ($1, $2, $3, $4, $5, $6, $7)
             ",
             &[
@@ -150,6 +151,7 @@ pub mod handlers {
                 &new_plan.rate,
                 &new_plan.timeout,
                 &new_plan.connections,
+                &new_plan.queries,
                 &amount,
                 &payment_link.id,
             ],
@@ -275,6 +277,7 @@ struct PlanOption {
     rate: i32,
     timeout: i32,
     connections: i32,
+    queries: i32,
     owner_email: Option<String>,
     daimo_amount: i64,
     stripe_amount: i64,
@@ -284,7 +287,7 @@ impl PlanOption {
     async fn get(pg: &tokio_postgres::Client, name: &str, owner_email: &str) -> Result<PlanOption> {
         pg.query(
             "
-                select name, features, rate, timeout, connections, owner_email, daimo_amount, stripe_amount
+                select name, features, rate, timeout, connections, queries, owner_email, daimo_amount, stripe_amount
                 from plan_options
                 where name = $1 and (owner_email is null or owner_email = $2)
                 ",
@@ -298,6 +301,7 @@ impl PlanOption {
             rate: row.get("rate"),
             timeout: row.get("timeout"),
             connections: row.get("connections"),
+            queries: row.get("queries"),
             owner_email: row.get("owner_email"),
             daimo_amount: row.get("daimo_amount"),
             stripe_amount: row.get("stripe_amount"),
@@ -309,7 +313,7 @@ impl PlanOption {
         let all_plans: Vec<PlanOption> = pg
             .query(
                 "
-                select name, features, rate, timeout, connections, owner_email, daimo_amount, stripe_amount
+                select name, features, rate, timeout, connections, queries, owner_email, daimo_amount, stripe_amount
                 from plan_options
                 where owner_email is null or owner_email = $1
                 ",
@@ -323,6 +327,7 @@ impl PlanOption {
                 rate: row.get("rate"),
                 timeout: row.get("timeout"),
                 connections: row.get("connections"),
+                queries: row.get("queries"),
                 owner_email: row.get("owner_email"),
                 daimo_amount: row.get("daimo_amount"),
                 stripe_amount: row.get("stripe_amount"),
@@ -359,7 +364,7 @@ pub fn money(number_pennies: i64) -> String {
     format!("${}", with_commas(amount))
 }
 
-fn with_commas(num: Decimal) -> String {
+pub fn with_commas(num: Decimal) -> String {
     let num_str = num.to_string();
     let (left, right) = num_str.split_once('.').unwrap_or((&num_str, ""));
     let formatted = left
@@ -386,6 +391,7 @@ pub struct PlanChange {
     rate: i32,
     timeout: i32,
     connections: i32,
+    queries: i32,
     amount: i64,
     daimo_id: Option<String>,
     daimo_tx: Option<String>,
@@ -415,6 +421,7 @@ impl PlanChange {
             rate: row.get("rate"),
             timeout: row.get("timeout"),
             connections: row.get("connections"),
+            queries: row.get("queries"),
             amount: row.get("amount"),
             daimo_id: row.get("daimo_id"),
             daimo_tx: row.get("daimo_tx"),
@@ -437,7 +444,7 @@ impl PlanChange {
         Ok(pg
             .query(
                 "
-                select owner_email, id, name, rate, timeout, connections, amount, daimo_id, daimo_tx, stripe_session, stripe_customer, created_at
+                select owner_email, id, name, rate, timeout, connections, queries, amount, daimo_id, daimo_tx, stripe_session, stripe_customer, created_at
                 from plan_changes
                 where owner_email = $1
                 and (
@@ -462,7 +469,7 @@ impl PlanChange {
         Ok(pg
             .query(
                 "
-                select owner_email, id, name, rate, timeout, connections, amount, daimo_id, daimo_tx, stripe_session, stripe_customer, created_at
+                select owner_email, id, name, rate, timeout, connections, queries, amount, daimo_id, daimo_tx, stripe_session, stripe_customer, created_at
                 from plan_changes
                 where owner_email = $1
                 order by created_at desc

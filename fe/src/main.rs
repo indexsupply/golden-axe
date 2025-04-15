@@ -146,6 +146,8 @@ fn templates() -> Result<handlebars::Handlebars<'static>, handlebars::TemplateEr
         }
     }
 
+    handlebars::handlebars_helper!(commas: |a: i32| account::with_commas(a.into()));
+    handlebars::handlebars_helper!(gt: |a: i32, b: i32| a.gt(&b));
     handlebars::handlebars_helper!(trunc: |s: String, n: usize| s.chars().take(n).collect::<String>());
     handlebars::handlebars_helper!(join: |s: Vec<String>, sep: String| s.join(&sep));
     handlebars::handlebars_helper!(snippet: |s: String, file: String| get_snippet(s, file));
@@ -157,6 +159,8 @@ fn templates() -> Result<handlebars::Handlebars<'static>, handlebars::TemplateEr
     if cfg!(debug_assertions) {
         reg.set_dev_mode(true);
     }
+    reg.register_helper("commas", Box::new(commas));
+    reg.register_helper("gt", Box::new(gt));
     reg.register_helper("trunc", Box::new(trunc));
     reg.register_helper("join", Box::new(join));
     reg.register_helper("snippet", Box::new(snippet));
