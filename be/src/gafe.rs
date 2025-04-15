@@ -47,8 +47,8 @@ impl AccountLimit {
             rate_limiter: Arc::new(governor::DefaultKeyedRateLimiter::dashmap(
                 Quota::per_minute(nonzero!(10u32)),
             )),
-            connections: 10,
-            conn_limiter: Arc::new(Semaphore::new(10)),
+            connections: 100,
+            conn_limiter: Arc::new(Semaphore::new(100)),
             ip_connections: Some(1),
             ip_conn_limiter: DashMap::new(),
         }
@@ -63,9 +63,9 @@ impl AccountLimit {
             rate_limiter: Arc::new(governor::DefaultKeyedRateLimiter::dashmap(
                 Quota::per_second(nonzero!(10u32)),
             )),
-            connections: 10,
-            conn_limiter: Arc::new(Semaphore::new(10)),
-            ip_connections: None,
+            connections: 1000,
+            conn_limiter: Arc::new(Semaphore::new(1000)),
+            ip_connections: Some(5),
             ip_conn_limiter: DashMap::new(),
         }
     }
