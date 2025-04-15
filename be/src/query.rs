@@ -478,7 +478,7 @@ impl UserQuery {
                         name: None,
                         indexed: None,
                     },
-                    false,
+                    true,
                 )?;
             }
         }
@@ -1271,6 +1271,64 @@ mod tests {
                 from transfer
             "#,
         ).await;
+    }
+
+    #[tokio::test]
+    async fn test_example_wallet_token_balances() {
+        check_sql(
+            vec!["Transfer(address indexed from, address indexed to, uint256 value)"],
+            r#"
+            select
+              max(block_num) block,
+              address token,
+              sum(
+                case
+                when "from" = 0x7084250923Ba1C1B44359A38a9CF823146051765
+                then -value
+                when "to" = 0x7084250923Ba1C1B44359A38a9CF823146051765
+                then value
+                else 0
+                end
+              ) balance
+            from transfer
+            where (
+              "to" = 0x7084250923Ba1C1B44359A38a9CF823146051765
+              or "from" = 0x7084250923Ba1C1B44359A38a9CF823146051765
+            )
+            group by token
+            "#,
+            r#"
+            with transfer as not materialized (
+              select
+                address,
+                block_num,
+                topics [2] as "from",
+                topics [3] as "to",
+                abi_fixed_bytes(data, 0, 32) as value
+              from logs
+              where chain = 1
+              and topics [1] = '\xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
+            )
+            select
+              max(block_num) as block,
+              address as token,
+              sum(
+                case
+                  when abi_address("from") = '\x7084250923ba1c1b44359a38a9cf823146051765' then - abi_uint(value)
+                  when abi_address("to") = '\x7084250923ba1c1b44359a38a9cf823146051765' then abi_uint(value)
+                  else 0
+                end
+              ) as balance
+            from transfer
+            where
+              (
+                "to" = '\x0000000000000000000000007084250923ba1c1b44359a38a9cf823146051765'
+                or "from" = '\x0000000000000000000000007084250923ba1c1b44359a38a9cf823146051765'
+              )
+            group by token
+            "#,
+        )
+        .await;
     }
 
     #[tokio::test]
