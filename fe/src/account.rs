@@ -105,7 +105,7 @@ pub mod handlers {
         pg.execute(
             "
             insert into plan_changes (owner_email, name, rate, timeout, connections, queries, amount, stripe_session)
-            values ($1, $2, $3, $4, $5, $6, $7)
+            values ($1, $2, $3, $4, $5, $6, $7, $8)
             ",
             &[
                 &user.email,
@@ -143,7 +143,7 @@ pub mod handlers {
         pg.execute(
             "
             insert into plan_changes (owner_email, name, rate, timeout, connections, queries, amount, daimo_id)
-            values ($1, $2, $3, $4, $5, $6, $7)
+            values ($1, $2, $3, $4, $5, $6, $7, $8)
             ",
             &[
                 &user.email,
