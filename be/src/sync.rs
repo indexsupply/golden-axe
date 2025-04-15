@@ -266,11 +266,6 @@ impl Downloader {
     //timescaledb
     #[tracing::instrument(level="debug" skip(self), fields(table_generation = self.partition_max_block))]
     pub async fn setup_tables(&mut self, new_block: u64) -> Result<(), Error> {
-        if let Some(max) = self.partition_max_block {
-            if new_block < max + 1 {
-                return Ok(());
-            }
-        }
         const N: u64 = 2000000;
         let from = match self.partition_max_block {
             Some(max) if new_block < max + 1 => return Ok(()),
@@ -278,6 +273,7 @@ impl Downloader {
             None => (new_block / N) * N,
         };
         let to = from + N;
+        let label = from / 1000000;
         self.partition_max_block = Some(to - 1);
         let query = Handlebars::new()
             .render_template(
@@ -287,7 +283,7 @@ impl Downloader {
                 for values in ({{chain}})
                 partition by range (num);
 
-                create table if not exists blocks_c{{chain}}_b{{from}}
+                create table if not exists blocks_c{{chain}}_b{{label}}
                 partition of blocks_c{{chain}}
                 for values from ({{from}}) to ({{to}});
 
@@ -296,25 +292,25 @@ impl Downloader {
                 for values in ({{chain}})
                 partition by range (block_num);
 
-                create table if not exists txs_c{{chain}}_b{{from}}
+                create table if not exists txs_c{{chain}}_b{{label}}
                 partition of txs_c{{chain}}
                 for values from ({{from}}) to ({{to}});
-                alter table txs_c{{chain}}_b{{from}} set (toast_tuple_target = 128);
+                alter table txs_c{{chain}}_b{{label}} set (toast_tuple_target = 128);
 
                 create table if not exists logs_c{{chain}}
                 partition of logs
                 for values in ({{chain}})
                 partition by range (block_num);
 
-                create table if not exists logs_c{{chain}}_b{{from}}
+                create table if not exists logs_c{{chain}}_b{{label}}
                 partition of logs_c{{chain}}
                 for values from ({{from}}) to ({{to}});
-                alter table logs_c{{chain}}_b{{from}} set (toast_tuple_target = 128);
+                alter table logs_c{{chain}}_b{{label}} set (toast_tuple_target = 128);
                 ",
-                &serde_json::json!({"chain": self.chain.0, "from": from, "to": to,}),
+                &serde_json::json!({"chain": self.chain.0, "label": label, "from": from, "to": to,}),
             )
             .wrap_err("rendering sql template")?;
-        tracing::info!("new table range from={} to={}", from, to);
+        tracing::info!("new table range label={} from={} to={}", label, from, to);
         let mut pg = self.be_pool.get().await.wrap_err("getting pg tx")?;
         let pgtx = pg.transaction().await?;
         pgtx.batch_execute(&query).await?;
