@@ -174,6 +174,11 @@ pub mod handlers {
         } else {
             req.origins.split(",").map(String::from).collect()
         };
+        let ip_connections = match req.ip_connections {
+            Some(0) => None,
+            Some(n) => Some(n),
+            None => None,
+        };
         let res = pg
             .execute(
                 "
@@ -181,7 +186,7 @@ pub mod handlers {
                 set origins = $1, ip_connections = $2
                 where owner_email = $3 and secret = $4
                 ",
-                &[&origins, &req.ip_connections, &user.email, &req.secret],
+                &[&origins, &ip_connections, &user.email, &req.secret],
             )
             .await?;
         if res != 1 {
