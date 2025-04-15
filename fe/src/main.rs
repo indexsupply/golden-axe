@@ -209,6 +209,8 @@ fn service(state: web::State) -> IntoMakeServiceWithConnectInfo<Router, SocketAd
         .route("/update-stripe", post(account::handlers::update_stripe))
         .route("/new-api-key", get(api_key::handlers::new))
         .route("/create-api-key", post(api_key::handlers::create))
+        .route("/edit-api-key", post(api_key::handlers::edit))
+        .route("/update-api-key", post(api_key::handlers::update))
         .route("/delete-api-key", post(api_key::handlers::delete))
         .route("/wl/add-chain", post(chains::handlers::add))
         .route("/wl/list-chains", get(chains::handlers::list))

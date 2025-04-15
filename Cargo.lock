@@ -1069,6 +1069,7 @@ dependencies = [
  "axum-test",
  "bytes",
  "clap",
+ "dashmap 6.1.0",
  "deadpool-postgres",
  "eyre",
  "futures",

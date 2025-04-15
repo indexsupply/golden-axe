@@ -44,26 +44,16 @@
         </style>
     </head>
     <body>
-        <h1>Create an API Key</h1>
+        <h1>Update API Key</h1>
         <p>
-            An API key can be a secret stored on the server
-            or a publishable key included in your website for your users.
-            The API key can either be a request parameter or an http header.
+            You are updating key: <strong><code>{{secret}}</code> </strong><br> Changes will take effect immediately.
         </p>
-        <p><code>https://api.indexsupply.net/query?api-key=XXX&...</code></p>
-        <p><code>Api-Key: XXX</code></p>
-        <form method="post" autocomplete="off" action="/create-api-key">
-            <h2>Requests Per Second</h2>
-            <p><span class="capitalize">{{plan.name}}</span> includes {{ plan.rate }} requests per second</p>
-            <p>The rate limit is applied per connection. Each connection has the ability to make {{plan.rate}} requests per second.</p>
-            <h2>Request Timeout</h2>
-            <p><span class="capitalize">{{plan.name}}</span> has a {{plan.timeout}} second request timeout</p>
-            <h2>Connected Clients</h2>
-            <p><span class="capitalize">{{plan.name}}</span> allows for {{plan.connections}} connections across all API Keys.</p>
+        <form method="post" autocomplete="off" action="/update-api-key">
+            <input type="hidden" name="secret" value="{{secret}}">
             <h2>IP Address Connection Limits</h2>
             <p>Your account allows for {{plan.connections}} connections. You can further restrict this number to a fixed number of connections per client IP address.</p>
             <p>If you leave this value blank or set it to 0 then any given client can consume all {{plan.connections}} connections.</p>
-            <input type="number" name="ip_connections"></input>
+            <input type="number" name="ip_connections" value="{{ip_connections}}"></input>
             <h2>Origin Domains</h2>
             <p>
                 <em>Optionally </em>provide a comma separated list of domain names.
@@ -79,8 +69,8 @@
                 header to be spoofed outside of a browser. But it does prevent someone
                 from using this API Key on someone else's domain.
             </p>
-            <input type="text" name="origins" placeholder="foo.com,bar.com"></input>
-            <button type="submit">Create API Key</button>
+            <input type="text" name="origins" value="foo.com,bar.com"></input>
+            <button type="submit">Update API Key</button>
         </form>
     </body>
 </html>
