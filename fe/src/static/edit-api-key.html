@@ -69,7 +69,7 @@
                 header to be spoofed outside of a browser. But it does prevent someone
                 from using this API Key on someone else's domain.
             </p>
-            <input type="text" name="origins" value="foo.com,bar.com"></input>
+            <input type="text" name="origins" value='{{(join origins ",")}}'></input>
             <button type="submit">Update API Key</button>
         </form>
     </body>
