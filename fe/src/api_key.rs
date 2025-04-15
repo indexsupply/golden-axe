@@ -1,6 +1,6 @@
 use eyre::Context;
 use getrandom::getrandom;
-use serde::Serialize;
+use serde::{Deserialize, Deserializer, Serialize};
 use tokio_postgres::Client;
 
 time::serde::format_description!(
@@ -107,6 +107,7 @@ pub mod handlers {
     #[derive(Deserialize)]
     pub struct NewKeyRequest {
         origins: String,
+        #[serde(deserialize_with = "super::empty_string_as_none")]
         ip_connections: Option<i32>,
     }
     pub async fn create(
@@ -121,6 +122,77 @@ pub mod handlers {
         Ok((flash, Redirect::to("/account")))
     }
 
+    #[derive(Deserialize)]
+    pub struct EditKeyRequest {
+        secret: String,
+    }
+
+    pub async fn edit(
+        State(state): State<web::State>,
+        user: session::User,
+        Form(req): Form<EditKeyRequest>,
+    ) -> Result<impl IntoResponse, shared::Error> {
+        let pg = state.pool.get().await?;
+        let plan = account::PlanChange::get_latest_completed(&pg, &user.email).await?;
+        let row = pg
+            .query_one(
+                "select origins, ip_connections from api_keys where owner_email = $1 and secret = $2",
+                &[&user.email, &req.secret]
+            )
+            .await?;
+        let origins: Vec<String> = row.get("origins");
+        let ip_connections: Option<i32> = row.get("ip_connections");
+        let rendered_html = state.templates.render(
+            "edit-api-key.html",
+            &json!({
+                "plan": plan,
+                "secret": req.secret,
+                "origins": origins,
+                "ip_connections": ip_connections,
+            }),
+        )?;
+        Ok((Html(rendered_html)).into_response())
+    }
+
+    #[derive(Deserialize)]
+    pub struct UpdateKeyRequest {
+        secret: String,
+        origins: String,
+        #[serde(deserialize_with = "super::empty_string_as_none")]
+        ip_connections: Option<i32>,
+    }
+
+    pub async fn update(
+        State(state): State<web::State>,
+        flash: axum_flash::Flash,
+        user: session::User,
+        Form(req): Form<UpdateKeyRequest>,
+    ) -> Result<impl IntoResponse, shared::Error> {
+        let pg = state.pool.get().await?;
+        let origins = if req.origins.is_empty() {
+            Vec::new()
+        } else {
+            req.origins.split(",").map(String::from).collect()
+        };
+        let res = pg
+            .execute(
+                "
+                update api_keys
+                set origins = $1, ip_connections = $2
+                where owner_email = $3 and secret = $4
+                ",
+                &[&origins, &req.ip_connections, &user.email, &req.secret],
+            )
+            .await?;
+        if res != 1 {
+            let flash = flash.error("updating key FAILED");
+            Ok((flash, Redirect::to("/account")).into_response())
+        } else {
+            let flash = flash.success("api key updated");
+            Ok((flash, Redirect::to("/account")).into_response())
+        }
+    }
+
     pub async fn delete(
         State(state): State<web::State>,
         flash: axum_flash::Flash,
@@ -132,4 +204,18 @@ pub mod handlers {
         let flash = flash.success("api key deleted");
         Ok((flash, axum::http::StatusCode::OK).into_response())
     }
+}
+
+fn empty_string_as_none<'de, D>(deserializer: D) -> Result<Option<i32>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: Option<String> = Option::deserialize(deserializer)?;
+    Ok(s.and_then(|s| {
+        if s.trim().is_empty() {
+            None
+        } else {
+            s.parse().ok()
+        }
+    }))
 }

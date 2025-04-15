@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+    <head>
+        <link
+            rel="icon"
+            href="https://indexsupply.net/ga.ico"
+            type="image/x-icon"
+        />
+        <meta charset="utf-8" />
+        <title>Index Supply / API Key</title>
+        <style>
+            body {
+                font-family: system, sans-serif;
+                font-size: 0.95em;
+                letter-spacing: -0.005em;
+                line-height: 1.58;
+
+                max-width: 500px;
+                margin: 0 auto;
+                padding: 0 0 50px 0;
+            }
+            form {
+                width: 100%;
+            }
+            input {
+                font-size: x-large;
+                width: 100%;
+                box-sizing: border-box;
+            }
+            input::placeholder {
+                color: lightgray;
+                font-family: monospace;
+                font-style: italic;
+            }
+            button {
+                margin: 10px 0 0 0;
+                width: 100%;
+                box-sizing: border-box;
+            }
+            span.capitalize {
+                font-weight: bold;
+                text-transform: capitalize;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Update API Key</h1>
+        <p>
+            You are updating key: <strong><code>{{secret}}</code> </strong><br> Changes will take effect immediately.
+        </p>
+        <form method="post" autocomplete="off" action="/update-api-key">
+            <input type="hidden" name="secret" value="{{secret}}">
+            <h2>IP Address Connection Limits</h2>
+            <p>Your account allows for {{plan.connections}} connections. You can further restrict this number to a fixed number of connections per client IP address.</p>
+            <p>If you leave this value blank or set it to 0 then any given client can consume all {{plan.connections}} connections.</p>
+            <input type="number" name="ip_connections" value="{{ip_connections}}"></input>
+            <h2>Origin Domains</h2>
+            <p>
+                <em>Optionally </em>provide a comma separated list of domain names.
+                <em>i.e. <code>foo.com, bar.com</code></em>
+            <p/>
+            <p>
+                When domain names are provided, HTTP requests using
+                this API Key will be valid when the <code>Host</code> header
+                is contained in this list of domains.
+            </p>
+            <p>
+                This isn't perfect security. It is possible for the <code>Host</code>
+                header to be spoofed outside of a browser. But it does prevent someone
+                from using this API Key on someone else's domain.
+            </p>
+            <input type="text" name="origins" value="foo.com,bar.com"></input>
+            <button type="submit">Update API Key</button>
+        </form>
+    </body>
+</html>

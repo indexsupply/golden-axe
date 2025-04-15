@@ -78,9 +78,13 @@
             text-align: left;
             width: 20%;
         }
+        .api-key .edit {
+            text-align: left;
+            width: 5%;
+        }
         .api-key .delete {
             text-align: right;
-            width: 10%;
+            width: 5%;
         }
         #new-api-key {
             padding: 10px 0 0 0;
@@ -169,7 +173,7 @@
             <div class="api-key header">
                 <div class="secret header"><span>key</span></div>
                 <div class="origins header"><span>origins</span></div>
-                <div class="ip_connections header"><span>ip conn. limit</span></div>
+                <div class="ip_connections header"><span>ip limit</span></div>
                 <div class="created_at header"><span>created_at</span></div>
             </div>
             {{else}}
@@ -181,6 +185,12 @@
                 <div class="origins"><span>{{ (join origins ",") }}</span></div>
                 <div class="ip_connections"><span>{{ ip_connections }}</span></div>
                 <div class="created_at"><span></span>{{ created_at }}</span></div>
+                <div class="edit">
+                    <form action="/edit-api-key" method="POST" style="display:inline;">
+                        <input type="hidden" name="secret" value="{{secret}}">
+                        <button type="submit" style="all: unset; color: blue; cursor: pointer;">edit</button>
+                    </form>
+                </div>
                 <div class="delete"><a href="{{ secret }}">delete</a></div>
             </div>
             {{/each}}
