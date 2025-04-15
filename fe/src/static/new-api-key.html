@@ -57,18 +57,18 @@
             <p><span class="capitalize">{{plan.name}}</span> includes {{ plan.rate }} requests per second.</p>
             <p>The rate limit is applied per connection. Each connection has the ability to make {{plan.rate}} requests per second.</p>
             <p>Requests may contain multiple queries and each query consumes 1 of {{(commas plan.queries)}} queries per day.</p>
+            <h2>Query Limit</h2>
+            <p><span class="capitalize">{{plan.name}}</span> includes {{(commas plan.queries)}} per month.</p>
             <h2>Query Timeout</h2>
             <p><span class="capitalize">{{plan.name}}</span> has a {{plan.timeout}} second request timeout</p>
             <h2>Active Connections</h2>
-            {{#if (gt plan.connections 0)}}
+            {{#if (eq plan.connections 10000)}}
             <p><span class="capitalize">{{plan.name}}</span> allows for {{plan.connections}} active connections across all API Keys.</p>
             {{else}}
             <p><span class="capitalize">{{plan.name}}</span> has unlimited connections across all API Keys.</p>
             {{/if}}
-            <h2>Query Limit</h2>
-            <p><span class="capitalize">{{plan.name}}</span> includes {{(commas plan.queries)}} per month.</p>
-            <h2>IP Address Connection Limit</h2>
-            {{#if (gt plan.connections 0)}}
+            <h2>IP Address Active Connection Limit</h2>
+            {{#if (eq plan.connections 10000)}}
             <p>Your account allows for {{plan.connections}} total, active connections. You can further restrict this number to a fixed number of connections per client IP address.</p>
             <p>If you leave this value blank or set it to 0 then any given client can consume all {{plan.connections}} connections.</p>
             {{else}}
