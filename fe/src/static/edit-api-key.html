@@ -50,9 +50,13 @@
         </p>
         <form method="post" autocomplete="off" action="/update-api-key">
             <input type="hidden" name="secret" value="{{secret}}">
-            <h2>IP Address Connection Limits</h2>
-            <p>Your account allows for {{plan.connections}} connections. You can further restrict this number to a fixed number of connections per client IP address.</p>
+            <h2>IP Address Active Connection Limit</h2>
+            {{#if (eq plan.connections 10000)}}
+            <p>Even though your plan includes unlimited connections, it may be a good idea to limit the number of connections per IP address to ensure one IP address doesn't consume all your monthly queries.</p>
+            {{else}}
+            <p>Your account allows for {{plan.connections}} total, active connections. You can further restrict this number to a fixed number of connections per client IP address.</p>
             <p>If you leave this value blank or set it to 0 then any given client can consume all {{plan.connections}} connections.</p>
+            {{/if}}
             <input type="number" name="ip_connections" value="{{ip_connections}}"></input>
             <h2>Origin Domains</h2>
             <p>
