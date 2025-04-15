@@ -43,6 +43,7 @@
             width: 100%;
         }
         .api-key {
+            font-family: monospace;
             width: 100%;
             display: flex;
             flex-direction: row;
@@ -55,8 +56,7 @@
             margin-bottom: 5px;
         }
         .api-key .secret {
-            font-family: monospace;
-            width: 40%;
+            width: 35%;
             white-space: nowrap;
             display: inline-block;
             overflow: hidden;
@@ -64,11 +64,15 @@
         }
         .api-key .origins {
             text-align: left;
-            width: 30%;
+            width: 20%;
             white-space: nowrap;
             display: inline-block;
             overflow: hidden;
             text-overflow: ellipsis;
+        }
+        .api-key .ip_connections {
+            text-align: left;
+            width: 15%;
         }
         .api-key .created_at {
             text-align: left;
@@ -165,6 +169,7 @@
             <div class="api-key header">
                 <div class="secret header"><span>key</span></div>
                 <div class="origins header"><span>origins</span></div>
+                <div class="ip_connections header"><span>ip conn. limit</span></div>
                 <div class="created_at header"><span>created_at</span></div>
             </div>
             {{else}}
@@ -174,6 +179,7 @@
             <div class="api-key">
                 <div class="secret"><span>{{ secret }}</span></div>
                 <div class="origins"><span>{{ (join origins ",") }}</span></div>
+                <div class="ip_connections"><span>{{ ip_connections }}</span></div>
                 <div class="created_at"><span></span>{{ created_at }}</span></div>
                 <div class="delete"><a href="{{ secret }}">delete</a></div>
             </div>

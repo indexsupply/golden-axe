@@ -60,6 +60,10 @@
             <p><span class="capitalize">{{plan.name}}</span> has a {{plan.timeout}} second request timeout</p>
             <h2>Connected Clients</h2>
             <p><span class="capitalize">{{plan.name}}</span> allows for {{plan.connections}} connections across all API Keys.</p>
+            <h2>IP Address Connection Limits</h2>
+            <p>Your account allows for {{plan.connections}} connections. You can further restrict this number to a fixed number of connections per client IP address.</p>
+            <p>If you leave this value blank or set it to 0 then any given client can consume all {{plan.connections}} connections.</p>
+            <input type="number" name="ip_connections"></input>
             <h2>Origin Domains</h2>
             <p>
                 <em>Optionally </em>provide a comma separated list of domain names.
@@ -75,7 +79,7 @@
                 header to be spoofed outside of a browser. But it does prevent someone
                 from using this API Key on someone else's domain.
             </p>
-            <input type="text" name="origins" placeholder="foo.com,bar.com" autofocus></input>
+            <input type="text" name="origins" placeholder="foo.com,bar.com"></input>
             <button type="submit">Create API Key</button>
         </form>
     </body>

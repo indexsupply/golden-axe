@@ -12,7 +12,7 @@ use axum::{
     extract::State,
     response::{
         sse::{Event as SSEvent, KeepAlive},
-        IntoResponse, Sse,
+        Sse,
     },
     Extension, Json,
 };
@@ -23,7 +23,6 @@ use futures::Stream;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::sync::OwnedSemaphorePermit;
 use tokio_postgres::types::Type;
 
 use crate::{
@@ -87,11 +86,12 @@ pub async fn handle_sse(
     account_limit: Arc<gafe::AccountLimit>,
     Form(mut req): Form<Request>,
 ) -> Result<axum::response::Sse<impl Stream<Item = Result<SSEvent, Infallible>>>, api::Error> {
+    log.add(vec![req.clone()]);
+
     let active_connections = config.new_connection().await?;
     let plan_limit = account_limit.conn_limiter()?;
     let ip_limit = account_limit.conn_ip_limiter(&origin_ip.to_string())?;
 
-    log.add(vec![req.clone()]);
     let mut rx = config.api_updates.wait(req.chain.expect("missing chain"));
     let stream = async_stream::stream! {
         // hold onto permits!

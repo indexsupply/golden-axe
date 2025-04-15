@@ -13,6 +13,7 @@ time::serde::format_description!(
 pub struct ApiKey {
     secret: String,
     origins: Vec<String>,
+    ip_connections: Option<i32>,
     #[serde(skip_deserializing, with = "short")]
     created_at: time::OffsetDateTime,
 }
@@ -26,7 +27,12 @@ pub async fn delete(pg: &Client, owner_email: &str, secret: String) -> Result<()
     Ok(())
 }
 
-pub async fn create(pg: &Client, owner_email: &str, origins: String) -> Result<(), shared::Error> {
+pub async fn create(
+    pg: &Client,
+    owner_email: &str,
+    origins: String,
+    ip_connections: Option<i32>,
+) -> Result<(), shared::Error> {
     let mut secret = vec![0u8; 16];
     getrandom(&mut secret).wrap_err("unable to generate secret")?;
     let origins = if origins.is_empty() {
@@ -35,8 +41,8 @@ pub async fn create(pg: &Client, owner_email: &str, origins: String) -> Result<(
         origins.split(",").map(String::from).collect()
     };
     pg.query(
-        "insert into api_keys(owner_email, secret, origins) values ($1, $2, $3)",
-        &[&owner_email, &hex::encode(secret), &origins],
+        "insert into api_keys(owner_email, secret, origins, ip_connections) values ($1, $2, $3, $4)",
+        &[&owner_email, &hex::encode(secret), &origins, &ip_connections],
     )
     .await?;
     Ok(())
@@ -46,7 +52,7 @@ pub async fn list(pg: &Client, owner_email: &str) -> Result<Vec<ApiKey>, shared:
     let res = pg
         .query(
             "
-            select secret, origins, created_at
+            select secret, origins, ip_connections, created_at
             from api_keys
             where owner_email = $1
             and deleted_at is null
@@ -60,6 +66,7 @@ pub async fn list(pg: &Client, owner_email: &str) -> Result<Vec<ApiKey>, shared:
         .map(|row| ApiKey {
             secret: row.get("secret"),
             origins: row.get("origins"),
+            ip_connections: row.get("ip_connections"),
             created_at: row.get("created_at"),
         })
         .collect::<Vec<ApiKey>>())
@@ -100,6 +107,7 @@ pub mod handlers {
     #[derive(Deserialize)]
     pub struct NewKeyRequest {
         origins: String,
+        ip_connections: Option<i32>,
     }
     pub async fn create(
         State(state): State<web::State>,
@@ -108,7 +116,7 @@ pub mod handlers {
         Form(req): Form<NewKeyRequest>,
     ) -> Result<impl IntoResponse, shared::Error> {
         let pg = state.pool.get().await?;
-        super::create(&pg, &user.email, req.origins).await?;
+        super::create(&pg, &user.email, req.origins, req.ip_connections).await?;
         let flash = flash.success("api key created");
         Ok((flash, Redirect::to("/account")))
     }
