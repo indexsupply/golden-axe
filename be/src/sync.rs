@@ -315,10 +315,8 @@ impl Downloader {
         {
             let mut pg = self.be_pool.get().await.wrap_err("pg pool")?;
             let pgtx = pg.transaction().await?;
-            if let Some(i) = setup_tables(&pgtx, self.chain.0, to, self.partition_max_block).await?
-            {
-                self.partition_max_block = Some(i);
-            }
+            self.partition_max_block =
+                setup_tables(&pgtx, self.chain.0, to, self.partition_max_block).await?;
             pgtx.commit().await.wrap_err("unable to commit tx")?;
         }
         tracing::Span::current()
@@ -461,7 +459,7 @@ pub async fn setup_tables(
 ) -> Result<Option<u64>, Error> {
     const N: u64 = 2000000;
     let from = match partition_max_block {
-        Some(max) if new_block < max + 1 => return Ok(None),
+        Some(max) if new_block < max + 1 => return Ok(partition_max_block),
         Some(max) => ((max + 1) / N) * N,
         None => (new_block / N) * N,
     };
