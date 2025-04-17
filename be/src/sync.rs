@@ -327,7 +327,7 @@ impl Downloader {
             self.download_blocks(from, to).await?,
         );
         add_timestamp(&mut blocks, &mut logs);
-        self.validate_blocks(from, to, &blocks)?;
+        validate_blocks(from, to, &blocks)?;
         let (first_block, last_block) = (blocks.first().unwrap(), blocks.last().unwrap());
 
         if first_block.parent_hash != local_hash {
@@ -359,30 +359,6 @@ impl Downloader {
             }))
             .await?
             .to()?)
-    }
-
-    fn validate_blocks(&self, from: u64, to: u64, blocks: &[jrpc::Block]) -> Result<(), Error> {
-        if let Some(i) = blocks.first().map(|b| b.number.to::<u64>()) {
-            if i != from {
-                return Err(Error::Fatal(eyre!("want first block {} got {}", from, i)));
-            }
-        }
-        if let Some(i) = blocks.last().map(|b| b.number.to::<u64>()) {
-            if i != to {
-                return Err(Error::Fatal(eyre!("want last block {} got {}", from, i)));
-            }
-        }
-        for (prev, curr) in blocks.iter().zip(blocks.iter().skip(1)) {
-            if curr.parent_hash != prev.hash {
-                return Err(Error::Fatal(eyre!(
-                    "block {} has wrong parent_hash {} (expected {})",
-                    curr.number,
-                    curr.parent_hash,
-                    prev.hash
-                )));
-            }
-        }
-        Ok(())
     }
 
     #[tracing::instrument(level="info" skip_all, fields(from, to))]
@@ -448,6 +424,30 @@ impl Downloader {
             .await?
             .to()?)
     }
+}
+
+fn validate_blocks(from: u64, to: u64, blocks: &[jrpc::Block]) -> Result<(), Error> {
+    if let Some(i) = blocks.first().map(|b| b.number.to::<u64>()) {
+        if i != from {
+            return Err(Error::Fatal(eyre!("want first block {} got {}", from, i)));
+        }
+    }
+    if let Some(i) = blocks.last().map(|b| b.number.to::<u64>()) {
+        if i != to {
+            return Err(Error::Fatal(eyre!("want last block {} got {}", from, i)));
+        }
+    }
+    for (prev, curr) in blocks.iter().zip(blocks.iter().skip(1)) {
+        if curr.parent_hash != prev.hash {
+            return Err(Error::Fatal(eyre!(
+                "block {} has wrong parent_hash {} (expected {})",
+                curr.number,
+                curr.parent_hash,
+                prev.hash
+            )));
+        }
+    }
+    Ok(())
 }
 
 //timescaledb
