@@ -8,7 +8,10 @@ use sqlparser::{
     ast::{self, Ident, OrderByExpr},
     parser::Parser,
 };
-use std::{collections::HashSet, str::FromStr};
+use std::{
+    collections::{HashMap, HashSet},
+    str::FromStr,
+};
 
 use crate::{
     abi::{self},
@@ -18,12 +21,6 @@ use crate::{
 macro_rules! no {
     ($e:expr) => {
         Err(api::Error::User(format!("{} not supported", $e)))
-    };
-}
-
-macro_rules! ident {
-    ($name:expr) => {
-        &Ident::new($name.to_string())
     };
 }
 
@@ -44,8 +41,10 @@ pub fn sql(
     let query = [
         "with".to_string(),
         query
-            .relations()
+            .relations
             .iter()
+            .filter(|rel| !rel.selected_fields.is_empty())
+            .sorted_by_key(|s| s.table_name.to_string())
             .map(|rel| rel.to_sql(chain, from))
             .join(","),
         new_query.to_string(),
@@ -54,28 +53,24 @@ pub fn sql(
     Ok(query)
 }
 
-const LOG_METADATA: [&str; 7] = [
-    "address",
-    "block_num",
-    "chain",
-    "log_idx",
-    "tx_hash",
-    "topics",
-    "data",
-];
+/*
 
-const TX_METADATA: [&str; 10] = [
-    "block_num",
-    "hash",
-    "idx",
-    "type",
-    "input",
-    "from",
-    "to",
-    "value",
-    "gas",
-    "gas_price",
-];
+A query can include and reference signatures which work on either transactions or logs but not both.
+A query which uses signatures can select other columns from its respective base table (ie txs or logs).
+A query may contain no signatures and reference transactions, logs, blocks, or all three
+
+In any case, we want to rewrite literals based on the literal type and the lhs column.
+
+An expression identifying a base column will not be modified.
+
+An expression identifying a signature based column will be modified
+so that it reads from: txs.input, logs.topics, or logs.data.
+
+In order to execute the user query, we identify the referenced base tables and prepend a
+generated CTE to the user query so that the user's query will work. The CTE consists of
+referencing the base table, the possible signature selectors (topics[0] or input[0..4]),
+and possibly a block_num > X if a "from" block is requested.
+*/
 
 #[derive(Debug)]
 struct Relation {
@@ -88,70 +83,57 @@ struct Relation {
     selected_fields: HashSet<Ident>,
 }
 
+impl Default for Relation {
+    fn default() -> Self {
+        Relation {
+            event: None,
+            table_alias: HashSet::new(),
+            table_name: Ident::new(""),
+            selected_fields: HashSet::new(),
+        }
+    }
+}
+
 impl Relation {
     fn named(&self, other: &Ident) -> bool {
         self.table_name.to_string().to_lowercase() == other.to_string().to_lowercase()
             || self.table_alias.contains(other)
     }
 
-    fn get_field(&self, field: &Ident) -> Option<&abi::Parameter> {
-        self.event.as_ref().and_then(|event| event.get_field(field))
-    }
-
-    /// Inserts the field into selected_fields if the fields name is on the event or in metadata
-    /// The field's name is lowercased when compared to the event fields.
-    fn select_field(&mut self, field: &Ident) -> bool {
-        let tx_data_selected = TX_METADATA.contains(&field.value.as_str());
-        let log_data_selected = LOG_METADATA.contains(&field.to_string().as_str());
-        let event_selected = self.get_field(field).is_some();
-
-        if event_selected || log_data_selected || tx_data_selected {
-            self.selected_fields.insert(field.clone());
-            true
-        } else {
-            false
-        }
-    }
-
     fn to_sql(&self, chain: api::Chain, from: Option<u64>) -> String {
-        let is_tx = true;
         let mut res: Vec<String> = Vec::new();
         res.push(format!("{} as not materialized (", self.table_name));
         res.push("select".to_string());
         let mut select_list = Vec::new();
-        self.selected_fields.iter().sorted().for_each(|f| {
-            if LOG_METADATA.contains(&f.to_string().as_str()) {
-                select_list.push(f.to_string());
+
+        for col in self.selected_fields.iter().sorted() {
+            if base_column_type(col).is_some() {
+                select_list.push(col.to_string())
             }
-            if TX_METADATA.contains(&f.value.as_str()) {
-                select_list.push(f.to_string());
-            }
-        });
-        if let Some(event) = &self.event {
-            let statements = event.sql2("substring(input from 5)");
-            for selected in self.selected_fields.iter().sorted() {
-                for (col, sql) in &statements {
-                    if col.value.to_lowercase() == selected.value.to_lowercase() {
-                        select_list.push(format!("{} as {}", sql, selected));
-                    }
-                }
+        }
+
+        let statements: HashMap<String, String> = self
+            .event
+            .as_ref()
+            .map(|e| e.sql())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(col, sql)| (col.value.to_lowercase(), sql))
+            .collect();
+        for col in self.selected_fields.iter().sorted() {
+            if let Some(sql) = statements.get(&col.value.to_lowercase()) {
+                select_list.push(format!("{} as {}", sql, col));
             }
         }
         res.push(select_list.join(","));
-        if is_tx {
-            res.push(format!("from txs where chain = {}", chain));
-            if let Some(topic) = self.event.as_ref().map(|e| e.sighash()) {
-                res.push(format!(
-                    r#"and substring(input, 1, 4) = '\x{}'"#,
-                    hex::encode(&topic[..4])
-                ));
-            }
+        if let Some(event) = self.event.as_ref() {
+            res.push(format!("from {}", event.base_table()));
+            res.push(format!("where chain = {}", chain));
+            res.push(event.sighash_sql_predicate());
         } else {
-            res.push(format!("from logs where chain = {}", chain,));
-            if let Some(topic) = self.event.as_ref().map(|e| e.sighash()) {
-                res.push(format!(r#"and topics[1] = '\x{}'"#, hex::encode(topic)))
-            }
+            res.push(format!("from {} where chain = {}", self.table_name, chain));
         }
+
         if let Some(n) = from {
             res.push(format!("and block_num >= {}", n))
         }
@@ -178,18 +160,6 @@ impl UserQuery {
                 event: Some(event),
             });
         }
-        relations.push(Relation {
-            event: None,
-            table_name: Ident::new("logs"),
-            table_alias: HashSet::new(),
-            selected_fields: HashSet::new(),
-        });
-        relations.push(Relation {
-            event: None,
-            table_name: Ident::new("txs"),
-            table_alias: HashSet::new(),
-            selected_fields: HashSet::new(),
-        });
         Ok(UserQuery { relations })
     }
 
@@ -209,49 +179,32 @@ impl UserQuery {
         Ok(stmt.to_string())
     }
 
-    fn relations(self) -> Vec<Relation> {
-        self.relations
-            .into_iter()
-            .filter(|rel| !rel.selected_fields.is_empty())
-            .sorted_by_key(|s| s.table_name.to_string())
-            .collect()
-    }
-
     fn set_relation(&mut self, name: &Ident, alias: Option<&Ident>) -> Result<(), api::Error> {
-        let relations_debug_str = self
-            .relations
-            .iter()
-            .map(|r| r.table_name.to_string().to_lowercase())
-            .join(", ");
-        let rel = self
-            .relations
-            .iter_mut()
-            .find(|rel| rel.named(name))
-            .ok_or_else(||
-                api::Error::User(format!(
-                    r#"You are attempting to query '{}' but it isn't defined. Possible events to query are: '{}'"#,
-                    name, relations_debug_str,
-                ))
-            )?;
+        let rel = match self.relations.iter_mut().find(|r| r.named(name)) {
+            Some(r) => r,
+            None => {
+                self.relations.push(Relation::default());
+                self.relations.last_mut().unwrap()
+            }
+        };
         rel.table_name = name.clone();
         alias.map(|a| rel.table_alias.insert(a.clone()));
         Ok(())
     }
 
-    fn get_relation(&self, id: &Ident) -> Option<&Relation> {
-        self.relations.iter().find(|rel| rel.named(id))
-    }
-
     fn get_param(&self, expr: &ast::Expr) -> Option<&abi::Parameter> {
-        let idents = expr.collect();
-        match idents.len() {
-            1 => self
+        match expr.collect().as_slice() {
+            [field] => self
                 .relations
                 .iter()
-                .find_map(|rel| rel.get_field(&idents[0])),
-            2 => self
-                .get_relation(&idents[0])
-                .and_then(|rel| rel.get_field(&idents[1])),
+                .find_map(|rel| rel.event.as_ref().and_then(|e| e.get_field(field))),
+            [rel_name, field] => self
+                .relations
+                .iter()
+                .find(|rel| rel.named(rel_name))?
+                .event
+                .as_ref()
+                .and_then(|e| e.get_field(field)),
             _ => None,
         }
     }
@@ -454,113 +407,44 @@ impl UserQuery {
         }
     }
 
-    fn rewrite_literal(
-        &mut self,
-        expr: &mut ast::Expr,
-        parameter: &abi::Parameter,
-        compact: bool,
-    ) -> Result<(), api::Error> {
-        let data = match expr {
-            ast::Expr::Value(ast::Value::SingleQuotedString(str)) => {
-                match hex::decode(str.replace(r#"\x"#, "")) {
-                    Ok(s) => s,
-                    Err(_) => str.as_bytes().to_vec(),
-                }
-            }
-            ast::Expr::Value(ast::Value::HexStringLiteral(str)) => {
-                hex::decode(str).wrap_err("decoding hex string")?
-            }
-            ast::Expr::Value(ast::Value::Number(str, _)) => {
-                let n = U256::from_str(str).wrap_err("unable to decode number")?;
-                n.to_be_bytes_vec()
-            }
-            ast::Expr::Value(ast::Value::Boolean(b)) => {
-                let mut res = FixedBytes::<32>::ZERO;
-                if *b {
-                    res[31] = 1;
-                }
-                res.to_vec()
-            }
-            _ => return Ok(()),
-        };
-        match parameter {
-            abi::Parameter::Address { .. } => {
-                let data = if compact {
-                    format!(r#"\x{}"#, hex::encode(data))
-                } else {
-                    format!(r#"\x{}"#, hex::encode(left_pad(data)))
-                };
-                *expr = ast::Expr::Value(ast::Value::SingleQuotedString(data));
-            }
-            abi::Parameter::Uint { .. } => {
-                *expr = ast::Expr::Value(ast::Value::SingleQuotedString(format!(
-                    r#"\x{}"#,
-                    hex::encode(left_pad(data))
-                )))
-            }
-            _ => {
-                *expr = ast::Expr::Value(ast::Value::SingleQuotedString(format!(
-                    r#"\x{}"#,
-                    hex::encode(data)
-                )))
-            }
-        };
-        Ok(())
-    }
+    /*
+    Rewriting literals for base columns
 
+    if we have a binary expression, and the lhs is a an ident referring to a base column or base decoding function
+    then we will check and possibly modify the rhs to match the lhs' type.
+
+    For example, if the lhs is named "address" then we can take the rhs and coerce it into a 20byte hex literal
+    If the lhs is named "block_num" then we can coerce the rhs into a numeric value
+    */
     fn rewrite_binary_expr(
         &mut self,
         left: &mut ast::Expr,
         right: &mut ast::Expr,
     ) -> Result<(), api::Error> {
-        if let ast::Expr::Function(f) = left {
-            if f.name.to_string() == "abi_address" {
-                self.rewrite_literal(
-                    right,
-                    &abi::Parameter::Address {
-                        name: None,
-                        indexed: None,
-                    },
-                    true,
-                )?;
+        if let Some(lit) = expr_to_bytes(right) {
+            if let Some(param) = self.get_param(left) {
+                *right = match param {
+                    abi::Parameter::Address { .. } | abi::Parameter::Uint { .. } => {
+                        ast::Expr::Value(ast::Value::SingleQuotedString(format!(
+                            r#"\x{}"#,
+                            hex::encode(left_pad(lit))
+                        )))
+                    }
+                    _ => ast::Expr::Value(ast::Value::SingleQuotedString(format!(
+                        r#"\x{}"#,
+                        hex::encode(lit)
+                    ))),
+                };
+                Ok(())
+            } else if let Some(data_type) = left.last().and_then(|id| base_column_type(&id)) {
+                *right = bytes_to_expr(lit, data_type)?;
+                Ok(())
+            } else {
+                Ok(())
             }
+        } else {
+            Ok(())
         }
-        if let Some(param) = self.get_param(left) {
-            self.rewrite_literal(right, &param.clone(), false)?;
-        }
-        if left.last().map_or(false, |v| v.to_string() == "address") {
-            self.rewrite_literal(
-                right,
-                &abi::Parameter::Address {
-                    name: None,
-                    indexed: None,
-                },
-                true,
-            )?;
-        }
-        if left.last().map_or(false, |v| v.to_string() == "tx_hash") {
-            self.rewrite_literal(
-                right,
-                &abi::Parameter::Bytes {
-                    name: None,
-                    indexed: None,
-                    size: Some(32),
-                },
-                false,
-            )?;
-        }
-        if left.last().map_or(false, |v| v.to_string() == "topics") {
-            self.rewrite_literal(
-                right,
-                &abi::Parameter::Bytes {
-                    name: None,
-                    indexed: None,
-                    size: Some(32),
-                },
-                false,
-            )?;
-        }
-        Ok(())
     }
 
     fn validate_query(&mut self, query: &mut ast::Query) -> Result<(), api::Error> {
@@ -658,14 +542,16 @@ impl UserQuery {
     fn validate_expression(&mut self, expr: &mut ast::Expr) -> Result<(), api::Error> {
         match expr {
             ast::Expr::Identifier(ident) => {
-                self.relations.iter_mut().any(|rel| rel.select_field(ident));
+                self.relations
+                    .iter_mut()
+                    .any(|rel| rel.selected_fields.insert(ident.clone()));
                 Ok(())
             }
             ast::Expr::CompoundIdentifier(idents) if idents.len() == 2 => {
                 self.relations
                     .iter_mut()
                     .find(|rel| rel.named(&idents[0]))
-                    .map(|rel| rel.select_field(&idents[1]));
+                    .map(|rel| rel.selected_fields.insert(idents[1].clone()));
                 Ok(())
             }
             ast::Expr::IsFalse(_) => Ok(()),
@@ -837,6 +723,71 @@ impl UserQuery {
     }
 }
 
+fn expr_to_bytes(expr: &ast::Expr) -> Option<Vec<u8>> {
+    match expr {
+        ast::Expr::Value(ast::Value::HexStringLiteral(str)) => Some(hex::decode(str).ok()?),
+        ast::Expr::Value(ast::Value::SingleQuotedString(str)) => {
+            match hex::decode(str.replace(r#"\x"#, "")) {
+                Ok(s) => Some(s),
+                Err(_) => Some(str.as_bytes().to_vec()),
+            }
+        }
+        ast::Expr::Value(ast::Value::Number(str, _)) => {
+            let n = U256::from_str(str).ok()?;
+            Some(n.to_be_bytes_vec())
+        }
+        ast::Expr::Value(ast::Value::Boolean(b)) => {
+            let mut res = FixedBytes::<32>::ZERO;
+            if *b {
+                res[31] = 1;
+            }
+            Some(res.to_vec())
+        }
+        _ => None,
+    }
+}
+
+fn bytes_to_expr(bytes: Vec<u8>, to: ast::DataType) -> Result<ast::Expr, api::Error> {
+    match to {
+        ast::DataType::Int64 if bytes.len() <= 32 => {
+            let n = U256::from_be_slice(&bytes);
+            Ok(ast::Expr::Value(ast::Value::Number(n.to_string(), false)))
+        }
+        ast::DataType::Bool if bytes.len() == 1 => {
+            Ok(ast::Expr::Value(ast::Value::Boolean(bytes[0] != 0)))
+        }
+        ast::DataType::Bytea => Ok(ast::Expr::Value(ast::Value::SingleQuotedString(format!(
+            r#"\x{}"#,
+            hex::encode(bytes)
+        )))),
+        ast::DataType::Timestamp(_, _) => {
+            let s = String::from_utf8(bytes).wrap_err("parsing timestamp from bytes")?;
+            Ok(ast::Expr::TypedString {
+                data_type: to.clone(),
+                value: s,
+            })
+        }
+        _ => Err(api::Error::User(format!(
+            "unable to convert {:?} to {:?}",
+            bytes, to
+        ))),
+    }
+}
+
+fn base_column_type(id: &Ident) -> Option<ast::DataType> {
+    match id.to_string().as_ref() {
+        "abi_address" => Some(ast::DataType::Bytea),
+
+        "block_num" => Some(ast::DataType::Int64),
+        "block_timestamp" => Some(ast::DataType::Timestamp(None, ast::TimezoneInfo::Tz)),
+        "tx_hash" => Some(ast::DataType::Bytea),
+        "address" => Some(ast::DataType::Bytea),
+        "topics" => Some(ast::DataType::Bytea),
+        "data" => Some(ast::DataType::Bytea),
+        _ => None,
+    }
+}
+
 fn left_pad(vec: Vec<u8>) -> Vec<u8> {
     let mut padded = vec![0u8; 32 - vec.len()];
     padded.extend(vec);
@@ -862,6 +813,7 @@ impl ExprExt for ast::Expr {
             ast::Expr::Identifier(ident) => Some(ident.clone()),
             ast::Expr::CompoundIdentifier(idents) => idents.last().cloned(),
             ast::Expr::Subscript { expr, .. } => expr.last(),
+            ast::Expr::Function(f) => f.name.0.last().cloned(),
             _ => None,
         }
     }

@@ -219,11 +219,16 @@ impl Downloader {
             None => self.remote_block_latest().await?,
         };
         tracing::info!("initializing blocks table at: {}", block.number);
-        self.setup_tables(block.number.to())
-            .await
-            .expect("setting up table for initial block");
         let mut pg = self.be_pool.get().await.wrap_err("getting pg")?;
         let pgtx = pg.transaction().await?;
+        self.partition_max_block = setup_tables(
+            &pgtx,
+            self.chain.0,
+            block.number.to(),
+            self.partition_max_block,
+        )
+        .await
+        .expect("setting up table for initial block");
         copy_blocks(&pgtx, self.chain, &[block]).await?;
         pgtx.commit().await?;
         Ok(())
@@ -261,61 +266,6 @@ impl Downloader {
                 }
             }
         }
-    }
-
-    //timescaledb
-    #[tracing::instrument(level="debug" skip(self), fields(table_generation = self.partition_max_block))]
-    pub async fn setup_tables(&mut self, new_block: u64) -> Result<(), Error> {
-        const N: u64 = 2000000;
-        let from = match self.partition_max_block {
-            Some(max) if new_block < max + 1 => return Ok(()),
-            Some(max) => ((max + 1) / N) * N,
-            None => (new_block / N) * N,
-        };
-        let to = from + N;
-        let label = from / 1000000;
-        self.partition_max_block = Some(to - 1);
-        let query = Handlebars::new()
-            .render_template(
-                "
-                create table if not exists blocks_c{{chain}}
-                partition of blocks
-                for values in ({{chain}})
-                partition by range (num);
-
-                create table if not exists blocks_c{{chain}}_b{{label}}
-                partition of blocks_c{{chain}}
-                for values from ({{from}}) to ({{to}});
-
-                create table if not exists txs_c{{chain}}
-                partition of txs
-                for values in ({{chain}})
-                partition by range (block_num);
-
-                create table if not exists txs_c{{chain}}_b{{label}}
-                partition of txs_c{{chain}}
-                for values from ({{from}}) to ({{to}});
-                alter table txs_c{{chain}}_b{{label}} set (toast_tuple_target = 128);
-
-                create table if not exists logs_c{{chain}}
-                partition of logs
-                for values in ({{chain}})
-                partition by range (block_num);
-
-                create table if not exists logs_c{{chain}}_b{{label}}
-                partition of logs_c{{chain}}
-                for values from ({{from}}) to ({{to}});
-                alter table logs_c{{chain}}_b{{label}} set (toast_tuple_target = 128);
-                ",
-                &serde_json::json!({"chain": self.chain.0, "label": label, "from": from, "to": to,}),
-            )
-            .wrap_err("rendering sql template")?;
-        tracing::info!("new table range label={} from={} to={}", label, from, to);
-        let mut pg = self.be_pool.get().await.wrap_err("getting pg tx")?;
-        let pgtx = pg.transaction().await?;
-        pgtx.batch_execute(&query).await?;
-        pgtx.commit().await.wrap_err("committing tx")?;
-        Ok(())
     }
 
     async fn delete_after(&self, n: u64) -> Result<(), Error> {
@@ -362,7 +312,15 @@ impl Downloader {
 
         let delta = latest.number.to::<u64>() - local_num;
         let (from, to) = (local_num + 1, local_num + delta.min(batch_size as u64));
-        self.setup_tables(to).await?;
+        {
+            let mut pg = self.be_pool.get().await.wrap_err("pg pool")?;
+            let pgtx = pg.transaction().await?;
+            if let Some(i) = setup_tables(&pgtx, self.chain.0, to, self.partition_max_block).await?
+            {
+                self.partition_max_block = Some(i);
+            }
+            pgtx.commit().await.wrap_err("unable to commit tx")?;
+        }
         tracing::Span::current()
             .record("from", from)
             .record("to", to);
@@ -405,7 +363,7 @@ impl Downloader {
             .to()?)
     }
 
-    fn validate_blocks(&self, from: u64, to: u64, blocks: &Vec<jrpc::Block>) -> Result<(), Error> {
+    fn validate_blocks(&self, from: u64, to: u64, blocks: &[jrpc::Block]) -> Result<(), Error> {
         if let Some(i) = blocks.first().map(|b| b.number.to::<u64>()) {
             if i != from {
                 return Err(Error::Fatal(eyre!("want first block {} got {}", from, i)));
@@ -492,6 +450,61 @@ impl Downloader {
             .await?
             .to()?)
     }
+}
+
+//timescaledb
+pub async fn setup_tables(
+    pgtx: &Transaction<'_>,
+    chain: u64,
+    new_block: u64,
+    partition_max_block: Option<u64>,
+) -> Result<Option<u64>, Error> {
+    const N: u64 = 2000000;
+    let from = match partition_max_block {
+        Some(max) if new_block < max + 1 => return Ok(None),
+        Some(max) => ((max + 1) / N) * N,
+        None => (new_block / N) * N,
+    };
+    let to = from + N;
+    let label = from / 1000000;
+    let query = Handlebars::new()
+        .render_template(
+            "
+            create table if not exists blocks_c{{chain}}
+            partition of blocks
+            for values in ({{chain}})
+            partition by range (num);
+
+            create table if not exists blocks_c{{chain}}_b{{label}}
+            partition of blocks_c{{chain}}
+            for values from ({{from}}) to ({{to}});
+
+            create table if not exists txs_c{{chain}}
+            partition of txs
+            for values in ({{chain}})
+            partition by range (block_num);
+
+            create table if not exists txs_c{{chain}}_b{{label}}
+            partition of txs_c{{chain}}
+            for values from ({{from}}) to ({{to}});
+            alter table txs_c{{chain}}_b{{label}} set (toast_tuple_target = 128);
+
+            create table if not exists logs_c{{chain}}
+            partition of logs
+            for values in ({{chain}})
+            partition by range (block_num);
+
+            create table if not exists logs_c{{chain}}_b{{label}}
+            partition of logs_c{{chain}}
+            for values from ({{from}}) to ({{to}});
+            alter table logs_c{{chain}}_b{{label}} set (toast_tuple_target = 128);
+            ",
+            &serde_json::json!({"chain": chain, "label": label, "from": from, "to": to,}),
+        )
+        .wrap_err("rendering sql template")?;
+    tracing::info!("new table range label={} from={} to={}", label, from, to);
+    pgtx.batch_execute(&query).await?;
+    Ok(Some(to - 1))
 }
 
 fn add_timestamp(blocks: &mut [jrpc::Block], logs: &mut Vec<jrpc::Log>) {

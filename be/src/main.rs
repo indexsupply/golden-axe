@@ -223,7 +223,7 @@ fn service(config: api::Config) -> IntoMakeServiceWithConnectInfo<Router, Socket
 #[cfg(test)]
 mod tests {
     use alloy::{
-        primitives::{fixed_bytes, B256, U256, U64},
+        primitives::{fixed_bytes, Address, Bytes, B256, U256, U64},
         sol,
         sol_types::{JsonAbiExt, SolEvent},
     };
@@ -239,12 +239,26 @@ mod tests {
         ($pool:expr, $chain:expr, $block_num:expr, $event:expr) => {{
             let log_data = $event.encode_log_data();
             let log_topics = log_data.topics().to_vec();
+            let block = jrpc::Block {
+                hash: B256::with_last_byte(0xab),
+                parent_hash: B256::with_last_byte(0xaa),
+                number: U64::from($block_num),
+                nonce: U256::from(1),
+                timestamp: U64::from(1),
+                transactions: vec![],
+                gas_limit: U256::from(1),
+                gas_used: U256::from(1),
+                receipts_root: B256::with_last_byte(0x01),
+                state_root: B256::with_last_byte(0x01),
+                extra_data: Bytes::from(vec![]),
+                miner: Address::with_last_byte(0x01),
+            };
             let log = jrpc::Log {
                 data: log_data.data,
                 topics: log_topics,
                 address: fixed_bytes!("00000000000000000000000000000000000000ab"),
-                block_number: $block_num,
-                block_timestamp: None,
+                block_number: block.number,
+                block_timestamp: Some(block.timestamp),
                 tx_hash: B256::with_last_byte(0xab),
                 log_idx: U64::from(1),
             };
@@ -256,22 +270,15 @@ mod tests {
                 .transaction()
                 .await
                 .expect("unable to start new pgtx from pg pool");
-            let partition_stmt = format!(
-                r#"create table if not exists "logs_{}" partition of logs for values in ({})"#,
-                $chain, $chain
-            );
-            pgtx.execute(&partition_stmt, &[])
+            sync::setup_tables(&pgtx, $chain.0, block.number.to(), None)
                 .await
-                .expect("creating partition");
+                .expect("setting up tables");
             sync::copy_logs(&pgtx, $chain, vec![log])
                 .await
                 .expect("unable to copy new logs");
-            pgtx.execute(
-                "insert into blocks(chain, num, hash) values ($1, $2, $3)",
-                &[&$chain, &($block_num), &B256::with_last_byte(0xab)],
-            )
-            .await
-            .expect("unable to update blocks table");
+            sync::copy_blocks(&pgtx, $chain, &[block])
+                .await
+                .expect("copying blocks");
             pgtx.commit()
                 .await
                 .expect("unable to commit the add_logs pg tx");
@@ -389,8 +396,6 @@ mod tests {
             .get("/query-live")
             .add_raw_query_param(&serde_html_form::to_string(&request).unwrap())
             .await;
-        resp.assert_text_contains(
-            r#"You are attempting to query 'bar' but it isn't defined. Possible events to query are: 'foo, logs'""#
-        );
+        resp.assert_text_contains(r#"relation \"bar\" does not exist"#);
     }
 }
