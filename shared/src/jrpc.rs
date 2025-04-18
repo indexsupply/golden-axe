@@ -55,7 +55,7 @@ pub struct Tx {
     pub value: U256,
     pub gas: U256,
     #[serde(rename = "gasPrice")]
-    pub gase_price: U256,
+    pub gas_price: Option<U256>,
 }
 
 #[derive(Deserialize, Debug)]

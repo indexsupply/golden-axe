@@ -7,7 +7,7 @@ use time::OffsetDateTime;
 use tokio::task::JoinHandle;
 use url::Url;
 
-use alloy::primitives::{BlockHash, U16, U64};
+use alloy::primitives::{BlockHash, U16, U256, U64};
 use eyre::{eyre, Context, Result};
 use futures::pin_mut;
 use tokio_postgres::{binary_copy::BinaryCopyInWriter, Transaction};
@@ -637,7 +637,7 @@ pub async fn copy_txs(
                     &tx.idx,
                     &tx.ty,
                     &tx.gas,
-                    &tx.gase_price,
+                    &tx.gas_price.unwrap_or(U256::from(0)),
                     &tx.hash,
                     &tx.nonce,
                     &tx.from.to_vec(),
