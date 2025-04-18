@@ -27,6 +27,23 @@
                 color: blue;
                 text-decoration: none;
             }
+            #srv {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 130px;
+                background: white url('https://indexsupply.net/dance.gif') no-repeat 10px center;
+                opacity: 75%;
+                color: darkgreen;
+                padding-top: 10px;
+                font-size: x-large;
+                font-family: monospace;
+            }
+            #srv div {
+                max-width: 800px;
+                margin: 0 auto;
+            }
             .navigation {
                 width: 100%;
                 padding-top: 10px;
@@ -94,6 +111,11 @@
         </style>
     </head>
     <body>
+        <div id="srv" style="display: none;">
+            <div>
+                <span><a href="">test server</a> or <a href="">main server</a></span>
+            </div>
+        </div>
         <div class="navigation">
             <div>
                 <a href="https://www.indexsupply.net/docs">Docs</a>,
@@ -161,7 +183,11 @@
                 chainRow.className = "row";
                 chainRow.dataset.chain = chain;
                 chainRow.title = chain;
-                newDiv(chainRow, "chain", chains[chain].name);
+                if (chain in chains) {
+                  newDiv(chainRow, "chain", chains[chain].name);
+                } else {
+                  newDiv(chainRow, "chain", chain);
+                }
                 if (update["new_block"] == "local") {
                     newDiv(chainRow, "local", num.toLocaleString());
                     newDiv(chainRow, "remote", 0);
@@ -218,7 +244,7 @@
         }
 
         function startHandler(chains) {
-            sseHandler = new EventSource("https://api.indexsupply.net/status");
+            sseHandler = new EventSource("https://api.indexsupply.net/status?srv=ga2");
             sseHandler.onmessage = (event) => {
               const parsed = JSON.parse(event.data);
               if ("new_block" in parsed) {
@@ -242,7 +268,16 @@
           return chains;
         }
 
+        function tt(e) {
+          if (e.ctrlKey && e.key === 't') {
+            e.preventDefault();
+            const srv = document.getElementById('srv');
+            srv.style.display = srv.style.display === 'none' ? 'block' : 'none';
+          }
+        }
+
         document.addEventListener("DOMContentLoaded", async function () {
+          document.addEventListener("keydown", tt);
           let chains = await loadChains();
           startHandler(chains);
         });
