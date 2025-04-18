@@ -115,9 +115,8 @@ pub async fn status(
         .into_iter()
         .filter(|c| c.enabled)
         .collect::<Vec<_>>();
-    Ok(Html(
-        state
-            .templates
-            .render("status.html", &json!({"chains": chains}))?,
-    ))
+    Ok(Html(state.templates.render(
+        "status.html",
+        &json!({"api_url": state.be_url, "chains": chains}),
+    )?))
 }

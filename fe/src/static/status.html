@@ -35,7 +35,7 @@
                 height: 130px;
                 background: white url('https://indexsupply.net/dance.gif') no-repeat 10px center;
                 opacity: 75%;
-                color: darkgreen;
+                color: seagreen;
                 padding-top: 10px;
                 font-size: x-large;
                 font-family: monospace;
@@ -43,6 +43,12 @@
             #srv div {
                 max-width: 800px;
                 margin: 0 auto;
+            }
+            #srv a {
+                color: seagreen;
+            }
+            #srv a:link {
+                text-decoration: underline;
             }
             .navigation {
                 width: 100%;
@@ -69,6 +75,12 @@
             .header h1 a {
                 color: #000000;
                 text-decoration: none;
+            }
+            .header h1 a.test {
+                color: seagreen;
+            }
+            .header h1 a.test::after {
+              content: " Test!";
             }
             .header h2 {
                 font-weight: normal;
@@ -113,7 +125,7 @@
     <body>
         <div id="srv" style="display: none;">
             <div>
-                <span><a href="">test server</a> or <a href="">main server</a></span>
+                <span><a class="change-srv" data-srv="ga2" href="">test server</a> or <a class="change-srv" data-srv="" href="">main server</a></span>
             </div>
         </div>
         <div class="navigation">
@@ -244,7 +256,7 @@
         }
 
         function startHandler(chains) {
-            sseHandler = new EventSource("https://api.indexsupply.net/status?srv=ga2");
+            sseHandler = new EventSource(apiURL("/status"));
             sseHandler.onmessage = (event) => {
               const parsed = JSON.parse(event.data);
               if ("new_block" in parsed) {
@@ -268,7 +280,20 @@
           return chains;
         }
 
-        function tt(e) {
+        function apiURL(path, params = new URLSearchParams()) {
+          const srv = localStorage.getItem("srv");
+          if (srv) {
+            if (srv === "") {
+              document.querySelector(".header h1 a").classList.remove("test");
+            } else {
+              document.querySelector(".header h1 a").classList.add("test");
+            }
+            params.set("srv", srv);
+          }
+          return `{{ api_url }}${path}?${params}`;
+        }
+
+        function ctrlT(e) {
           if (e.ctrlKey && e.key === 't') {
             e.preventDefault();
             const srv = document.getElementById('srv');
@@ -276,8 +301,17 @@
           }
         }
 
+        function changeSrv(e) {
+          const srv = e.target.dataset.srv;
+          localStorage.setItem('srv', srv);
+        }
+
         document.addEventListener("DOMContentLoaded", async function () {
-          document.addEventListener("keydown", tt);
+          document.addEventListener("keydown", ctrlT);
+          document
+            .querySelectorAll(".change-srv")
+            .forEach((div) => div.addEventListener("click", changeSrv));
+
           let chains = await loadChains();
           startHandler(chains);
         });
