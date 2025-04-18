@@ -106,12 +106,6 @@ impl Relation {
         res.push("select".to_string());
         let mut select_list = Vec::new();
 
-        for col in self.selected_fields.iter().sorted() {
-            if base_column_type(col).is_some() {
-                select_list.push(col.to_string())
-            }
-        }
-
         let statements: HashMap<String, String> = self
             .event
             .as_ref()
@@ -120,6 +114,13 @@ impl Relation {
             .into_iter()
             .map(|(col, sql)| (col.value.to_lowercase(), sql))
             .collect();
+
+        for col in self.selected_fields.iter().sorted() {
+            let in_statements = statements.contains_key(&col.value.to_lowercase());
+            if !in_statements && base_column_type(col).is_some() {
+                select_list.push(col.to_string())
+            }
+        }
         for col in self.selected_fields.iter().sorted() {
             if let Some(sql) = statements.get(&col.value.to_lowercase()) {
                 select_list.push(format!("{} as {}", sql, col));
@@ -775,15 +776,31 @@ fn bytes_to_expr(bytes: Vec<u8>, to: ast::DataType) -> Result<ast::Expr, api::Er
 }
 
 fn base_column_type(id: &Ident) -> Option<ast::DataType> {
-    match id.to_string().as_ref() {
+    match id.value.to_lowercase().as_str() {
+        //Decoding Functions
         "abi_address" => Some(ast::DataType::Bytea),
+        "abi_uint" | "abi_int" => Some(ast::DataType::Int64),
 
+        // Blocks
+        "num" => Some(ast::DataType::Int64),
+        "receipts_root" | "state_root" | "extra_data" | "miner" => Some(ast::DataType::Bytea),
+
+        "timestamp" => Some(ast::DataType::Timestamp(None, ast::TimezoneInfo::Tz)),
+        "gas_limit" | "gas_used" => Some(ast::DataType::Numeric(ast::ExactNumberInfo::None)),
+
+        // Txs
+        "idx" | "type" => Some(ast::DataType::Int64),
+        "from" | "to" | "input" => Some(ast::DataType::Bytea),
+        "value" => Some(ast::DataType::Numeric(ast::ExactNumberInfo::None)),
+        "gas" | "gas_price" => Some(ast::DataType::Numeric(ast::ExactNumberInfo::None)),
+
+        // Logs
+        "tx_hash" | "address" | "topics" | "data" => Some(ast::DataType::Bytea),
+
+        //Shared
+        "nonce" | "hash" => Some(ast::DataType::Bytea),
         "block_num" => Some(ast::DataType::Int64),
         "block_timestamp" => Some(ast::DataType::Timestamp(None, ast::TimezoneInfo::Tz)),
-        "tx_hash" => Some(ast::DataType::Bytea),
-        "address" => Some(ast::DataType::Bytea),
-        "topics" => Some(ast::DataType::Bytea),
-        "data" => Some(ast::DataType::Bytea),
         _ => None,
     }
 }
@@ -873,6 +890,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_blocks_table() {
+        check_sql(
+            vec![],
+            r#"select miner from blocks where num = 0xa0"#,
+            r#"
+                with blocks as not materialized (
+                    select miner, num
+                    from blocks
+                    where chain = 1
+                )
+                select miner from blocks where num = 160
+            "#,
+        )
+        .await;
+    }
+
+    #[tokio::test]
     async fn test_logs_table() {
         check_sql(
             vec![],
@@ -886,6 +920,25 @@ mod tests {
                 select block_num, data, topics
                 from logs
                 where topics[1] = '\xface'
+            "#,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_txs_table() {
+        check_sql(
+            vec![],
+            r#"select block_num, "from", "to", value from txs limit 1"#,
+            r#"
+                with txs as not materialized (
+                    select block_num, "from", "to", value
+                    from txs
+                    where chain = 1
+                )
+                select block_num, "from", "to", value
+                from txs
+                limit 1
             "#,
         )
         .await;
