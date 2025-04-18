@@ -134,9 +134,12 @@ impl Relation {
         } else {
             res.push(format!("from {} where chain = {}", self.table_name, chain));
         }
-
         if let Some(n) = from {
-            res.push(format!("and block_num >= {}", n))
+            if self.table_name.to_string() == "blocks" {
+                res.push(format!("and num >= {}", n))
+            } else {
+                res.push(format!("and block_num >= {}", n))
+            }
         }
         res.push(")".to_string());
         res.join(" ")
