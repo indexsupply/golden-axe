@@ -635,7 +635,7 @@ pub async fn copy_txs(
                         tx.block_timestamp.expect("missing tx ts").to::<u64>() as i64,
                     )?,
                     &tx.idx,
-                    &tx.ty,
+                    &tx.ty.unwrap_or(U64::from(0)),
                     &tx.gas,
                     &tx.gas_price.unwrap_or(U256::from(0)),
                     &tx.hash,

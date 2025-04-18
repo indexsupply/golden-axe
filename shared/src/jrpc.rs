@@ -42,7 +42,7 @@ pub struct Log {
 #[derive(Deserialize, Debug)]
 pub struct Tx {
     #[serde(rename = "type")]
-    pub ty: U64,
+    pub ty: Option<U64>,
     pub hash: BlockHash,
     #[serde(rename = "blockTimestamp")]
     pub block_timestamp: Option<U64>,
