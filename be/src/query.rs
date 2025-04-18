@@ -796,6 +796,7 @@ fn base_column_type(id: &Ident) -> Option<ast::DataType> {
 
         // Logs
         "tx_hash" | "address" | "topics" | "data" => Some(ast::DataType::Bytea),
+        "log_idx" => Some(ast::DataType::Int64),
 
         //Shared
         "nonce" | "hash" => Some(ast::DataType::Bytea),
@@ -910,14 +911,14 @@ mod tests {
     async fn test_logs_table() {
         check_sql(
             vec![],
-            r#"select block_num, data, topics from logs where topics[1] = 0xface"#,
+            r#"select block_num, log_idx, data, topics from logs where topics[1] = 0xface"#,
             r#"
                 with logs as not materialized (
-                    select block_num, data, topics
+                    select block_num, data, log_idx, topics
                     from logs
                     where chain = 1
                 )
-                select block_num, data, topics
+                select block_num, log_idx, data, topics
                 from logs
                 where topics[1] = '\xface'
             "#,
