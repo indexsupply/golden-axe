@@ -685,17 +685,16 @@
       function form2queryParams() {
         let params = new URLSearchParams();
         let query = document.getElementById("query").value;
-        params.append("query", query);
+        if (localStorage.getItem("srv")) {
+          params.set("srv", localStorage.getItem("srv"));
+        }
+        params.set("query", query);
         let eventSigs = document.getElementById("events").value.split("\n");
         eventSigs.forEach((sig) => {
           params.append("event_signatures", sig.trim());
         });
         let chain = document.getElementById("chain-selection").value;
         params.set("chain", chain);
-        params.set("block_height", blockHeight);
-        if (localStorage.getItem("srv")) {
-          params.set("srv", localStorage.getItem("srv"));
-        }
         return params;
       }
 
