@@ -76,9 +76,6 @@
                 color: #000000;
                 text-decoration: none;
             }
-            .header h1 a.test {
-                color: seagreen;
-            }
             .header h1 a.test::after {
               content: " Test!";
             }
@@ -283,11 +280,6 @@
         function apiURL(path, params = new URLSearchParams()) {
           const srv = localStorage.getItem("srv");
           if (srv) {
-            if (srv === "") {
-              document.querySelector(".header h1 a").classList.remove("test");
-            } else {
-              document.querySelector(".header h1 a").classList.add("test");
-            }
             params.set("srv", srv);
           }
           return `{{ api_url }}${path}?${params}`;
@@ -304,6 +296,28 @@
         function changeSrv(e) {
           const srv = e.target.dataset.srv;
           localStorage.setItem('srv', srv);
+          const url = new URL(window.location);
+            if (srv) {
+              url.searchParams.set("srv", srv);
+            } else {
+              url.searchParams.delete("srv");
+            }
+            history.replaceState(null, "", url);
+        }
+
+        function updateTestingH1() {
+          const params = new URLSearchParams(window.location.search);
+          if (params.get("srv")) {
+            localStorage.setItem('srv', params.get("srv"));
+          }
+          const srv = localStorage.getItem("srv");
+          if (srv === "") {
+            document.querySelector(".header h1 a").classList.remove("test");
+            document.getElementById('srv').style.display = "none";
+          } else {
+            document.querySelector(".header h1 a").classList.add("test");
+            document.getElementById('srv').style.display = "block";
+          }
         }
 
         document.addEventListener("DOMContentLoaded", async function () {
@@ -312,6 +326,7 @@
             .querySelectorAll(".change-srv")
             .forEach((div) => div.addEventListener("click", changeSrv));
 
+          updateTestingH1();
           let chains = await loadChains();
           startHandler(chains);
         });
