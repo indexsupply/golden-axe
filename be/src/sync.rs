@@ -305,6 +305,11 @@ impl Downloader {
     #[tracing::instrument(level="info" skip_all, fields(from, to, blocks, txs, logs))]
     async fn download(&mut self, batch_size: u16) -> Result<u64, Error> {
         let latest = self.remote_block_latest().await?;
+        self.stat_updates.update(serde_json::json!({
+            "new_block": "remote",
+            "chain": self.chain,
+            "num": latest.number,
+        }));
         let (local_num, local_hash) = self.local_latest().await?;
         if local_num >= latest.number.to() {
             return Err(Error::Wait);
