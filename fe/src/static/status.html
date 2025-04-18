@@ -311,7 +311,7 @@
             localStorage.setItem('srv', params.get("srv"));
           }
           const srv = localStorage.getItem("srv");
-          if (srv === "") {
+          if (!srv || srv === "") {
             document.querySelector(".header h1 a").classList.remove("test");
             document.getElementById('srv').style.display = "none";
           } else {
