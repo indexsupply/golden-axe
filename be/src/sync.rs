@@ -308,7 +308,7 @@ impl Downloader {
         self.stat_updates.update(serde_json::json!({
             "new_block": "remote",
             "chain": self.chain,
-            "num": latest.number,
+            "num": latest.number.to::<u64>(),
         }));
         let (local_num, local_hash) = self.local_latest().await?;
         if local_num >= latest.number.to() {
