@@ -247,12 +247,13 @@ impl Downloader {
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 }
                 Err(Error::Retry(err)) => {
+                    batch_size = std::cmp::max(1, batch_size / 10);
                     tracing::error!("downloading error: {}", err);
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 }
                 Err(Error::Fatal(err)) => {
                     batch_size = std::cmp::max(1, batch_size / 10);
-                    tracing::error!("downloading error: {}", err);
+                    tracing::error!("fatal downloading error: {}", err);
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 }
                 Ok(last) => {
