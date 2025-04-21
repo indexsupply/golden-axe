@@ -48,6 +48,7 @@ pub struct Tx {
     pub block_timestamp: Option<U64>,
     #[serde(rename = "transactionIndex")]
     pub idx: U64,
+    #[serde(default)]
     pub nonce: U256,
     pub from: Address,
     pub to: Option<Address>,
