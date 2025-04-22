@@ -7,7 +7,7 @@ use std::{
 
 use alloy::{
     hex,
-    primitives::{Bytes, I256, U64},
+    primitives::{Bytes, I256},
 };
 use axum::{
     extract::State,
@@ -20,14 +20,15 @@ use axum::{
 use axum_extra::extract::Form;
 use deadpool_postgres::Pool;
 use eyre::Context;
-use futures::Stream;
+use futures::{stream::FuturesUnordered, Stream, StreamExt};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tokio::sync::broadcast::Receiver;
 use tokio_postgres::types::Type;
 
 use crate::{
-    api::{self, ChainOptionExt},
+    api::{self},
     gafe, query,
 };
 
@@ -35,33 +36,28 @@ use crate::{
 pub struct Request {
     #[serde(alias = "api-key")]
     pub api_key: Option<api::Key>,
-    pub chain: Option<api::Chain>,
-    pub event_signatures: Vec<String>,
+    pub chains: HashMap<api::Chain, Option<u64>>,
+    pub signatures: Vec<String>,
     pub query: String,
-    pub block_height: Option<u64>,
 }
 
-type Row = Vec<Value>;
-type Rows = Vec<Row>;
-
-#[derive(Deserialize, Serialize)]
+#[derive(Serialize)]
 pub struct Response {
-    pub block_height: u64,
-    pub result: Vec<Rows>,
+    pub chains: HashMap<api::Chain, Option<u64>>,
+    pub columns: HashMap<String, String>,
+    pub rows: Vec<Vec<Value>>,
 }
 
 pub async fn handle_post(
     Extension(log): Extension<RequestLog>,
     api_key: api::Key,
-    chain: api::Chain,
     State(config): State<api::Config>,
     account_limit: Arc<gafe::AccountLimit>,
     api::Json(mut req): api::Json<Vec<Request>>,
-) -> Result<Json<Response>, api::Error> {
+) -> Result<Json<Vec<Response>>, api::Error> {
     let ttl = account_limit.timeout;
-    // It's possible to specify chain/api_key in either the header or the query params for POST
+    // api-key will be coming from the URL
     req.iter_mut().for_each(|r| {
-        r.chain.get_or_insert(chain);
         r.api_key.get_or_insert(api_key.clone());
     });
     log.add(req.clone());
@@ -73,7 +69,7 @@ pub async fn handle_get(
     State(config): State<api::Config>,
     account_limit: Arc<gafe::AccountLimit>,
     Form(req): Form<Request>,
-) -> Result<Json<Response>, api::Error> {
+) -> Result<Json<Vec<Response>>, api::Error> {
     let ttl = account_limit.timeout;
     log.add(vec![req.clone()]);
     Ok(Json(query(config.ro_pool, ttl, &[req]).await?))
@@ -93,30 +89,49 @@ pub async fn handle_sse(
     let plan_limit = account_limit.conn_limiter()?;
     let ip_limit = account_limit.conn_ip_limiter(&origin_ip.to_string())?;
 
-    let mut rx = config.api_updates.wait(req.chain.expect("missing chain"));
+    let rx_keys: Vec<_> = req.chains.keys().cloned().collect();
     let stream = async_stream::stream! {
         let _hold_onto_permits = (active_connections, plan_limit, ip_limit);
         loop {
-            match query(config.ro_pool.clone(), account_limit.timeout, &[req.clone()]).await {
-                Ok(resp) =>  {
-                    req.block_height = Some(resp.block_height + 1);
-                    yield Ok(SSEvent::default().json_data(resp).expect("sse serialize query"));
-                },
+            match query(
+                config.ro_pool.clone(),
+                account_limit.timeout,
+                &[req.clone()],
+            )
+            .await
+            {
+                Ok(resp) if resp.len() == 1 => {
+                    req.chains = resp[0].chains.clone();
+                    yield Ok(SSEvent::default().json_data(resp).unwrap());
+                }
                 Err(err) => {
-                    yield Ok(SSEvent::default().json_data(err).expect("sse serialize error"));
+                    yield Ok(SSEvent::default().json_data(err).unwrap());
+                    return;
+                }
+                _ => {
+                    yield Ok(SSEvent::default()
+                        .json_data("unable to find query result")
+                        .unwrap());
                     return;
                 }
             }
-            match rx.recv().await {
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+            let mut futs = rx_keys
+                .iter()
+                .map(|id| {
+                    let mut rx: Receiver<_> = config.api_updates.wait(*id);
+                    async move { rx.recv().await }
+                })
+                .collect::<FuturesUnordered<_>>();
+            match futs.next().await {
+                Some(Ok(_)) => continue,
+                Some(Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped))) => {
+                    tracing::error!(skipped, "stream lagged")
+                },
+                Some(Err(tokio::sync::broadcast::error::RecvError::Closed)) | None => {
                     tracing::error!("stream closed. closing sse connection");
                     yield Ok(SSEvent::default().data(String::from("We're closed. Please come again!")));
                     return
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                    tracing::error!(skipped, "stream lagged")
-                }
-                Ok(_) => {},
             }
         }
     };
@@ -146,8 +161,8 @@ impl RequestLog {
         for req in &log.requests {
             gafe.log_query(
                 req.api_key.clone(),
-                req.chain.unwrap_or_default(),
-                req.event_signatures.clone(),
+                *req.chains.keys().next().unwrap(),
+                req.signatures.clone(),
                 req.query.clone(),
                 latency,
                 status,
@@ -176,17 +191,7 @@ async fn query(
     be_pool: Pool,
     timeout: Duration,
     requests: &[Request],
-) -> Result<Response, api::Error> {
-    let queries = requests
-        .iter()
-        .map(|r| {
-            query::sql(
-                &HashMap::from([(r.chain.unwrap_chain()?, r.block_height)]),
-                r.event_signatures.iter().map(|s| s.as_str()).collect(),
-                &r.query,
-            )
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+) -> Result<Vec<Response>, api::Error> {
     let mut pg = be_pool.get().await?;
     let pgtx = pg
         .build_transaction()
@@ -199,39 +204,36 @@ async fn query(
         &[],
     )
     .await?;
-    let block_height = pgtx
-        .query_one(
-            "select coalesce(max(num), 0)::text from blocks where chain = $1",
-            &[&requests
-                .first()
-                .expect("no queries in request")
-                .chain
-                .unwrap_chain()?],
-        )
-        .await?
-        .get::<usize, U64>(0)
-        .to::<u64>();
-    let mut result: Vec<Rows> = Vec::new();
-    for q in queries {
-        result.push(handle_rows(pgtx.query(&q, &[]).await?)?);
+    let mut result: Vec<Response> = Vec::new();
+    for r in requests {
+        let sql = query::sql(
+            &r.chains,
+            r.signatures.iter().map(|s| s.as_str()).collect(),
+            &r.query,
+        )?;
+        let rows = pgtx.query(&sql, &[]).await?;
+        result.push(Response {
+            chains: HashMap::new(),
+            columns: get_columns(&rows)?,
+            rows: get_rows(&rows)?,
+        });
     }
-    Ok(Response {
-        block_height,
-        result,
-    })
+    Ok(result)
 }
 
-fn handle_rows(rows: Vec<tokio_postgres::Row>) -> Result<Rows, api::Error> {
-    let mut result: Rows = Vec::new();
-    if let Some(first) = rows.first() {
-        result.push(
-            first
-                .columns()
+fn get_columns(rows: &[tokio_postgres::Row]) -> Result<HashMap<String, String>, api::Error> {
+    rows.first()
+        .map(|row| {
+            row.columns()
                 .iter()
-                .map(|c| Value::String(c.name().to_string()))
-                .collect(),
-        );
-    }
+                .map(|col| (col.name().to_string(), col.type_().to_string()))
+                .collect()
+        })
+        .ok_or_else(|| api::Error::User("foo".to_string()))
+}
+
+fn get_rows(rows: &Vec<tokio_postgres::Row>) -> Result<Vec<Vec<Value>>, api::Error> {
+    let mut result: Vec<Vec<Value>> = Vec::new();
     for row in rows {
         let mut json_row: Vec<Value> = Vec::new();
         for (idx, column) in row.columns().iter().enumerate() {

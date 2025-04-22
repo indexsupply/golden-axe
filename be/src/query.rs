@@ -31,12 +31,11 @@ const PG: &sqlparser::dialect::PostgreSqlDialect = &sqlparser::dialect::PostgreS
 /// The SQL API implements onlny a subset of SQL so un-supported
 /// SQL results in an error.
 pub fn sql(
-    chain: api::Chain,
-    from: Option<u64>,
+    chains: &HashMap<api::Chain, Option<u64>>,
+    signatures: Vec<&str>,
     user_query: &str,
-    event_sigs: Vec<&str>,
 ) -> Result<String, api::Error> {
-    let mut query = UserQuery::new(&event_sigs)?;
+    let mut query = UserQuery::new(&signatures)?;
     let new_query = query.process(user_query)?;
     let query = [
         "with".to_string(),
@@ -45,7 +44,7 @@ pub fn sql(
             .iter()
             .filter(|rel| !rel.selected_fields.is_empty())
             .sorted_by_key(|s| s.table_name.to_string())
-            .map(|rel| rel.to_sql(chain, from))
+            .map(|rel| rel.to_sql(chains))
             .join(","),
         new_query.to_string(),
     ]
@@ -100,7 +99,7 @@ impl Relation {
             || self.table_alias.contains(other)
     }
 
-    fn to_sql(&self, chain: api::Chain, from: Option<u64>) -> String {
+    fn to_sql(&self, chains: &HashMap<api::Chain, Option<u64>>) -> String {
         let mut res: Vec<String> = Vec::new();
         res.push(format!("{} as not materialized (", self.table_name));
         res.push("select".to_string());
@@ -127,20 +126,26 @@ impl Relation {
             }
         }
         res.push(select_list.join(","));
-        if let Some(event) = self.event.as_ref() {
-            res.push(format!("from {}", event.base_table()));
-            res.push(format!("where chain = {}", chain));
-            res.push(event.sighash_sql_predicate());
-        } else {
-            res.push(format!("from {} where chain = {}", self.table_name, chain));
-        }
-        if let Some(n) = from {
-            if self.table_name.to_string() == "blocks" {
-                res.push(format!("and num >= {}", n))
-            } else {
-                res.push(format!("and block_num >= {}", n))
+
+        let mut and_predicates = vec![];
+        let mut chain_predicates = vec![];
+        for (chain, block_height) in chains.iter() {
+            let mut per_chain = vec![];
+            per_chain.push(format!("chain = {}", chain));
+            if let Some(n) = block_height.as_ref() {
+                if self.table_name.to_string() == "blocks" {
+                    per_chain.push(format!("num >= {}", n))
+                } else {
+                    per_chain.push(format!("block_num >= {}", n))
+                }
             }
+            chain_predicates.push(per_chain.join(" and "));
         }
+        and_predicates.push(format!("({})", chain_predicates.join(" or ")));
+        if let Some(event) = self.event.as_ref() {
+            and_predicates.push(event.sighash_sql_predicate());
+        }
+        res.push(format!("where {}", and_predicates.join(" and ")));
         res.push(")".to_string());
         res.join(" ")
     }
@@ -879,8 +884,12 @@ mod tests {
     }
 
     async fn check_sql(event_sigs: Vec<&str>, user_query: &str, want: &str) {
-        let got = sql(1.into(), None, user_query, event_sigs)
-            .unwrap_or_else(|e| panic!("unable to create sql for:\n{} error: {:?}", user_query, e));
+        let got = sql(
+            &HashMap::from([(api::Chain(1), None)]),
+            event_sigs,
+            user_query,
+        )
+        .unwrap_or_else(|e| panic!("unable to create sql for:\n{} error: {:?}", user_query, e));
         let (got, want) = (
             fmt_sql(&got).unwrap_or_else(|_| panic!("unable to format got: {}", got)),
             fmt_sql(want).unwrap_or_else(|_| panic!("unable to format want: {}", want)),
