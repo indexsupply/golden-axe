@@ -35,7 +35,8 @@ use crate::{
 pub struct Request {
     #[serde(alias = "api-key")]
     pub api_key: Option<api::Key>,
-    pub cursor: Option<query::Cursor>,
+    #[serde(default)]
+    pub cursor: query::Cursor,
     #[serde(default)]
     pub signatures: Vec<String>,
     pub query: String,
@@ -101,7 +102,7 @@ pub async fn handle_sse(
             .await
             {
                 Ok(resp) if resp.len() == 1 => {
-                    req.cursor = Some(resp[0].cursor.clone());
+                    req.cursor = resp[0].cursor.clone();
                     yield Ok(SSEvent::default().json_data(&resp).unwrap());
                 }
                 Err(err) => {
@@ -120,7 +121,7 @@ pub async fn handle_sse(
                 match val {
                     Ok(broadcast::Message::Close) => return,
                     Ok(broadcast::Message::Block(new_block)) => {
-                        if req.cursor.as_ref().unwrap().contains(new_block.chain)  {
+                        if req.cursor.contains(new_block.chain)  {
                             break;
                         }
                     },
@@ -163,7 +164,7 @@ impl RequestLog {
         for req in &log.requests {
             gafe.log_query(
                 req.api_key.clone(),
-                req.cursor.clone().unwrap_or_default(),
+                req.cursor.clone(),
                 req.signatures.clone(),
                 req.query.clone(),
                 latency,
@@ -208,14 +209,16 @@ async fn query(
     .await?;
     let mut result: Vec<Response> = Vec::new();
     for r in requests {
-        let eq = query::sql(
-            r.cursor.clone(),
+        let mut cursor = r.cursor.clone();
+        let q = query::sql(
+            &mut cursor,
             r.signatures.iter().map(|s| s.as_str()).collect(),
             &r.query,
         )?;
-        let rows = pgtx.query(&eq.query, &[]).await?;
+        let rows = pgtx.query(&q, &[]).await?;
+        update_cursor(&pgtx, &mut cursor).await?;
         result.push(Response {
-            cursor: update_cursor(&pgtx, eq.cusror).await?,
+            cursor,
             columns: get_columns(&rows),
             rows: get_rows(&rows),
         });
@@ -225,8 +228,8 @@ async fn query(
 
 async fn update_cursor(
     pgtx: &tokio_postgres::Transaction<'_>,
-    mut cursor: query::Cursor,
-) -> Result<query::Cursor, api::Error> {
+    cursor: &mut query::Cursor,
+) -> Result<(), api::Error> {
     for c in cursor.chains() {
         let row = pgtx
             .query_one(
@@ -236,7 +239,7 @@ async fn update_cursor(
             .await?;
         cursor.set_block_height(c, row.get::<usize, U64>(0).to());
     }
-    Ok(cursor)
+    Ok(())
 }
 
 fn get_columns(rows: &[tokio_postgres::Row]) -> HashMap<String, String> {

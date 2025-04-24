@@ -19,7 +19,7 @@ time::serde::format_description!(
 #[derive(Clone, Debug, Serialize)]
 struct UserQuery {
     owner_email: Option<String>,
-    cursor: Option<query::Cursor>,
+    cursor: query::Cursor,
     events: Vec<String>,
     sql: String,
     latency: Option<u64>,
@@ -34,12 +34,11 @@ struct UserQuery {
 impl UserQuery {
     pub fn gen_sql(mut self) -> UserQuery {
         self.generated_sql = be::query::sql(
-            self.cursor.clone(),
+            &mut self.cursor.clone(),
             self.events.iter().map(AsRef::as_ref).collect(),
             &self.sql,
         )
-        .ok()
-        .map(|eq| eq.query);
+        .ok();
         self
     }
 }
@@ -117,7 +116,7 @@ async fn log(
         .await?
         .into_iter()
         .map(|row| UserQuery {
-            cursor: Some(query::Cursor::default()),
+            cursor: query::Cursor::default(),
             owner_email: row.get("owner_email"),
             events: row.get("events"),
             sql: row.get("user_query"),
@@ -164,7 +163,7 @@ async fn top(
         .await?
         .into_iter()
         .map(|row| UserQuery {
-            cursor: Some(query::Cursor::default()),
+            cursor: query::Cursor::default(),
             owner_email: row.get("owner_email"),
             events: row.get("events"),
             sql: row.get("user_query"),

@@ -189,10 +189,7 @@ async fn query(
         .iter()
         .map(|r| {
             query::sql(
-                Some(query::Cursor::new(
-                    r.chain.unwrap_or_default(),
-                    r.block_height,
-                )),
+                &mut query::Cursor::new(r.chain.unwrap_or_default(), r.block_height),
                 r.event_signatures.iter().map(|s| s.as_str()).collect(),
                 &r.query,
             )
@@ -224,8 +221,8 @@ async fn query(
         .get::<usize, U64>(0)
         .to::<u64>();
     let mut result: Vec<Rows> = Vec::new();
-    for eq in queries {
-        result.push(handle_rows(pgtx.query(&eq.query, &[]).await?)?);
+    for q in queries {
+        result.push(handle_rows(pgtx.query(&q, &[]).await?)?);
     }
     Ok(Response {
         block_height,

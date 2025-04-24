@@ -35,9 +35,10 @@ impl Cursor {
         Cursor(map)
     }
 
-    pub fn from_chains(chains: &HashSet<u64>) -> Self {
-        let map = chains.iter().map(|&c| (c, None)).collect();
-        Cursor(map)
+    pub fn add_chains(&mut self, chains: &HashSet<u64>) {
+        chains.iter().for_each(|&c| {
+            self.0.entry(c).or_insert(None);
+        })
     }
 
     pub fn contains(&self, chain: u64) -> bool {
@@ -45,11 +46,7 @@ impl Cursor {
     }
 
     pub fn chains(&self) -> Vec<u64> {
-        self.0.keys().cloned().collect()
-    }
-
-    pub fn set_block_height(&mut self, chain: u64, n: u64) {
-        self.0.insert(chain, Some(n));
+        self.0.keys().sorted().cloned().collect()
     }
 
     pub fn chain(&self) -> u64 {
@@ -59,21 +56,26 @@ impl Cursor {
         }
     }
 
-    pub fn to_sql(&self) -> String {
-        self.0
+    pub fn set_block_height(&mut self, chain: u64, n: u64) {
+        self.0.insert(chain, Some(n));
+    }
+
+    pub fn to_sql(&self, col_name: &str) -> String {
+        let predicates = self
+            .0
             .iter()
+            .sorted_by_key(|(chain, _)| *chain)
             .map(|(chain, block_num)| match block_num {
-                Some(n) => format!("(chain = {} and block_num > {})", chain, n),
+                Some(n) => format!("(chain = {} and {} > {})", chain, col_name, n),
                 None => format!("chain = {}", chain),
             })
-            .collect::<Vec<_>>()
-            .join(" or ")
+            .collect::<Vec<_>>();
+        if predicates.len() == 1 {
+            predicates[0].clone()
+        } else {
+            format!("({})", predicates.join(" or "))
+        }
     }
-}
-
-pub struct EnhancedQuery {
-    pub query: String,
-    pub cusror: Cursor,
 }
 
 const PG: &sqlparser::dialect::PostgreSqlDialect = &sqlparser::dialect::PostgreSqlDialect {};
@@ -83,12 +85,13 @@ const PG: &sqlparser::dialect::PostgreSqlDialect = &sqlparser::dialect::PostgreS
 /// The SQL API implements onlny a subset of SQL so un-supported
 /// SQL results in an error.
 pub fn sql(
-    cursor: Option<Cursor>,
+    cursor: &mut Cursor,
     signatures: Vec<&str>,
     user_query: &str,
-) -> Result<EnhancedQuery, api::Error> {
+) -> Result<String, api::Error> {
     let mut q = UserQuery::new(signatures)?;
-    let new_query = q.process(user_query)?;
+    let rewritten_query = q.process(user_query)?;
+    cursor.add_chains(&q.chains);
     let query = [
         "with".to_string(),
         q.relations
@@ -97,13 +100,10 @@ pub fn sql(
             .sorted_by_key(|s| s.table_name.to_string())
             .map(|rel| rel.to_sql(cursor.clone()))
             .join(","),
-        new_query.to_string(),
+        rewritten_query.to_string(),
     ]
     .join(" ");
-    Ok(EnhancedQuery {
-        query,
-        cusror: Cursor::from_chains(&q.chains),
-    })
+    Ok(query)
 }
 
 /*
@@ -153,7 +153,7 @@ impl Relation {
             || self.table_alias.contains(other)
     }
 
-    fn to_sql(&self, cursor: Option<Cursor>) -> String {
+    fn to_sql(&self, cursor: Cursor) -> String {
         let mut res: Vec<String> = Vec::new();
         res.push(format!("{} as not materialized (", self.table_name));
         res.push("select".to_string());
@@ -182,8 +182,10 @@ impl Relation {
         res.push(select_list.join(","));
 
         let mut predicates = vec![];
-        if let Some(cursor) = cursor {
-            predicates.push(cursor.to_sql());
+        if self.table_name.value.to_lowercase() == "blocks" {
+            predicates.push(cursor.to_sql("num"));
+        } else {
+            predicates.push(cursor.to_sql("block_num"));
         }
         if let Some(event) = self.event.as_ref() {
             predicates.push(event.sighash_sql_predicate());
@@ -950,10 +952,10 @@ mod tests {
     }
 
     async fn check_sql(event_sigs: Vec<&str>, user_query: &str, want: &str) {
-        let got = sql(Some(Cursor::new(1, None)), event_sigs, user_query)
+        let got = sql(&mut Cursor::new(1, None), event_sigs, user_query)
             .unwrap_or_else(|e| panic!("unable to create sql for:\n{} error: {:?}", user_query, e));
         let (got, want) = (
-            fmt_sql(&got.query).unwrap_or_else(|_| panic!("unable to format got: {}", got.query)),
+            fmt_sql(&got).unwrap_or_else(|_| panic!("unable to format got: {}", got)),
             fmt_sql(want).unwrap_or_else(|_| panic!("unable to format want: {}", want)),
         );
         if got.to_lowercase().ne(&want.to_lowercase()) {
@@ -962,6 +964,24 @@ mod tests {
         let pool = shared::pg::test::new(SCHEMA).await;
         let pg = pool.get().await.expect("getting pg from test pool");
         pg.query(&got, &[]).await.expect("issue with query");
+    }
+
+    #[test]
+    fn test_cursor() {
+        let mut cursor = Cursor::default();
+        cursor.set_block_height(8453, 100);
+        cursor.set_block_height(10, 42);
+        let _ = sql(
+            &mut cursor,
+            vec![],
+            "select hash from txs where chain in (8453, 10, 1)",
+        )
+        .unwrap();
+        assert_eq!(cursor.chains(), vec![1, 10, 8453]);
+        assert_eq!(
+            cursor.to_sql("foo"),
+            "(chain = 1 or (chain = 10 and foo > 42) or (chain = 8453 and foo > 100))"
+        );
     }
 
     #[tokio::test]
