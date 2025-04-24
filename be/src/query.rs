@@ -92,6 +92,11 @@ pub fn sql(
     let mut q = UserQuery::new(signatures)?;
     let rewritten_query = q.process(user_query)?;
     cursor.add_chains(&q.chains);
+    if cursor.chains().is_empty() {
+        return Err(api::Error::User(String::from(
+            "missing chain predicate in query",
+        )));
+    }
     let query = [
         "with".to_string(),
         q.relations
