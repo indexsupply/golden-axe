@@ -54,7 +54,7 @@ impl Event {
     }
 
     pub fn sighash_sql_predicate(&self) -> String {
-        format!(r#"and topics[1] = '\x{}'"#, hex::encode(self.sighash()))
+        format!(r#"topics[1] = '\x{}'"#, hex::encode(self.sighash()))
     }
 
     pub fn base_table(&self) -> String {

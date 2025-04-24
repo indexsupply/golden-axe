@@ -23,10 +23,10 @@ use serde::{Deserialize, Serialize};
 use deadpool_postgres::Pool;
 use serde::ser::SerializeStruct;
 use serde_json::{json, Value};
-use tokio::sync::{broadcast, OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use url::Url;
 
-use crate::gafe;
+use crate::{broadcast, gafe};
 
 macro_rules! user_error {
     ($e:expr) => {
@@ -45,7 +45,7 @@ pub async fn handle_service_error(error: tower::BoxError) -> Error {
 pub async fn handle_status(
     State(conf): State<Config>,
 ) -> axum::response::Sse<impl Stream<Item = Result<SSEvent, Infallible>>> {
-    let mut rx = conf.stat_updates.wait();
+    let mut rx = conf.broadcaster.wait();
     let config = conf.clone();
     let stream = async_stream::stream! {
         loop {
@@ -67,8 +67,7 @@ pub struct Config {
     pub be_pool: Pool,
     pub fe_pool: Pool,
     pub ro_pool: Pool,
-    pub api_updates: Arc<Broadcaster>,
-    pub stat_updates: Arc<JsonBroadcaster>,
+    pub broadcaster: Arc<broadcast::Channel>,
     pub active_connections: Arc<Semaphore>,
     pub open_limit: Arc<gafe::AccountLimit>,
     pub free_limit: Arc<gafe::AccountLimit>,
@@ -82,8 +81,7 @@ impl Config {
     pub fn new(be_pool: Pool, fe_pool: Pool, ro_pool: Pool) -> Config {
         Config {
             gafe: gafe::Connection::new(fe_pool.clone()),
-            api_updates: Arc::new(Broadcaster::default()),
-            stat_updates: Arc::new(JsonBroadcaster::default()),
+            broadcaster: Arc::new(broadcast::Channel::default()),
             active_connections: Arc::new(Semaphore::new(MAX_ACTIVE_CONNECTIONS)),
             account_limits: Arc::new(Mutex::new(HashMap::new())),
             free_limit: Arc::new(gafe::AccountLimit::free()),
@@ -232,67 +230,6 @@ where
                 })),
             )),
         }
-    }
-}
-
-pub struct JsonBroadcaster {
-    clients: broadcast::Sender<serde_json::Value>,
-}
-
-impl Default for JsonBroadcaster {
-    fn default() -> Self {
-        Self {
-            clients: broadcast::channel(16).0,
-        }
-    }
-}
-
-impl JsonBroadcaster {
-    pub fn wait(&self) -> broadcast::Receiver<serde_json::Value> {
-        self.clients.subscribe()
-    }
-    pub fn update(&self, data: serde_json::Value) {
-        let _ = self.clients.send(data);
-    }
-}
-
-pub struct Broadcaster {
-    clients: Mutex<HashMap<Chain, broadcast::Sender<u64>>>,
-}
-
-impl Default for Broadcaster {
-    fn default() -> Self {
-        Broadcaster {
-            clients: Mutex::new(HashMap::new()),
-        }
-    }
-}
-
-impl Broadcaster {
-    pub fn wait(&self, chain: Chain) -> broadcast::Receiver<u64> {
-        self.clients
-            .lock()
-            .expect("unlocking mutex for wait")
-            .entry(chain)
-            .or_insert(broadcast::channel(16).0)
-            .subscribe()
-    }
-    pub fn broadcast(&self, chain: Chain, block: u64) {
-        let _ = self
-            .clients
-            .lock()
-            .expect("unlocking mutex for broadcast")
-            .entry(chain)
-            .and_modify(|ch| {
-                let _ = ch.send(block);
-            })
-            .or_insert(broadcast::channel(16).0);
-    }
-    pub fn close(&self, chain: Chain) {
-        self.clients
-            .lock()
-            .expect("unlocking mutext for broadcast")
-            .remove_entry(&chain);
     }
 }
 

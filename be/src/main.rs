@@ -6,7 +6,7 @@ use axum::{
     extract::{connect_info::IntoMakeServiceWithConnectInfo, MatchedPath},
     routing::{get, post, Router},
 };
-use be::{api, api_sql, sync};
+use be::{api, api_sql, api_sql2, broadcast, sync};
 use clap::Parser;
 use tower::ServiceBuilder;
 use tower_http::{
@@ -123,10 +123,10 @@ async fn stats_updates(config: api::Config) {
                 .expect("unable to query db");
             let pretty_size: String = row.get(0);
             let size: i64 = row.get(1);
-            config.stat_updates.update(serde_json::json!({
+            config.broadcaster.update(broadcast::Message::Json(serde_json::json!({
                 "database_size_pretty": pretty_size,
                 "database_size": size,
-            }));
+            })));
         })
         .await;
         if let Err(e) = result {
@@ -206,6 +206,10 @@ fn service(config: api::Config) -> IntoMakeServiceWithConnectInfo<Router, Socket
         ))
         .layer(axum::middleware::from_fn_with_state(
             config.clone(),
+            api_sql2::log_request,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            config.clone(),
             api::limit,
         ))
         .layer(CompressionLayer::new());
@@ -215,6 +219,9 @@ fn service(config: api::Config) -> IntoMakeServiceWithConnectInfo<Router, Socket
         .route("/query", get(api_sql::handle_get))
         .route("/query", post(api_sql::handle_post))
         .route("/query-live", get(api_sql::handle_sse))
+        .route("/v2/query", get(api_sql2::handle_get))
+        .route("/v2/query", post(api_sql2::handle_post))
+        .route("/v2/live", get(api_sql2::handle_sse))
         .layer(service)
         .with_state(config.clone())
         .into_make_service_with_connect_info::<SocketAddr>()
@@ -232,7 +239,10 @@ mod tests {
 
     use super::service;
     use super::SCHEMA_BE;
-    use be::{api, api_sql, sync};
+    use be::{
+        api::{self},
+        api_sql, sync,
+    };
     use shared::jrpc;
 
     macro_rules! add_log {
@@ -335,20 +345,19 @@ mod tests {
         let server = TestServer::new(service(config.clone())).unwrap();
         let request = api_sql::Request {
             api_key: None,
-            chain: Some(api::Chain(1)),
+            chain: Some(1),
             block_height: None,
             event_signatures: vec![Foo::abi().full_signature()],
             query: String::from("select a, block_num from foo"),
         };
 
         tokio::spawn(async move {
-            let bcaster = config.api_updates.clone();
             for i in 1..=3 {
                 add_log!(pool, api::Chain(1), U64::from(i), Foo { a: U256::from(42) });
-                bcaster.broadcast(api::Chain(1), i);
+                config.broadcaster.new_block("local", 1, i);
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
-            bcaster.close(api::Chain(1));
+            config.broadcaster.close();
         });
         let resp = server
             .get("/query-live")
@@ -377,20 +386,18 @@ mod tests {
         let server = TestServer::new(service(config.clone())).unwrap();
         let request = api_sql::Request {
             api_key: None,
-            chain: Some(api::Chain(1)),
+            chain: Some(1),
             block_height: None,
             event_signatures: vec![Foo::abi().full_signature()],
             query: String::from("select a, block_num from bar"),
         };
 
         tokio::spawn(async move {
-            let bcaster = config.api_updates.clone();
             for i in 1..=3 {
                 add_log!(pool, api::Chain(1), U64::from(i), Foo { a: U256::from(42) });
-                bcaster.broadcast(api::Chain(1), i);
+                config.broadcaster.new_block("local", 1, i);
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
-            bcaster.close(api::Chain(1));
         });
         let resp = server
             .get("/query-live")

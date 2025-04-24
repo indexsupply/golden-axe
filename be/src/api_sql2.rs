@@ -7,7 +7,7 @@ use std::{
 
 use alloy::{
     hex,
-    primitives::{Bytes, I256},
+    primitives::{Bytes, I256, U64},
 };
 use axum::{
     extract::State,
@@ -20,30 +20,30 @@ use axum::{
 use axum_extra::extract::Form;
 use deadpool_postgres::Pool;
 use eyre::Context;
-use futures::{stream::FuturesUnordered, Stream, StreamExt};
+use futures::Stream;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::sync::broadcast::Receiver;
 use tokio_postgres::types::Type;
 
 use crate::{
     api::{self},
-    gafe, query,
+    broadcast, gafe, query,
 };
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
 pub struct Request {
     #[serde(alias = "api-key")]
     pub api_key: Option<api::Key>,
-    pub chains: HashMap<api::Chain, Option<u64>>,
+    pub cursor: Option<query::Cursor>,
+    #[serde(default)]
     pub signatures: Vec<String>,
     pub query: String,
 }
 
 #[derive(Serialize)]
 pub struct Response {
-    pub chains: HashMap<api::Chain, Option<u64>>,
+    pub cursor: query::Cursor,
     pub columns: HashMap<String, String>,
     pub rows: Vec<Vec<Value>>,
 }
@@ -89,9 +89,9 @@ pub async fn handle_sse(
     let plan_limit = account_limit.conn_limiter()?;
     let ip_limit = account_limit.conn_ip_limiter(&origin_ip.to_string())?;
 
-    let rx_keys: Vec<_> = req.chains.keys().cloned().collect();
     let stream = async_stream::stream! {
         let _hold_onto_permits = (active_connections, plan_limit, ip_limit);
+        let mut rx = config.broadcaster.wait();
         loop {
             match query(
                 config.ro_pool.clone(),
@@ -101,8 +101,8 @@ pub async fn handle_sse(
             .await
             {
                 Ok(resp) if resp.len() == 1 => {
-                    req.chains = resp[0].chains.clone();
-                    yield Ok(SSEvent::default().json_data(resp).unwrap());
+                    req.cursor = Some(resp[0].cursor.clone());
+                    yield Ok(SSEvent::default().json_data(&resp).unwrap());
                 }
                 Err(err) => {
                     yield Ok(SSEvent::default().json_data(err).unwrap());
@@ -115,22 +115,24 @@ pub async fn handle_sse(
                     return;
                 }
             }
-            let mut futs = rx_keys
-                .iter()
-                .map(|id| {
-                    let mut rx: Receiver<_> = config.api_updates.wait(*id);
-                    async move { rx.recv().await }
-                })
-                .collect::<FuturesUnordered<_>>();
-            match futs.next().await {
-                Some(Ok(_)) => continue,
-                Some(Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped))) => {
-                    tracing::error!(skipped, "stream lagged")
-                },
-                Some(Err(tokio::sync::broadcast::error::RecvError::Closed)) | None => {
-                    tracing::error!("stream closed. closing sse connection");
-                    yield Ok(SSEvent::default().data(String::from("We're closed. Please come again!")));
-                    return
+            loop {
+                let val = rx.recv().await;
+                match val {
+                    Ok(broadcast::Message::Close) => return,
+                    Ok(broadcast::Message::Block(new_block)) => {
+                        if req.cursor.as_ref().unwrap().contains(new_block.chain)  {
+                            break;
+                        }
+                    },
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        tracing::error!("stream lagged");
+                        break;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        tracing::error!("stream closed. closing sse connection");
+                        yield Ok(SSEvent::default().json_data(api::Error::Server(eyre::eyre!("stream closed").into())).unwrap());
+                        return;
+                    }
                 }
             }
         }
@@ -161,7 +163,7 @@ impl RequestLog {
         for req in &log.requests {
             gafe.log_query(
                 req.api_key.clone(),
-                *req.chains.keys().next().unwrap(),
+                req.cursor.clone().unwrap_or_default(),
                 req.signatures.clone(),
                 req.query.clone(),
                 latency,
@@ -206,22 +208,38 @@ async fn query(
     .await?;
     let mut result: Vec<Response> = Vec::new();
     for r in requests {
-        let sql = query::sql(
-            &r.chains,
+        let eq = query::sql(
+            r.cursor.clone(),
             r.signatures.iter().map(|s| s.as_str()).collect(),
             &r.query,
         )?;
-        let rows = pgtx.query(&sql, &[]).await?;
+        let rows = pgtx.query(&eq.query, &[]).await?;
         result.push(Response {
-            chains: HashMap::new(),
-            columns: get_columns(&rows)?,
-            rows: get_rows(&rows)?,
+            cursor: update_cursor(&pgtx, eq.cusror).await?,
+            columns: get_columns(&rows),
+            rows: get_rows(&rows),
         });
     }
     Ok(result)
 }
 
-fn get_columns(rows: &[tokio_postgres::Row]) -> Result<HashMap<String, String>, api::Error> {
+async fn update_cursor(
+    pgtx: &tokio_postgres::Transaction<'_>,
+    mut cursor: query::Cursor,
+) -> Result<query::Cursor, api::Error> {
+    for c in cursor.chains() {
+        let row = pgtx
+            .query_one(
+                "select coalesce(max(num), 0) from blocks where chain = $1",
+                &[&U64::from(c)],
+            )
+            .await?;
+        cursor.set_block_height(c, row.get::<usize, U64>(0).to());
+    }
+    Ok(cursor)
+}
+
+fn get_columns(rows: &[tokio_postgres::Row]) -> HashMap<String, String> {
     rows.first()
         .map(|row| {
             row.columns()
@@ -229,57 +247,63 @@ fn get_columns(rows: &[tokio_postgres::Row]) -> Result<HashMap<String, String>, 
                 .map(|col| (col.name().to_string(), col.type_().to_string()))
                 .collect()
         })
-        .ok_or_else(|| api::Error::User("foo".to_string()))
+        .unwrap_or_default()
 }
 
-fn get_rows(rows: &Vec<tokio_postgres::Row>) -> Result<Vec<Vec<Value>>, api::Error> {
-    let mut result: Vec<Vec<Value>> = Vec::new();
-    for row in rows {
-        let mut json_row: Vec<Value> = Vec::new();
-        for (idx, column) in row.columns().iter().enumerate() {
-            let value = match *column.type_() {
-                Type::BOOL => match row.get::<usize, Option<bool>>(idx) {
-                    Some(b) => Value::Bool(b),
-                    None => Value::Bool(false),
-                },
-                Type::NUMERIC => match row.get::<usize, Option<I256>>(idx) {
-                    Some(n) => Value::String(n.to_string()),
-                    None => Value::Null,
-                },
-                Type::INT2 => match row.get::<usize, Option<i16>>(idx) {
-                    Some(n) => Value::Number(n.into()),
-                    None => Value::Null,
-                },
-                Type::INT4 => match row.get::<usize, Option<i32>>(idx) {
-                    Some(n) => Value::Number(n.into()),
-                    None => Value::Null,
-                },
-                Type::INT8 => match row.get::<usize, Option<i64>>(idx) {
-                    Some(n) => Value::Number(n.into()),
-                    None => Value::Null,
-                },
-                Type::BYTEA => match row.get::<usize, Option<&[u8]>>(idx) {
-                    Some(b) => Value::String(hex::encode_prefixed(b)),
-                    None => Value::Null,
-                },
-                Type::TEXT => match row.get::<usize, Option<String>>(idx) {
-                    Some(s) => Value::String(s),
-                    None => Value::Null,
-                },
-                Type::BYTEA_ARRAY => {
-                    // for topics otherwise arrays are returned as jsonb via pg_golden_axe
-                    let arrays: Vec<Vec<u8>> = row.get::<usize, Vec<Vec<u8>>>(idx);
-                    serde_json::json!(arrays
-                        .iter()
-                        .map(|array| Bytes::copy_from_slice(array))
-                        .collect_vec())
-                }
-                Type::JSON | Type::JSONB => row.get::<usize, serde_json::Value>(idx),
-                _ => Value::Null,
-            };
-            json_row.push(value);
+fn get_rows(rows: &[tokio_postgres::Row]) -> Vec<Vec<Value>> {
+    rows.iter()
+        .map(|row| {
+            row.columns()
+                .iter()
+                .enumerate()
+                .map(|(idx, col)| value_from_column(row, idx, col))
+                .collect()
+        })
+        .collect()
+}
+
+fn value_from_column(
+    row: &tokio_postgres::Row,
+    idx: usize,
+    column: &tokio_postgres::Column,
+) -> Value {
+    match *column.type_() {
+        Type::BOOL => row
+            .get::<usize, Option<bool>>(idx)
+            .map(Value::Bool)
+            .unwrap_or(Value::Bool(false)),
+        Type::NUMERIC => row
+            .get::<usize, Option<I256>>(idx)
+            .map(|n| Value::String(n.to_string()))
+            .unwrap_or(Value::Null),
+        Type::INT2 => row
+            .get::<usize, Option<i16>>(idx)
+            .map(|n| Value::Number(n.into()))
+            .unwrap_or(Value::Null),
+        Type::INT4 => row
+            .get::<usize, Option<i32>>(idx)
+            .map(|n| Value::Number(n.into()))
+            .unwrap_or(Value::Null),
+        Type::INT8 => row
+            .get::<usize, Option<i64>>(idx)
+            .map(|n| Value::Number(n.into()))
+            .unwrap_or(Value::Null),
+        Type::BYTEA => row
+            .get::<usize, Option<&[u8]>>(idx)
+            .map(|b| Value::String(hex::encode_prefixed(b)))
+            .unwrap_or(Value::Null),
+        Type::TEXT => row
+            .get::<usize, Option<String>>(idx)
+            .map(Value::String)
+            .unwrap_or(Value::Null),
+        Type::BYTEA_ARRAY => {
+            let arrays: Vec<Vec<u8>> = row.get(idx);
+            serde_json::json!(arrays
+                .iter()
+                .map(|a| Bytes::copy_from_slice(a.as_slice()))
+                .collect_vec())
         }
-        result.push(json_row)
+        Type::JSON | Type::JSONB => row.get(idx),
+        _ => Value::Null,
     }
-    Ok(result)
 }

@@ -4,6 +4,7 @@ use alloy::{
 };
 use eyre::{Context, Result};
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 use sqlparser::{
     ast::{self, Ident, OrderByExpr},
     parser::Parser,
@@ -24,6 +25,57 @@ macro_rules! no {
     };
 }
 
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct Cursor(HashMap<u64, Option<u64>>);
+
+impl Cursor {
+    pub fn new(chain: u64, block_num: Option<u64>) -> Self {
+        let mut map = HashMap::new();
+        map.insert(chain, block_num);
+        Cursor(map)
+    }
+
+    pub fn from_chains(chains: &HashSet<u64>) -> Self {
+        let map = chains.iter().map(|&c| (c, None)).collect();
+        Cursor(map)
+    }
+
+    pub fn contains(&self, chain: u64) -> bool {
+        self.0.keys().any(|c| *c == chain)
+    }
+
+    pub fn chains(&self) -> Vec<u64> {
+        self.0.keys().cloned().collect()
+    }
+
+    pub fn set_block_height(&mut self, chain: u64, n: u64) {
+        self.0.insert(chain, Some(n));
+    }
+
+    pub fn chain(&self) -> u64 {
+        match self.0.keys().next() {
+            Some(c) => *c,
+            None => 0,
+        }
+    }
+
+    pub fn to_sql(&self) -> String {
+        self.0
+            .iter()
+            .map(|(chain, block_num)| match block_num {
+                Some(n) => format!("(chain = {} and block_num > {})", chain, n),
+                None => format!("chain = {}", chain),
+            })
+            .collect::<Vec<_>>()
+            .join(" or ")
+    }
+}
+
+pub struct EnhancedQuery {
+    pub query: String,
+    pub cusror: Cursor,
+}
+
 const PG: &sqlparser::dialect::PostgreSqlDialect = &sqlparser::dialect::PostgreSqlDialect {};
 
 /// Parses the user supplied query into a SQL AST
@@ -31,25 +83,27 @@ const PG: &sqlparser::dialect::PostgreSqlDialect = &sqlparser::dialect::PostgreS
 /// The SQL API implements onlny a subset of SQL so un-supported
 /// SQL results in an error.
 pub fn sql(
-    chains: &HashMap<api::Chain, Option<u64>>,
+    cursor: Option<Cursor>,
     signatures: Vec<&str>,
     user_query: &str,
-) -> Result<String, api::Error> {
-    let mut query = UserQuery::new(&signatures)?;
-    let new_query = query.process(user_query)?;
+) -> Result<EnhancedQuery, api::Error> {
+    let mut q = UserQuery::new(signatures)?;
+    let new_query = q.process(user_query)?;
     let query = [
         "with".to_string(),
-        query
-            .relations
+        q.relations
             .iter()
             .filter(|rel| !rel.selected_fields.is_empty())
             .sorted_by_key(|s| s.table_name.to_string())
-            .map(|rel| rel.to_sql(chains))
+            .map(|rel| rel.to_sql(cursor.clone()))
             .join(","),
         new_query.to_string(),
     ]
     .join(" ");
-    Ok(query)
+    Ok(EnhancedQuery {
+        query,
+        cusror: Cursor::from_chains(&q.chains),
+    })
 }
 
 /*
@@ -99,7 +153,7 @@ impl Relation {
             || self.table_alias.contains(other)
     }
 
-    fn to_sql(&self, chains: &HashMap<api::Chain, Option<u64>>) -> String {
+    fn to_sql(&self, cursor: Option<Cursor>) -> String {
         let mut res: Vec<String> = Vec::new();
         res.push(format!("{} as not materialized (", self.table_name));
         res.push("select".to_string());
@@ -127,25 +181,19 @@ impl Relation {
         }
         res.push(select_list.join(","));
 
-        let mut and_predicates = vec![];
-        let mut chain_predicates = vec![];
-        for (chain, block_height) in chains.iter() {
-            let mut per_chain = vec![];
-            per_chain.push(format!("chain = {}", chain));
-            if let Some(n) = block_height.as_ref() {
-                if self.table_name.to_string() == "blocks" {
-                    per_chain.push(format!("num >= {}", n))
-                } else {
-                    per_chain.push(format!("block_num >= {}", n))
-                }
-            }
-            chain_predicates.push(per_chain.join(" and "));
+        let mut predicates = vec![];
+        if let Some(cursor) = cursor {
+            predicates.push(cursor.to_sql());
         }
-        and_predicates.push(format!("({})", chain_predicates.join(" or ")));
         if let Some(event) = self.event.as_ref() {
-            and_predicates.push(event.sighash_sql_predicate());
+            predicates.push(event.sighash_sql_predicate());
+            res.push(format!("from {}", event.base_table()));
+        } else {
+            res.push(format!("from {}", self.table_name));
         }
-        res.push(format!("where {}", and_predicates.join(" and ")));
+        if !predicates.is_empty() {
+            res.push(format!("where {}", predicates.join(" and ")));
+        }
         res.push(")".to_string());
         res.join(" ")
     }
@@ -154,12 +202,13 @@ impl Relation {
 #[derive(Debug)]
 struct UserQuery {
     relations: Vec<Relation>,
+    chains: HashSet<u64>,
 }
 
 impl UserQuery {
-    fn new(event_sigs: &[&str]) -> Result<UserQuery, api::Error> {
+    fn new(sigs: Vec<&str>) -> Result<UserQuery, api::Error> {
         let mut relations = vec![];
-        for sig in event_sigs.iter().filter(|s| !s.is_empty()) {
+        for sig in sigs.iter().filter(|s| !s.is_empty()) {
             let event = abi::Event::parse(sig)
                 .map_err(|_| api::Error::User(format!("unable to parse event: {}", sig)))?;
             relations.push(Relation {
@@ -169,7 +218,10 @@ impl UserQuery {
                 event: Some(event),
             });
         }
-        Ok(UserQuery { relations })
+        Ok(UserQuery {
+            chains: HashSet::new(),
+            relations,
+        })
     }
 
     fn process(&mut self, user_query: &str) -> Result<String, api::Error> {
@@ -186,6 +238,17 @@ impl UserQuery {
             _ => Err(api::Error::User("select queries only".to_string())),
         }?;
         Ok(stmt.to_string())
+    }
+
+    fn set_chain(&mut self, left: &mut ast::Expr, right: &mut ast::Expr) {
+        if left
+            .last()
+            .map_or(false, |s| s.value.to_lowercase() == "chain")
+        {
+            if let ast::Expr::Value(ast::Value::Number(numstr, _)) = right {
+                self.chains.insert(numstr.parse().unwrap_or_default());
+            }
+        }
     }
 
     fn set_relation(&mut self, name: &Ident, alias: Option<&Ident>) -> Result<(), api::Error> {
@@ -586,12 +649,14 @@ impl UserQuery {
                 self.validate_expression(right)
             }
             ast::Expr::BinaryOp { left, right, .. } => {
+                self.set_chain(left, right);
                 self.rewrite_binary_expr(left, right)?;
                 self.validate_expression(left)?;
                 self.validate_expression(right)
             }
             ast::Expr::InList { expr, list, .. } => {
                 for e in list {
+                    self.set_chain(expr, e);
                     self.rewrite_binary_expr(expr, e)?;
                     self.validate_expression(e)?;
                 }
@@ -807,6 +872,7 @@ fn base_column_type(id: &Ident) -> Option<ast::DataType> {
         "log_idx" => Some(ast::DataType::Int64),
 
         //Shared
+        "chain" => Some(ast::DataType::Int64),
         "nonce" | "hash" => Some(ast::DataType::Bytea),
         "block_num" => Some(ast::DataType::Int64),
         "block_timestamp" => Some(ast::DataType::Timestamp(None, ast::TimezoneInfo::Tz)),
@@ -884,14 +950,10 @@ mod tests {
     }
 
     async fn check_sql(event_sigs: Vec<&str>, user_query: &str, want: &str) {
-        let got = sql(
-            &HashMap::from([(api::Chain(1), None)]),
-            event_sigs,
-            user_query,
-        )
-        .unwrap_or_else(|e| panic!("unable to create sql for:\n{} error: {:?}", user_query, e));
+        let got = sql(Some(Cursor::new(1, None)), event_sigs, user_query)
+            .unwrap_or_else(|e| panic!("unable to create sql for:\n{} error: {:?}", user_query, e));
         let (got, want) = (
-            fmt_sql(&got).unwrap_or_else(|_| panic!("unable to format got: {}", got)),
+            fmt_sql(&got.query).unwrap_or_else(|_| panic!("unable to format got: {}", got.query)),
             fmt_sql(want).unwrap_or_else(|_| panic!("unable to format want: {}", want)),
         );
         if got.to_lowercase().ne(&want.to_lowercase()) {

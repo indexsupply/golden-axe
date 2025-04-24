@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     convert::Infallible,
     sync::{Arc, Mutex},
     time::{self, Duration},
@@ -27,15 +26,15 @@ use serde_json::Value;
 use tokio_postgres::types::Type;
 
 use crate::{
-    api::{self, ChainOptionExt},
-    gafe, query,
+    api::{self},
+    broadcast, gafe, query,
 };
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
 pub struct Request {
     #[serde(alias = "api-key")]
     pub api_key: Option<api::Key>,
-    pub chain: Option<api::Chain>,
+    pub chain: Option<u64>,
     pub event_signatures: Vec<String>,
     pub query: String,
     pub block_height: Option<u64>,
@@ -44,7 +43,7 @@ pub struct Request {
 type Row = Vec<Value>;
 type Rows = Vec<Row>;
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Response {
     pub block_height: u64,
     pub result: Vec<Rows>,
@@ -61,7 +60,7 @@ pub async fn handle_post(
     let ttl = account_limit.timeout;
     // It's possible to specify chain/api_key in either the header or the query params for POST
     req.iter_mut().for_each(|r| {
-        r.chain.get_or_insert(chain);
+        r.chain.get_or_insert(chain.0);
         r.api_key.get_or_insert(api_key.clone());
     });
     log.add(req.clone());
@@ -93,13 +92,13 @@ pub async fn handle_sse(
     let plan_limit = account_limit.conn_limiter()?;
     let ip_limit = account_limit.conn_ip_limiter(&origin_ip.to_string())?;
 
-    let mut rx = config.api_updates.wait(req.chain.expect("missing chain"));
+    let mut rx = config.broadcaster.wait();
     let stream = async_stream::stream! {
         let _hold_onto_permits = (active_connections, plan_limit, ip_limit);
         loop {
             match query(config.ro_pool.clone(), account_limit.timeout, &[req.clone()]).await {
                 Ok(resp) =>  {
-                    req.block_height = Some(resp.block_height + 1);
+                    req.block_height = Some(resp.block_height);
                     yield Ok(SSEvent::default().json_data(resp).expect("sse serialize query"));
                 },
                 Err(err) => {
@@ -107,16 +106,25 @@ pub async fn handle_sse(
                     return;
                 }
             }
-            match rx.recv().await {
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                    tracing::error!("stream closed. closing sse connection");
-                    yield Ok(SSEvent::default().data(String::from("We're closed. Please come again!")));
-                    return
+            loop {
+                let val = rx.recv().await;
+                match val {
+                    Ok(broadcast::Message::Close) => return,
+                    Ok(broadcast::Message::Block(new_block)) => {
+                        if new_block.chain == req.chain.unwrap() {
+                            break;
+                        }
+                    },
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        tracing::error!("stream lagged");
+                        break;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        tracing::error!("stream closed. closing sse connection");
+                        yield Ok(SSEvent::default().json_data(api::Error::Server(eyre::eyre!("stream closed").into())).unwrap());
+                        return;
+                    }
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                    tracing::error!(skipped, "stream lagged")
-                }
-                Ok(_) => {},
             }
         }
     };
@@ -146,7 +154,7 @@ impl RequestLog {
         for req in &log.requests {
             gafe.log_query(
                 req.api_key.clone(),
-                req.chain.unwrap_or_default(),
+                query::Cursor::new(req.chain.unwrap_or_default(), None),
                 req.event_signatures.clone(),
                 req.query.clone(),
                 latency,
@@ -181,7 +189,10 @@ async fn query(
         .iter()
         .map(|r| {
             query::sql(
-                &HashMap::from([(r.chain.unwrap_chain()?, r.block_height)]),
+                Some(query::Cursor::new(
+                    r.chain.unwrap_or_default(),
+                    r.block_height,
+                )),
                 r.event_signatures.iter().map(|s| s.as_str()).collect(),
                 &r.query,
             )
@@ -199,21 +210,22 @@ async fn query(
         &[],
     )
     .await?;
+    let chain = requests
+        .first()
+        .expect("no queries in request")
+        .chain
+        .unwrap_or_default();
     let block_height = pgtx
         .query_one(
             "select coalesce(max(num), 0)::text from blocks where chain = $1",
-            &[&requests
-                .first()
-                .expect("no queries in request")
-                .chain
-                .unwrap_chain()?],
+            &[&U64::from(chain)],
         )
         .await?
         .get::<usize, U64>(0)
         .to::<u64>();
     let mut result: Vec<Rows> = Vec::new();
-    for q in queries {
-        result.push(handle_rows(pgtx.query(&q, &[]).await?)?);
+    for eq in queries {
+        result.push(handle_rows(pgtx.query(&eq.query, &[]).await?)?);
     }
     Ok(Response {
         block_height,

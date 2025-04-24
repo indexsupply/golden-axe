@@ -1,11 +1,10 @@
-use std::collections::HashMap;
 use std::net::SocketAddr;
 
 use crate::{session, web};
 use axum::extract::{ConnectInfo, FromRequestParts, State};
 use axum::response::{Html, IntoResponse, Redirect};
 use axum::Form;
-use be::api;
+use be::query;
 use eyre::Context;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -20,7 +19,7 @@ time::serde::format_description!(
 #[derive(Clone, Debug, Serialize)]
 struct UserQuery {
     owner_email: Option<String>,
-    chains: HashMap<api::Chain, Option<u64>>,
+    cursor: Option<query::Cursor>,
     events: Vec<String>,
     sql: String,
     latency: Option<u64>,
@@ -35,11 +34,12 @@ struct UserQuery {
 impl UserQuery {
     pub fn gen_sql(mut self) -> UserQuery {
         self.generated_sql = be::query::sql(
-            &self.chains,
+            self.cursor.clone(),
             self.events.iter().map(AsRef::as_ref).collect(),
             &self.sql,
         )
-        .ok();
+        .ok()
+        .map(|eq| eq.query);
         self
     }
 }
@@ -117,7 +117,7 @@ async fn log(
         .await?
         .into_iter()
         .map(|row| UserQuery {
-            chains: HashMap::new(),
+            cursor: Some(query::Cursor::default()),
             owner_email: row.get("owner_email"),
             events: row.get("events"),
             sql: row.get("user_query"),
@@ -164,7 +164,7 @@ async fn top(
         .await?
         .into_iter()
         .map(|row| UserQuery {
-            chains: HashMap::new(),
+            cursor: Some(query::Cursor::default()),
             owner_email: row.get("owner_email"),
             events: row.get("events"),
             sql: row.get("user_query"),

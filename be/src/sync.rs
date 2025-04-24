@@ -12,7 +12,7 @@ use eyre::{eyre, Context, Result};
 use futures::pin_mut;
 use tokio_postgres::{binary_copy::BinaryCopyInWriter, Transaction};
 
-use crate::api;
+use crate::{api, broadcast};
 
 #[derive(Debug)]
 pub enum Error {
@@ -127,18 +127,15 @@ pub async fn run(config: api::Config) {
             .collect_vec();
         for remote in remotes.iter() {
             if !table.contains_key(remote) {
-                let (conf, be_pool, api_updates, stat_updates) = (
+                let (conf, be_pool, stat_updates) = (
                     remote.clone(),
                     config.be_pool.clone(),
-                    config.api_updates.clone(),
-                    config.stat_updates.clone(),
+                    config.broadcaster.clone(),
                 );
                 table.insert(
                     conf.clone(),
                     tokio::spawn(async move {
-                        Downloader::new(conf, be_pool, api_updates, stat_updates)
-                            .run()
-                            .await
+                        Downloader::new(conf, be_pool, stat_updates).run().await
                     }),
                 );
             }
@@ -171,8 +168,7 @@ pub struct Downloader {
     be_pool: Pool,
     jrpc_client: Arc<jrpc::Client>,
 
-    api_updates: Arc<api::Broadcaster>,
-    stat_updates: Arc<api::JsonBroadcaster>,
+    stat_updates: Arc<broadcast::Channel>,
 
     partition_max_block: Option<u64>,
 }
@@ -181,8 +177,7 @@ impl Downloader {
     pub fn new(
         config: RemoteConfig,
         be_pool: Pool,
-        api_updates: Arc<api::Broadcaster>,
-        stat_updates: Arc<api::JsonBroadcaster>,
+        stat_updates: Arc<broadcast::Channel>,
     ) -> Downloader {
         let jrpc_client = Arc::new(jrpc::Client::new(config.url.as_ref()));
         Downloader {
@@ -192,7 +187,6 @@ impl Downloader {
             start_block: config.start_block,
             be_pool,
             jrpc_client,
-            api_updates,
             stat_updates,
             partition_max_block: None,
         }
@@ -257,12 +251,7 @@ impl Downloader {
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 }
                 Ok(last) => {
-                    self.api_updates.broadcast(self.chain, last);
-                    self.stat_updates.update(serde_json::json!({
-                        "new_block": "local",
-                        "chain": self.chain,
-                        "num": last,
-                    }));
+                    self.stat_updates.new_block("local", self.chain.0, last);
                     batch_size = self.batch_size
                 }
             }
@@ -306,11 +295,8 @@ impl Downloader {
     #[tracing::instrument(level="info" skip_all, fields(from, to, blocks, txs, logs))]
     async fn download(&mut self, batch_size: u16) -> Result<u64, Error> {
         let latest = self.remote_block_latest().await?;
-        self.stat_updates.update(serde_json::json!({
-            "new_block": "remote",
-            "chain": self.chain,
-            "num": latest.number.to::<u64>(),
-        }));
+        self.stat_updates
+            .new_block("remote", self.chain.0, latest.number.to::<u64>());
         let (local_num, local_hash) = self.local_latest().await?;
         if local_num >= latest.number.to() {
             return Err(Error::Wait);

@@ -5,13 +5,14 @@ use std::{
     time::Duration,
 };
 
+use alloy::primitives::U64;
 use dashmap::DashMap;
 use deadpool_postgres::Pool;
 use governor::{Quota, RateLimiter};
 use nonzero::nonzero;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-use crate::api;
+use crate::{api, query};
 
 #[derive(Debug)]
 pub struct AccountLimit {
@@ -168,7 +169,7 @@ impl Connection {
     pub async fn log_query(
         &self,
         key: Option<api::Key>,
-        chain: api::Chain,
+        cursor: query::Cursor,
         events: Vec<String>,
         query: String,
         latency: u64,
@@ -192,7 +193,7 @@ impl Connection {
                         ) values ($1, $2, $3, $4, $5, $6)",
                         &[
                             &key.map(|k| k.to_string()),
-                            &chain,
+                            &U64::from(cursor.chain()),
                             &events,
                             &query,
                             &(latency as i32),
