@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     convert::Infallible,
     sync::{Arc, Mutex},
     time::{self, Duration},
@@ -43,9 +42,15 @@ pub struct Request {
 }
 
 #[derive(Serialize)]
+pub struct Column {
+    pub name: String,
+    pub pgtype: String,
+}
+
+#[derive(Serialize)]
 pub struct Response {
     pub cursor: query::Cursor,
-    pub columns: HashMap<String, String>,
+    pub columns: Vec<Column>,
     pub rows: Vec<Vec<Value>>,
 }
 
@@ -229,12 +234,15 @@ async fn update_cursor(
     Ok(())
 }
 
-fn get_columns(rows: &[tokio_postgres::Row]) -> HashMap<String, String> {
+fn get_columns(rows: &[tokio_postgres::Row]) -> Vec<Column> {
     rows.first()
         .map(|row| {
             row.columns()
                 .iter()
-                .map(|col| (col.name().to_string(), col.type_().to_string()))
+                .map(|col| Column {
+                    name: col.name().to_string(),
+                    pgtype: col.type_().to_string(),
+                })
                 .collect()
         })
         .unwrap_or_default()
