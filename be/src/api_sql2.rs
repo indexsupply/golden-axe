@@ -28,7 +28,7 @@ use tokio_postgres::types::Type;
 
 use crate::{
     api::{self},
-    broadcast, gafe, query,
+    gafe, query,
 };
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
@@ -92,7 +92,6 @@ pub async fn handle_sse(
 
     let stream = async_stream::stream! {
         let _hold_onto_permits = (active_connections, plan_limit, ip_limit);
-        let mut rx = config.broadcaster.wait();
         loop {
             match query(
                 config.ro_pool.clone(),
@@ -116,25 +115,13 @@ pub async fn handle_sse(
                     return;
                 }
             }
-            loop {
-                let val = rx.recv().await;
-                match val {
-                    Ok(broadcast::Message::Close) => return,
-                    Ok(broadcast::Message::Block(new_block)) => {
-                        if req.cursor.contains(new_block.chain)  {
-                            break;
-                        }
-                    },
-                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                        tracing::error!("stream lagged");
-                        break;
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                        tracing::error!("stream closed. closing sse connection");
-                        yield Ok(SSEvent::default().json_data(api::Error::Server(eyre::eyre!("stream closed").into())).unwrap());
-                        return;
-                    }
-                }
+            let waiting = config
+                .broadcaster
+                .wait(&req.cursor.chains())
+                .await;
+            if waiting.is_none() {
+                yield Ok(SSEvent::default().json_data("closed").expect("sse serialize error"));
+                return;
             }
         }
     };

@@ -45,7 +45,7 @@ pub async fn handle_service_error(error: tower::BoxError) -> Error {
 pub async fn handle_status(
     State(conf): State<Config>,
 ) -> axum::response::Sse<impl Stream<Item = Result<SSEvent, Infallible>>> {
-    let mut rx = conf.broadcaster.wait();
+    let mut rx = conf.broadcaster.json_updates.subscribe();
     let config = conf.clone();
     let stream = async_stream::stream! {
         loop {

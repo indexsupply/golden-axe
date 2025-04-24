@@ -127,16 +127,16 @@ pub async fn run(config: api::Config) {
             .collect_vec();
         for remote in remotes.iter() {
             if !table.contains_key(remote) {
-                let (conf, be_pool, stat_updates) = (
+                let (conf, be_pool, broadcaster) = (
                     remote.clone(),
                     config.be_pool.clone(),
                     config.broadcaster.clone(),
                 );
                 table.insert(
                     conf.clone(),
-                    tokio::spawn(async move {
-                        Downloader::new(conf, be_pool, stat_updates).run().await
-                    }),
+                    tokio::spawn(
+                        async move { Downloader::new(conf, be_pool, broadcaster).run().await },
+                    ),
                 );
             }
         }
@@ -167,9 +167,7 @@ pub struct Downloader {
 
     be_pool: Pool,
     jrpc_client: Arc<jrpc::Client>,
-
-    stat_updates: Arc<broadcast::Channel>,
-
+    broadcaster: Arc<broadcast::Channel>,
     partition_max_block: Option<u64>,
 }
 
@@ -177,7 +175,7 @@ impl Downloader {
     pub fn new(
         config: RemoteConfig,
         be_pool: Pool,
-        stat_updates: Arc<broadcast::Channel>,
+        broadcaster: Arc<broadcast::Channel>,
     ) -> Downloader {
         let jrpc_client = Arc::new(jrpc::Client::new(config.url.as_ref()));
         Downloader {
@@ -187,7 +185,7 @@ impl Downloader {
             start_block: config.start_block,
             be_pool,
             jrpc_client,
-            stat_updates,
+            broadcaster,
             partition_max_block: None,
         }
     }
@@ -251,7 +249,12 @@ impl Downloader {
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 }
                 Ok(last) => {
-                    self.stat_updates.new_block("local", self.chain.0, last);
+                    self.broadcaster.update(self.chain.0);
+                    let _ = self.broadcaster.json_updates.send(serde_json::json!({
+                        "new_block": "local",
+                        "chain": self.chain.0,
+                        "num": last,
+                    }));
                     batch_size = self.batch_size
                 }
             }
@@ -295,8 +298,11 @@ impl Downloader {
     #[tracing::instrument(level="info" skip_all, fields(from, to, blocks, txs, logs))]
     async fn download(&mut self, batch_size: u16) -> Result<u64, Error> {
         let latest = self.remote_block_latest().await?;
-        self.stat_updates
-            .new_block("remote", self.chain.0, latest.number.to::<u64>());
+        let _ = self.broadcaster.json_updates.send(serde_json::json!({
+            "new_block": "remote",
+            "chain": self.chain.0,
+            "num": latest.number.to::<u64>(),
+        }));
         let (local_num, local_hash) = self.local_latest().await?;
         if local_num >= latest.number.to() {
             return Err(Error::Wait);

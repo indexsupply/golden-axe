@@ -6,7 +6,7 @@ use axum::{
     extract::{connect_info::IntoMakeServiceWithConnectInfo, MatchedPath},
     routing::{get, post, Router},
 };
-use be::{api, api_sql, api_sql2, broadcast, sync};
+use be::{api, api_sql, api_sql2, sync};
 use clap::Parser;
 use tower::ServiceBuilder;
 use tower_http::{
@@ -123,10 +123,10 @@ async fn stats_updates(config: api::Config) {
                 .expect("unable to query db");
             let pretty_size: String = row.get(0);
             let size: i64 = row.get(1);
-            config.broadcaster.update(broadcast::Message::Json(serde_json::json!({
+            let _ = config.broadcaster.json_updates.send(serde_json::json!({
                 "database_size_pretty": pretty_size,
                 "database_size": size,
-            })));
+            }));
         })
         .await;
         if let Err(e) = result {
@@ -353,11 +353,12 @@ mod tests {
 
         tokio::spawn(async move {
             for i in 1..=3 {
-                add_log!(pool, api::Chain(1), U64::from(i), Foo { a: U256::from(42) });
-                config.broadcaster.new_block("local", 1, i);
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                add_log!(pool, api::Chain(1), U64::from(i), Foo { a: U256::from(42) });
+                config.broadcaster.update(1);
             }
-            config.broadcaster.close();
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            config.broadcaster.block_updates.remove(&1);
         });
         let resp = server
             .get("/query-live")
@@ -395,7 +396,7 @@ mod tests {
         tokio::spawn(async move {
             for i in 1..=3 {
                 add_log!(pool, api::Chain(1), U64::from(i), Foo { a: U256::from(42) });
-                config.broadcaster.new_block("local", 1, i);
+                config.broadcaster.update(1);
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
         });

@@ -17,6 +17,7 @@ clap = { version = "4.5.7", features = ["derive", "env"] }
 deadpool-postgres = "0.14"
 eyre = "0.6.12"
 futures = "0.3"
+futures-util = "0.3"
 openssl = "0.10.64"
 shared = { path = "../shared" }
 postgres-openssl = "0.5"
