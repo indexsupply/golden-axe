@@ -105,6 +105,10 @@ impl Relation {
             || self.table_alias.contains(other)
     }
 
+    fn has_field(&self, id: &Ident) -> bool {
+        base_column_type(id).is_some() || self.event.as_ref().map(|e| e.get_field(id)).is_some()
+    }
+
     fn to_sql(&self, cursor: cursor::Cursor) -> String {
         let mut res: Vec<String> = Vec::new();
         res.push(format!("{} as not materialized (", self.table_name));
@@ -568,9 +572,11 @@ impl UserQuery {
     fn validate_expression(&mut self, expr: &mut ast::Expr) -> Result<(), api::Error> {
         match expr {
             ast::Expr::Identifier(ident) => {
-                self.relations
-                    .iter_mut()
-                    .any(|rel| rel.selected_fields.insert(ident.clone()));
+                self.relations.iter_mut().for_each(|rel| {
+                    if rel.has_field(ident) {
+                        rel.selected_fields.insert(ident.clone());
+                    }
+                });
                 Ok(())
             }
             ast::Expr::CompoundIdentifier(idents) if idents.len() == 2 => {
