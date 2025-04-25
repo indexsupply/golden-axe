@@ -1,10 +1,22 @@
-use axum::{extract::State, response::Html};
+use axum::{
+    extract::{OriginalUri, State},
+    response::Html,
+};
 use pulldown_cmark::{html, Options, Parser};
 use serde_json::json;
 
 use crate::{chains, web};
 
-pub async fn index(State(state): State<web::State>) -> Result<Html<String>, shared::Error> {
+pub async fn index(
+    State(state): State<web::State>,
+    uri: OriginalUri,
+) -> Result<Html<String>, shared::Error> {
+    let path = uri.0.path();
+    let template_name = if path == "/docs/v2" {
+        "docs/index-v2.md"
+    } else {
+        "docs/index.md"
+    };
     let pg = state.pool.get().await?;
     let chains = chains::list(&pg)
         .await?
@@ -13,7 +25,7 @@ pub async fn index(State(state): State<web::State>) -> Result<Html<String>, shar
         .collect::<Vec<_>>();
     let index = state
         .templates
-        .render("docs/index.md", &json!({"chains": chains, }))?;
+        .render(template_name, &json!({"chains": chains, }))?;
     let mut options = Options::empty();
     options.insert(Options::ENABLE_GFM);
     options.insert(Options::ENABLE_HEADING_ATTRIBUTES);

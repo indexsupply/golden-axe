@@ -510,6 +510,22 @@
         response.appendChild(p);
       }
 
+      function v2api() {
+        return localStorage.getItem("srv") === "ga2";
+      }
+
+      function changeSrv(e) {
+        const srv = e.target.dataset.srv;
+        localStorage.setItem('srv', srv);
+        const url = new URL(window.location);
+          if (srv) {
+            url.searchParams.set("srv", srv);
+          } else {
+            url.searchParams.delete("srv");
+          }
+          history.replaceState(null, "", url);
+      }
+
       let sseHandler = {};
       let blockHeight = 0;
 
@@ -521,32 +537,17 @@
       }
 
       function apiURL(path, params = new URLSearchParams()) {
-        let chain = document.getElementById("chain-selection").value;
-        params.set("chain", chain);
         let key = apiKey();
         if (key) {
           params.set("api-key", key);
         }
-        const srv = localStorage.getItem("srv");
-        if (srv) {
-          params.set("srv", srv);
+        if (v2api()) {
+          params.set("srv", "ga2");
+          path = "/v2" + path;
+        } else {
+          params.set("chain", document.getElementById("chain-selection").value);
         }
         return `{{ api_url }}${path}?${params}`;
-      }
-
-      function updateStats(height, nrows, latency) {
-        document.getElementById("stats").style.display = "block";
-        blockHeight = height;
-        document.querySelector("#block-height").textContent = height;
-        document.querySelector("#num-rows").textContent = nrows;
-        if (latency) {
-          document.querySelector("#latency-label").style.display = 'inline';
-          document.querySelector("#latency").style.display = 'inline';
-          document.querySelector("#latency").textContent = latency;
-        } else {
-          document.querySelector("#latency-label").style.display = 'none';
-          document.querySelector("#latency").style.display = 'none';
-        }
       }
 
       function changeLiveQuery(event) {
@@ -575,14 +576,13 @@
         );
         sseHandler.onmessage = function (event) {
           let data = JSON.parse(event.data);
-          let newHeight = data["block_height"];
-          let result = data["result"][0];
+          let newHeight = responseHeight(data);
+          let rows = responseRows(data);
           console.log(`sse latest: ${newHeight}`);
           if (newHeight <= blockHeight) {
             console.log("sse nothing new");
             return;
           }
-          result.shift(); //remove column names
           /*
             When we are adding data to the table from an SSE update
             we have to take care of 2 things:
@@ -591,8 +591,8 @@
             2. If there are multiple reseults from an SSE update then
                 we want to prepend them in reverse order.
           */
-          addRow(result.reverse(), false);
-          updateStats(newHeight, result.length);
+          addRow(rows.reverse(), false);
+          updateStats(newHeight, rows.length);
         };
         sseHandler.onerror = function (e) {
           console.log(`sse error: `, e);
@@ -630,14 +630,15 @@
           printError(message);
         } else {
           const data = await response.json();
-          let height = data["block_height"];
-          let result = data["result"][0];
-          console.log(`downloaded ${result.length} records`);
-          if (result.length > 0) {
+          let height = responseHeight(data);
+          let rows = responseRows(data);
+          let cols = responseColumns(data);
+          console.log(`downloaded ${rows.length} records`);
+          if (rows.length > 0) {
             showTable();
-            addHeaderRow(result.shift());
-            addRow(result.slice(0, 100), true);
-            updateStats(height, result.length, response.headers.get("Latency"));
+            addHeaderRow(cols);
+            addRow(rows.slice(0, 100), true);
+            updateStats(height, rows.length, response.headers.get("Latency"));
             startHandler();
           } else {
             printInfo("no rows");
@@ -646,56 +647,70 @@
         enableSubmit();
       }
 
-      function cmdEnter(event) {
-        if (event.keyCode == 13 && event.metaKey) {
-          event.preventDefault();
-          let query = document.getElementById("query");
-          query.value = query.value.trim();
-          document.getElementById("request").dispatchEvent(
-            new Event("submit", {bubbles: true, cancelable: true}),
-          );
+      function responseHeight(response) {
+        if (v2api()) {
+          const cursor = response[0].cursor.split("-");
+          return cursor[1];
+        } else {
+          return response["block_height"]
         }
       }
 
-      function jk(event) {
-        if (document.activeElement.tagName.toLowerCase() === "textarea") {
-          return;
+      function responseRows(response) {
+        if (v2api()) {
+          return response[0].rows
+        } else {
+          return response["result"][0].slice(1)
         }
-        if (event.key == "ArrowDown" || event.key == "j") {
-          const examples = document.querySelectorAll(".queries > div.query");
-          const selected = document.querySelector(".queries > div.query.highlight");
-          if (selected.nextElementSibling) {
-            selected.nextElementSibling.click();
-          }
-        } else if (event.key == "ArrowUp" || event.key == "k") {
-          const examples = document.querySelectorAll(".queries > div.query");
-          const selected = document.querySelector(".queries > div.query.highlight");
-          if (selected.previousElementSibling) {
-            selected.previousElementSibling.click();
-          }
+      }
+
+      function responseColumns(response) {
+        if (v2api()) {
+          return response[0].columns.map((c) => c.name);
+        } else {
+          return response["result"][0][0];
         }
       }
 
       function form2JSON() {
-        let query = document.getElementById("query").value;
-        let eventSigs = document.getElementById("events").value.split("\n");
-        return [{ event_signatures: eventSigs, query: query }];
+        if (v2api()) {
+          let query = document.getElementById("query").value;
+          let signatures = document.getElementById("events").value.split("\n");
+          let cursor = [
+            document.getElementById("chain-selection").value,
+            blockHeight
+            ].join("-");
+          return [{ cursor, signatures, query }];
+        } else {
+          let query = document.getElementById("query").value;
+          let eventSigs = document.getElementById("events").value.split("\n");
+          return [{ event_signatures: eventSigs, query }];
+        }
       }
 
       function form2queryParams() {
-        let params = new URLSearchParams();
-        let query = document.getElementById("query").value;
-        if (localStorage.getItem("srv")) {
-          params.set("srv", localStorage.getItem("srv"));
+        if (v2api()) {
+          let params = new URLSearchParams();
+          params.set("srv", "ga2");
+          document.getElementById("events").value.split("\n").forEach((sig) => {
+            params.append("signatures", sig.trim());
+          });
+          params.set("query", document.getElementById("query").value);
+          params.set("cursor", [
+            document.getElementById("chain-selection").value,
+            blockHeight
+          ].join("-"))
+          return params;
+        } else {
+          let params = new URLSearchParams();
+          params.set("chain", document.getElementById("chain-selection").value);
+          params.set("block_height", blockHeight);
+          document.getElementById("events").value.split("\n").forEach((sig) => {
+            params.append("event_signatures", sig.trim());
+          });
+          params.set("query", document.getElementById("query").value);
+          return params;
         }
-        params.set("query", query);
-        let eventSigs = document.getElementById("events").value.split("\n");
-        eventSigs.forEach((sig) => {
-          params.append("event_signatures", sig.trim());
-        });
-        let chain = document.getElementById("chain-selection").value;
-        params.set("chain", chain);
-        return params;
       }
 
       function form2url() {
@@ -733,9 +748,12 @@
         if (query) {
             document.getElementById("query").value = query;
         }
-        let eventSigs = params.getAll("event_signatures");
-        if (eventSigs.length > 0) {
-            document.getElementById("events").value = eventSigs.join("\n");
+        let sigs = [
+          ...params.getAll("signatures"),
+          ...params.getAll("event_signatures")
+        ];
+        if (sigs.length > 0) {
+            document.getElementById("events").value = sigs.join("\n");
         }
         let chain = params.get("chain");
         if (chain) {
@@ -759,16 +777,49 @@
         }
       }
 
-      function changeSrv(e) {
-        const srv = e.target.dataset.srv;
-        localStorage.setItem('srv', srv);
-        const url = new URL(window.location);
-          if (srv) {
-            url.searchParams.set("srv", srv);
-          } else {
-            url.searchParams.delete("srv");
+      function cmdEnter(event) {
+        if (event.keyCode == 13 && event.metaKey) {
+          event.preventDefault();
+          let query = document.getElementById("query");
+          query.value = query.value.trim();
+          document.getElementById("request").dispatchEvent(
+            new Event("submit", {bubbles: true, cancelable: true}),
+          );
+        }
+      }
+
+      function jk(event) {
+        if (document.activeElement.tagName.toLowerCase() === "textarea") {
+          return;
+        }
+        if (event.key == "ArrowDown" || event.key == "j") {
+          const examples = document.querySelectorAll(".queries > div.query");
+          const selected = document.querySelector(".queries > div.query.highlight");
+          if (selected.nextElementSibling) {
+            selected.nextElementSibling.click();
           }
-          history.replaceState(null, "", url);
+        } else if (event.key == "ArrowUp" || event.key == "k") {
+          const examples = document.querySelectorAll(".queries > div.query");
+          const selected = document.querySelector(".queries > div.query.highlight");
+          if (selected.previousElementSibling) {
+            selected.previousElementSibling.click();
+          }
+        }
+      }
+
+      function updateStats(height, nrows, latency) {
+        document.getElementById("stats").style.display = "block";
+        blockHeight = height;
+        document.querySelector("#block-height").textContent = height;
+        document.querySelector("#num-rows").textContent = nrows;
+        if (latency) {
+          document.querySelector("#latency-label").style.display = 'inline';
+          document.querySelector("#latency").style.display = 'inline';
+          document.querySelector("#latency").textContent = latency;
+        } else {
+          document.querySelector("#latency-label").style.display = 'none';
+          document.querySelector("#latency").style.display = 'none';
+        }
       }
 
       function updateTestingH1() {
