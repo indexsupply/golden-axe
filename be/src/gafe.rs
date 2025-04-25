@@ -12,7 +12,7 @@ use governor::{Quota, RateLimiter};
 use nonzero::nonzero;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-use crate::{api, query};
+use crate::{api, cursor};
 
 #[derive(Debug)]
 pub struct AccountLimit {
@@ -169,7 +169,7 @@ impl Connection {
     pub async fn log_query(
         &self,
         key: Option<api::Key>,
-        cursor: query::Cursor,
+        cursor: cursor::Cursor,
         events: Vec<String>,
         query: String,
         latency: u64,

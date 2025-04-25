@@ -27,7 +27,7 @@ use tokio_postgres::types::Type;
 
 use crate::{
     api::{self},
-    gafe, query,
+    cursor, gafe, query,
 };
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
@@ -35,7 +35,7 @@ pub struct Request {
     #[serde(alias = "api-key")]
     pub api_key: Option<api::Key>,
     #[serde(default)]
-    pub cursor: query::Cursor,
+    pub cursor: cursor::Cursor,
     #[serde(default)]
     pub signatures: Vec<String>,
     pub query: String,
@@ -49,7 +49,7 @@ pub struct Column {
 
 #[derive(Serialize)]
 pub struct Response {
-    pub cursor: query::Cursor,
+    pub cursor: cursor::Cursor,
     pub columns: Vec<Column>,
     pub rows: Vec<Vec<Value>>,
 }
@@ -220,7 +220,7 @@ async fn query(
 
 async fn update_cursor(
     pgtx: &tokio_postgres::Transaction<'_>,
-    cursor: &mut query::Cursor,
+    cursor: &mut cursor::Cursor,
 ) -> Result<(), api::Error> {
     for c in cursor.chains() {
         let row = pgtx

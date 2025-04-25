@@ -3,6 +3,7 @@ pub mod api;
 pub mod api_sql;
 pub mod api_sql2;
 pub mod broadcast;
+pub mod cursor;
 pub mod gafe;
 pub mod query;
 pub mod sync;

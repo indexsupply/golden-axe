@@ -27,7 +27,7 @@ use tokio_postgres::types::Type;
 
 use crate::{
     api::{self},
-    gafe, query,
+    cursor, gafe, query,
 };
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
@@ -141,7 +141,7 @@ impl RequestLog {
         for req in &log.requests {
             gafe.log_query(
                 req.api_key.clone(),
-                query::Cursor::new(req.chain.unwrap_or_default(), None),
+                cursor::Cursor::new(req.chain.unwrap_or_default(), None),
                 req.event_signatures.clone(),
                 req.query.clone(),
                 latency,
@@ -176,7 +176,7 @@ async fn query(
         .iter()
         .map(|r| {
             query::sql(
-                &mut query::Cursor::new(r.chain.unwrap_or_default(), r.block_height),
+                &mut cursor::Cursor::new(r.chain.unwrap_or_default(), r.block_height),
                 r.event_signatures.iter().map(|s| s.as_str()).collect(),
                 &r.query,
             )

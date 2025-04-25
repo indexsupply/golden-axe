@@ -4,7 +4,7 @@ use alloy::{
 };
 use eyre::{Context, Result};
 use itertools::Itertools;
-use serde::{Deserialize, Serialize};
+
 use sqlparser::{
     ast::{self, Ident, OrderByExpr},
     parser::Parser,
@@ -16,66 +16,13 @@ use std::{
 
 use crate::{
     abi::{self},
-    api,
+    api, cursor,
 };
 
 macro_rules! no {
     ($e:expr) => {
         Err(api::Error::User(format!("{} not supported", $e)))
     };
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct Cursor(HashMap<u64, Option<u64>>);
-
-impl Cursor {
-    pub fn new(chain: u64, block_num: Option<u64>) -> Self {
-        let mut map = HashMap::new();
-        map.insert(chain, block_num);
-        Cursor(map)
-    }
-
-    pub fn add_chains(&mut self, chains: &HashSet<u64>) {
-        chains.iter().for_each(|&c| {
-            self.0.entry(c).or_insert(None);
-        })
-    }
-
-    pub fn contains(&self, chain: u64) -> bool {
-        self.0.keys().any(|c| *c == chain)
-    }
-
-    pub fn chains(&self) -> Vec<u64> {
-        self.0.keys().sorted().cloned().collect()
-    }
-
-    pub fn chain(&self) -> u64 {
-        match self.0.keys().next() {
-            Some(c) => *c,
-            None => 0,
-        }
-    }
-
-    pub fn set_block_height(&mut self, chain: u64, n: u64) {
-        self.0.insert(chain, Some(n));
-    }
-
-    pub fn to_sql(&self, col_name: &str) -> String {
-        let predicates = self
-            .0
-            .iter()
-            .sorted_by_key(|(chain, _)| *chain)
-            .map(|(chain, block_num)| match block_num {
-                Some(n) => format!("(chain = {} and {} > {})", chain, col_name, n),
-                None => format!("chain = {}", chain),
-            })
-            .collect::<Vec<_>>();
-        if predicates.len() == 1 {
-            predicates[0].clone()
-        } else {
-            format!("({})", predicates.join(" or "))
-        }
-    }
 }
 
 const PG: &sqlparser::dialect::PostgreSqlDialect = &sqlparser::dialect::PostgreSqlDialect {};
@@ -85,7 +32,7 @@ const PG: &sqlparser::dialect::PostgreSqlDialect = &sqlparser::dialect::PostgreS
 /// The SQL API implements onlny a subset of SQL so un-supported
 /// SQL results in an error.
 pub fn sql(
-    cursor: &mut Cursor,
+    cursor: &mut cursor::Cursor,
     signatures: Vec<&str>,
     user_query: &str,
 ) -> Result<String, api::Error> {
@@ -158,7 +105,7 @@ impl Relation {
             || self.table_alias.contains(other)
     }
 
-    fn to_sql(&self, cursor: Cursor) -> String {
+    fn to_sql(&self, cursor: cursor::Cursor) -> String {
         let mut res: Vec<String> = Vec::new();
         res.push(format!("{} as not materialized (", self.table_name));
         res.push("select".to_string());
@@ -957,7 +904,7 @@ mod tests {
     }
 
     async fn check_sql(event_sigs: Vec<&str>, user_query: &str, want: &str) {
-        let got = sql(&mut Cursor::new(1, None), event_sigs, user_query)
+        let got = sql(&mut cursor::Cursor::new(1, None), event_sigs, user_query)
             .unwrap_or_else(|e| panic!("unable to create sql for:\n{} error: {:?}", user_query, e));
         let (got, want) = (
             fmt_sql(&got).unwrap_or_else(|_| panic!("unable to format got: {}", got)),
@@ -973,7 +920,7 @@ mod tests {
 
     #[test]
     fn test_cursor() {
-        let mut cursor = Cursor::default();
+        let mut cursor = cursor::Cursor::default();
         cursor.set_block_height(8453, 100);
         cursor.set_block_height(10, 42);
         let _ = sql(

@@ -4,7 +4,7 @@ use crate::{session, web};
 use axum::extract::{ConnectInfo, FromRequestParts, State};
 use axum::response::{Html, IntoResponse, Redirect};
 use axum::Form;
-use be::query;
+use be::cursor;
 use eyre::Context;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -19,7 +19,7 @@ time::serde::format_description!(
 #[derive(Clone, Debug, Serialize)]
 struct UserQuery {
     owner_email: Option<String>,
-    cursor: query::Cursor,
+    cursor: cursor::Cursor,
     events: Vec<String>,
     sql: String,
     latency: Option<u64>,
@@ -116,7 +116,7 @@ async fn log(
         .await?
         .into_iter()
         .map(|row| UserQuery {
-            cursor: query::Cursor::default(),
+            cursor: cursor::Cursor::default(),
             owner_email: row.get("owner_email"),
             events: row.get("events"),
             sql: row.get("user_query"),
@@ -163,7 +163,7 @@ async fn top(
         .await?
         .into_iter()
         .map(|row| UserQuery {
-            cursor: query::Cursor::default(),
+            cursor: cursor::Cursor::default(),
             owner_email: row.get("owner_email"),
             events: row.get("events"),
             sql: row.get("user_query"),
