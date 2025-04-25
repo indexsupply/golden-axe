@@ -221,7 +221,7 @@ fn service(config: api::Config) -> IntoMakeServiceWithConnectInfo<Router, Socket
         .route("/query-live", get(api_sql::handle_sse))
         .route("/v2/query", get(api_sql2::handle_get))
         .route("/v2/query", post(api_sql2::handle_post))
-        .route("/v2/live", get(api_sql2::handle_sse))
+        .route("/v2/query-live", get(api_sql2::handle_sse))
         .layer(service)
         .with_state(config.clone())
         .into_make_service_with_connect_info::<SocketAddr>()
