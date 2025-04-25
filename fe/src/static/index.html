@@ -676,10 +676,7 @@
         if (v2api()) {
           let query = document.getElementById("query").value;
           let signatures = document.getElementById("events").value.split("\n");
-          let cursor = [
-            document.getElementById("chain-selection").value,
-            blockHeight
-            ].join("-");
+          let cursor = [document.getElementById("chain-selection").value, "0"].join("-");
           return [{ cursor, signatures, query }];
         } else {
           let query = document.getElementById("query").value;
@@ -758,6 +755,10 @@
         let chain = params.get("chain");
         if (chain) {
             setOrAddChain(chain);
+        }
+        let cursor = params.get("cursor");
+        if (cursor) {
+          setOrAddChain(cursor.split("-")[0]);
         }
       }
 
