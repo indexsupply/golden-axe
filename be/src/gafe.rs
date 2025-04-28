@@ -66,7 +66,7 @@ impl AccountLimit {
             )),
             connections: 1000,
             conn_limiter: Arc::new(Semaphore::new(1000)),
-            ip_connections: Some(10),
+            ip_connections: Some(30),
             ip_conn_limiter: DashMap::new(),
         }
     }
