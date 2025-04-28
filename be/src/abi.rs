@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 
 use alloy::{
-    hex::ToHexExt,
+    hex::{self, ToHexExt},
     primitives::{keccak256, FixedBytes, I256, U256, U64},
 };
 use eyre::{eyre, OptionExt, Result};
@@ -51,6 +51,14 @@ impl Event {
 
     pub fn sighash(&self) -> FixedBytes<32> {
         keccak256(format!("{}{}", self.name, self.fields))
+    }
+
+    pub fn sighash_sql_predicate(&self) -> String {
+        format!(r#"topics[1] = '\x{}'"#, hex::encode(self.sighash()))
+    }
+
+    pub fn base_table(&self) -> String {
+        String::from("logs")
     }
 }
 

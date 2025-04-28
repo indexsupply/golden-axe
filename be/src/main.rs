@@ -6,7 +6,7 @@ use axum::{
     extract::{connect_info::IntoMakeServiceWithConnectInfo, MatchedPath},
     routing::{get, post, Router},
 };
-use be::{api, api_sql, sync};
+use be::{api, api_sql, api_sql2, sync};
 use clap::Parser;
 use tower::ServiceBuilder;
 use tower_http::{
@@ -116,14 +116,14 @@ async fn stats_updates(config: api::Config) {
                 .expect("unable to get a pg connection");
             let row = pg
                 .query_one(
-                    "SELECT pg_size_pretty(pg_database_size('ga')), pg_database_size('ga')",
+                    "SELECT pg_size_pretty(pg_database_size(current_database())), pg_database_size(current_database())",
                     &[],
                 )
                 .await
                 .expect("unable to query db");
             let pretty_size: String = row.get(0);
             let size: i64 = row.get(1);
-            config.stat_updates.update(serde_json::json!({
+            let _ = config.broadcaster.json_updates.send(serde_json::json!({
                 "database_size_pretty": pretty_size,
                 "database_size": size,
             }));
@@ -206,6 +206,10 @@ fn service(config: api::Config) -> IntoMakeServiceWithConnectInfo<Router, Socket
         ))
         .layer(axum::middleware::from_fn_with_state(
             config.clone(),
+            api_sql2::log_request,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            config.clone(),
             api::limit,
         ))
         .layer(CompressionLayer::new());
@@ -215,6 +219,9 @@ fn service(config: api::Config) -> IntoMakeServiceWithConnectInfo<Router, Socket
         .route("/query", get(api_sql::handle_get))
         .route("/query", post(api_sql::handle_post))
         .route("/query-live", get(api_sql::handle_sse))
+        .route("/v2/query", get(api_sql2::handle_get))
+        .route("/v2/query", post(api_sql2::handle_post))
+        .route("/v2/query-live", get(api_sql2::handle_sse))
         .layer(service)
         .with_state(config.clone())
         .into_make_service_with_connect_info::<SocketAddr>()
@@ -223,7 +230,7 @@ fn service(config: api::Config) -> IntoMakeServiceWithConnectInfo<Router, Socket
 #[cfg(test)]
 mod tests {
     use alloy::{
-        primitives::{B256, U256, U64},
+        primitives::{fixed_bytes, Address, Bytes, B256, U256, U64},
         sol,
         sol_types::{JsonAbiExt, SolEvent},
     };
@@ -232,22 +239,38 @@ mod tests {
 
     use super::service;
     use super::SCHEMA_BE;
-    use be::{api, api_sql, sync};
+    use be::{
+        api::{self},
+        api_sql, sync,
+    };
+    use shared::jrpc;
 
     macro_rules! add_log {
         ($pool:expr, $chain:expr, $block_num:expr, $event:expr) => {{
-            let log = alloy::rpc::types::Log {
-                inner: alloy::primitives::Log {
-                    data: $event.encode_log_data(),
-                    address: alloy::primitives::Address::with_last_byte(0xab),
-                },
-                block_number: Some($block_num),
-                block_hash: Some(B256::with_last_byte(0xab)),
-                block_timestamp: Some(1),
-                transaction_hash: Some(B256::with_last_byte(0xab)),
-                transaction_index: Some(1),
-                log_index: Some(1),
-                removed: false,
+            let log_data = $event.encode_log_data();
+            let log_topics = log_data.topics().to_vec();
+            let block = jrpc::Block {
+                hash: B256::with_last_byte(0xab),
+                parent_hash: B256::with_last_byte(0xaa),
+                number: U64::from($block_num),
+                nonce: U256::from(1),
+                timestamp: U64::from(1),
+                transactions: vec![],
+                gas_limit: U256::from(1),
+                gas_used: U256::from(1),
+                receipts_root: B256::with_last_byte(0x01),
+                state_root: B256::with_last_byte(0x01),
+                extra_data: Bytes::from(vec![]),
+                miner: Address::with_last_byte(0x01),
+            };
+            let log = jrpc::Log {
+                data: log_data.data,
+                topics: log_topics,
+                address: fixed_bytes!("00000000000000000000000000000000000000ab"),
+                block_number: block.number,
+                block_timestamp: Some(block.timestamp),
+                tx_hash: B256::with_last_byte(0xab),
+                log_idx: U64::from(1),
             };
             let mut pg = $pool
                 .get()
@@ -257,26 +280,15 @@ mod tests {
                 .transaction()
                 .await
                 .expect("unable to start new pgtx from pg pool");
-            let partition_stmt = format!(
-                r#"create table if not exists "logs_{}" partition of logs for values in ({})"#,
-                $chain, $chain
-            );
-            pgtx.execute(&partition_stmt, &[])
+            sync::setup_tables(&pgtx, $chain.0, block.number.to(), None)
                 .await
-                .expect("creating partition");
-            sync::copy(&pgtx, $chain, vec![log.clone()])
+                .expect("setting up tables");
+            sync::copy_logs(&pgtx, $chain, vec![log])
                 .await
                 .expect("unable to copy new logs");
-            pgtx.execute(
-                "insert into blocks(chain, num, hash) values ($1, $2, $3)",
-                &[
-                    &$chain,
-                    &U64::from(log.block_number.unwrap()),
-                    &log.block_hash.unwrap(),
-                ],
-            )
-            .await
-            .expect("unable to update blocks table");
+            sync::copy_blocks(&pgtx, $chain, &[block])
+                .await
+                .expect("copying blocks");
             pgtx.commit()
                 .await
                 .expect("unable to commit the add_logs pg tx");
@@ -298,7 +310,7 @@ mod tests {
             #[sol(abi)]
             event Foo(uint a);
         };
-        add_log!(pool, api::Chain(1), 1, Foo { a: U256::from(42) });
+        add_log!(pool, api::Chain(1), U64::from(1), Foo { a: U256::from(42) });
 
         let config = api::Config::new(pool.clone(), pool.clone(), pool.clone());
         let server = TestServer::new(service(config)).unwrap();
@@ -333,20 +345,20 @@ mod tests {
         let server = TestServer::new(service(config.clone())).unwrap();
         let request = api_sql::Request {
             api_key: None,
-            chain: Some(api::Chain(1)),
+            chain: Some(1),
             block_height: None,
             event_signatures: vec![Foo::abi().full_signature()],
             query: String::from("select a, block_num from foo"),
         };
 
         tokio::spawn(async move {
-            let bcaster = config.api_updates.clone();
             for i in 1..=3 {
-                add_log!(pool, api::Chain(1), i, Foo { a: U256::from(42) });
-                bcaster.broadcast(api::Chain(1), i);
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                add_log!(pool, api::Chain(1), U64::from(i), Foo { a: U256::from(42) });
+                config.broadcaster.update(1);
             }
-            bcaster.close(api::Chain(1));
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            config.broadcaster.block_updates.remove(&1);
         });
         let resp = server
             .get("/query-live")
@@ -375,27 +387,23 @@ mod tests {
         let server = TestServer::new(service(config.clone())).unwrap();
         let request = api_sql::Request {
             api_key: None,
-            chain: Some(api::Chain(1)),
+            chain: Some(1),
             block_height: None,
             event_signatures: vec![Foo::abi().full_signature()],
             query: String::from("select a, block_num from bar"),
         };
 
         tokio::spawn(async move {
-            let bcaster = config.api_updates.clone();
             for i in 1..=3 {
-                add_log!(pool, api::Chain(1), i, Foo { a: U256::from(42) });
-                bcaster.broadcast(api::Chain(1), i);
+                add_log!(pool, api::Chain(1), U64::from(i), Foo { a: U256::from(42) });
+                config.broadcaster.update(1);
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
-            bcaster.close(api::Chain(1));
         });
         let resp = server
             .get("/query-live")
             .add_raw_query_param(&serde_html_form::to_string(&request).unwrap())
             .await;
-        resp.assert_text_contains(
-            r#"You are attempting to query 'bar' but it isn't defined. Possible events to query are: 'foo, logs'""#
-        );
+        resp.assert_text_contains(r#"relation \"bar\" does not exist"#);
     }
 }

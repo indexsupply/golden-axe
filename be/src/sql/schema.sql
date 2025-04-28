@@ -2,19 +2,46 @@ create extension if not exists pg_golden_axe;
 
 create table if not exists blocks(
     chain int8 not null,
-    num int8,
-    hash bytea,
-    primary key (chain, num)
-);
+    num int8 not null,
+    timestamp timestamptz not null,
+
+    gas_limit numeric not null,
+    gas_used numeric not null,
+    nonce bytea not null,
+    hash bytea not null,
+    receipts_root bytea not null,
+    state_root bytea not null,
+    extra_data bytea not null,
+    miner bytea not null
+) partition by list(chain);
+
+create table if not exists txs (
+    chain int8 not null,
+    block_num int8 not null,
+    block_timestamp timestamptz not null,
+    idx int4 not null,
+    type int2 not null,
+
+    gas numeric not null,
+    gas_price numeric not null,
+    nonce bytea not null,
+    hash bytea not null,
+    "from" bytea not null,
+    "to" bytea not null,
+    input bytea not null,
+    value numeric not null
+) partition by list(chain);
 
 create table if not exists logs (
-    chain int8,
-    block_num int8,
-    log_idx int4,
-    tx_hash bytea,
-    address bytea,
-    topics bytea[],
-    data bytea
+    chain int8 not null,
+    block_num int8 not null,
+    block_timestamp timestamptz not null,
+    log_idx int4 not null,
+
+    tx_hash bytea not null,
+    address bytea not null,
+    topics bytea[] not null,
+    data bytea not null
 ) partition by list(chain);
 
 create or replace function b2i(data bytea) returns int4 as $$
