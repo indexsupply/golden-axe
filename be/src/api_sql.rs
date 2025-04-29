@@ -1,7 +1,7 @@
 use std::{
     convert::Infallible,
     sync::{Arc, Mutex},
-    time::{self, Duration},
+    time::Duration,
 };
 
 use alloy::{
@@ -121,7 +121,7 @@ pub async fn handle_sse(
 #[derive(Clone)]
 pub struct RequestMeta {
     requests: Vec<Request>,
-    start: time::SystemTime,
+    start: std::time::SystemTime,
 }
 
 #[derive(Clone)]
@@ -159,7 +159,7 @@ pub async fn log_request(
 ) -> Result<axum::response::Response, api::Error> {
     let log: RequestLog = RequestLog(Arc::new(Mutex::new(RequestMeta {
         requests: Vec::new(),
-        start: time::SystemTime::now(),
+        start: std::time::SystemTime::now(),
     })));
     request.extensions_mut().insert(log.clone());
     let resp = next.run(request).await;
@@ -260,6 +260,10 @@ fn handle_rows(rows: Vec<tokio_postgres::Row>) -> Result<Rows, api::Error> {
                     Some(s) => Value::String(s),
                     None => Value::Null,
                 },
+                Type::TIMESTAMPTZ => row
+                    .get::<usize, Option<time::OffsetDateTime>>(idx)
+                    .map(|t| Value::String(t.to_string()))
+                    .unwrap_or(Value::Null),
                 Type::BYTEA_ARRAY => {
                     // for topics otherwise arrays are returned as jsonb via pg_golden_axe
                     let arrays: Vec<Vec<u8>> = row.get::<usize, Vec<Vec<u8>>>(idx);
