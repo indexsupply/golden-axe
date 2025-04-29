@@ -316,6 +316,7 @@ impl PlanOption {
                 select name, features, rate, timeout, connections, queries, owner_email, daimo_amount, stripe_amount
                 from plan_options
                 where owner_email is null or owner_email = $1
+                order by daimo_amount, stripe_amount asc
                 ",
                 &[&owner_email],
             )
