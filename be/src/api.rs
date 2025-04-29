@@ -50,7 +50,7 @@ pub async fn handle_conns(
         return Err(Error::User("no can do".into()));
     }
     let limits_copy = config.account_limits.lock().unwrap().clone();
-    let conn_info: HashMap<String, usize> = limits_copy
+    let active_conns: HashMap<String, usize> = limits_copy
         .iter()
         .map(|(secret, al)| {
             let conns = al.connections as usize - al.conn_limiter.available_permits();
@@ -60,8 +60,10 @@ pub async fn handle_conns(
         })
         .filter(|(_, v)| *v > 0)
         .collect();
-    let v = serde_json::to_value(conn_info).unwrap();
-    Ok(axum::Json(v))
+
+    Ok(axum::Json(serde_json::json!({
+        "active_conns": active_conns,
+    })))
 }
 
 pub async fn handle_status(
