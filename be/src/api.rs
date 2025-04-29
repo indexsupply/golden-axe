@@ -58,6 +58,7 @@ pub async fn handle_conns(
             key.truncate(4);
             (key, conns)
         })
+        .filter(|(_, v)| *v > 0)
         .collect();
     let v = serde_json::to_value(conn_info).unwrap();
     Ok(axum::Json(v))
