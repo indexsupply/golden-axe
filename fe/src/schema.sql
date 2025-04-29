@@ -127,7 +127,8 @@ create table if not exists user_queries(
     generated_query text,
     latency int,
     status int2,
-    created_at timestamptz default now()
+    created_at timestamptz default now(),
+    ip text
 );
 
 create table if not exists config (

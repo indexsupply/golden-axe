@@ -12,7 +12,10 @@ use governor::{Quota, RateLimiter};
 use nonzero::nonzero;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-use crate::{api, cursor};
+use crate::{
+    api::{self},
+    cursor,
+};
 
 #[derive(Debug)]
 pub struct AccountLimit {
@@ -66,7 +69,7 @@ impl AccountLimit {
             )),
             connections: 1000,
             conn_limiter: Arc::new(Semaphore::new(1000)),
-            ip_connections: Some(30),
+            ip_connections: Some(5),
             ip_conn_limiter: DashMap::new(),
         }
     }
@@ -165,10 +168,12 @@ impl Connection {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     #[tracing::instrument(level = "debug" skip_all)]
     pub async fn log_query(
         &self,
         key: Option<api::Key>,
+        ip: api::OriginIp,
         cursor: cursor::Cursor,
         events: Vec<String>,
         query: String,
@@ -189,8 +194,9 @@ impl Connection {
                             events,
                             user_query,
                             latency,
-                            status
-                        ) values ($1, $2, $3, $4, $5, $6)",
+                            status,
+                            ip
+                        ) values ($1, $2, $3, $4, $5, $6, $7)",
                         &[
                             &key.map(|k| k.to_string()),
                             &U64::from(cursor.chain()),
@@ -198,6 +204,7 @@ impl Connection {
                             &query,
                             &(latency as i32),
                             &(status as i16),
+                            &ip.to_string(),
                         ],
                     )
                     .await;

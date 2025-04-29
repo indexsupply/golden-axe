@@ -132,7 +132,7 @@ impl RequestLog {
         self.0.lock().unwrap().requests = requests;
     }
 
-    async fn done(&self, gafe: gafe::Connection, status: u16) {
+    async fn done(&self, gafe: gafe::Connection, status: u16, ip: api::OriginIp) {
         let log = self.0.lock().unwrap().clone();
         let latency = std::time::SystemTime::now()
             .duration_since(log.start)
@@ -141,6 +141,7 @@ impl RequestLog {
         for req in &log.requests {
             gafe.log_query(
                 req.api_key.clone(),
+                ip.clone(),
                 cursor::Cursor::new(req.chain.unwrap_or_default(), None),
                 req.event_signatures.clone(),
                 req.query.clone(),
@@ -154,6 +155,7 @@ impl RequestLog {
 
 pub async fn log_request(
     State(config): State<api::Config>,
+    ip: api::OriginIp,
     mut request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Result<axum::response::Response, api::Error> {
@@ -163,7 +165,7 @@ pub async fn log_request(
     })));
     request.extensions_mut().insert(log.clone());
     let resp = next.run(request).await;
-    log.done(config.gafe, resp.status().as_u16()).await;
+    log.done(config.gafe, resp.status().as_u16(), ip).await;
     Ok(resp)
 }
 

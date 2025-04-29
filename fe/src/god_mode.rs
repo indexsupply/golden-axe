@@ -29,6 +29,7 @@ struct UserQuery {
     created_at: OffsetDateTime,
     #[serde(skip_deserializing)]
     generated_sql: Option<String>,
+    ip: Option<String>,
 }
 
 impl UserQuery {
@@ -102,7 +103,8 @@ async fn log(
                     user_query,
                     latency,
                     status,
-                    user_queries.created_at
+                    user_queries.created_at,
+                    ip
                 from user_queries
                 left join api_keys on api_keys.secret = user_queries.api_key
                 {}
@@ -125,6 +127,7 @@ async fn log(
             latency: Some(row.get::<_, i32>("latency") as u64),
             status: Some(row.get::<_, i16>("status") as u16),
             created_at: row.get("created_at"),
+            ip: row.get("ip"),
         })
         .map(UserQuery::gen_sql)
         .collect::<Vec<UserQuery>>())
@@ -172,6 +175,7 @@ async fn top(
             latency: Some(row.get::<_, i32>("latency") as u64),
             status: None,
             created_at: row.get("created_at"),
+            ip: None,
         })
         .collect::<Vec<UserQuery>>())
 }

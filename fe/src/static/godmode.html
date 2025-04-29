@@ -116,6 +116,9 @@
                 >
                     <div class="timing">
                         <div class="created_at">{{ created_at }}</div>
+                        {{#if ip}}
+                        <div class="ip">{{ ip }}</div>
+                        {{/if}}
                         {{#if count }}
                         <div class="count"><em>{{ count }}</em></div>
                         {{/if}}
