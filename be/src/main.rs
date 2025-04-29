@@ -47,6 +47,12 @@ struct Args {
 
     #[clap(long, env = "NO_SYNC", action = clap::ArgAction::SetTrue)]
     no_sync: bool,
+
+    #[clap(
+        env = "ADMIN_API_SECRET",
+        default_value = "2d6f3071fcf70f5731575be2f407b4ef"
+    )]
+    admin_api_secret: String,
 }
 
 static SCHEMA_BE: &str = include_str!("./sql/schema.sql");
@@ -66,6 +72,7 @@ async fn main() {
 
     let args = Args::parse();
     let config = api::Config::new(
+        args.admin_api_secret.to_string(),
         shared::pg::new_pool(&args.pg_url, args.max_pg_conns.unwrap_or(32)).expect("pg_be pool"),
         shared::pg::new_pool(&args.pg_url_fe, args.max_pg_conns.unwrap_or(4)).expect("pg_fe pool"),
         shared::pg::new_pool(&args.pg_url_ro, args.max_pg_conns.unwrap_or(32)).expect("pg_ro pool"),
@@ -216,6 +223,7 @@ fn service(config: api::Config) -> IntoMakeServiceWithConnectInfo<Router, Socket
     Router::new()
         .route("/", get(|| async { "hello\n" }))
         .route("/status", get(api::handle_status))
+        .route("/conns", get(api::handle_conns))
         .route("/query", get(api_sql::handle_get))
         .route("/query", post(api_sql::handle_post))
         .route("/query-live", get(api_sql::handle_sse))
@@ -298,7 +306,7 @@ mod tests {
     #[tokio::test]
     async fn test_index() {
         let pool = shared::pg::test::new(SCHEMA_BE).await;
-        let config = api::Config::new(pool.clone(), pool.clone(), pool.clone());
+        let config = api::Config::new(String::new(), pool.clone(), pool.clone(), pool.clone());
         let server = TestServer::new(service(config)).unwrap();
         server.get("/").await.assert_text_contains("hello");
     }
@@ -312,7 +320,7 @@ mod tests {
         };
         add_log!(pool, api::Chain(1), U64::from(1), Foo { a: U256::from(42) });
 
-        let config = api::Config::new(pool.clone(), pool.clone(), pool.clone());
+        let config = api::Config::new(String::new(), pool.clone(), pool.clone(), pool.clone());
         let server = TestServer::new(service(config)).unwrap();
         let request = vec![api_sql::Request {
             api_key: None,
@@ -341,7 +349,7 @@ mod tests {
             event Foo(uint a);
         };
 
-        let config = api::Config::new(pool.clone(), pool.clone(), pool.clone());
+        let config = api::Config::new(String::new(), pool.clone(), pool.clone(), pool.clone());
         let server = TestServer::new(service(config.clone())).unwrap();
         let request = api_sql::Request {
             api_key: None,
@@ -383,7 +391,7 @@ mod tests {
             event Foo(uint a);
         };
 
-        let config = api::Config::new(pool.clone(), pool.clone(), pool.clone());
+        let config = api::Config::new(String::new(), pool.clone(), pool.clone(), pool.clone());
         let server = TestServer::new(service(config.clone())).unwrap();
         let request = api_sql::Request {
             api_key: None,

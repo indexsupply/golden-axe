@@ -7,7 +7,7 @@ use std::{
 };
 
 use axum::{
-    extract::{rejection::JsonRejection, ConnectInfo, FromRequest, FromRequestParts, State},
+    extract::{rejection::JsonRejection, ConnectInfo, FromRequest, FromRequestParts, Query, State},
     http::{request::Parts, StatusCode},
     response::{
         sse::{Event as SSEvent, KeepAlive},
@@ -42,6 +42,27 @@ pub async fn handle_service_error(error: tower::BoxError) -> Error {
     }
 }
 
+pub async fn handle_conns(
+    State(config): State<Config>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<axum::Json<serde_json::Value>, Error> {
+    if params.get("secret").map(|s| s.as_str()) != Some(&config.admin_api_secret) {
+        return Err(Error::User("no can do".into()));
+    }
+    let limits_copy = config.account_limits.lock().unwrap().clone();
+    let conn_info: HashMap<String, usize> = limits_copy
+        .iter()
+        .map(|(secret, al)| {
+            let conns = al.connections as usize - al.conn_limiter.available_permits();
+            let mut key = secret.clone();
+            key.truncate(4);
+            (key, conns)
+        })
+        .collect();
+    let v = serde_json::to_value(conn_info).unwrap();
+    Ok(axum::Json(v))
+}
+
 pub async fn handle_status(
     State(conf): State<Config>,
 ) -> axum::response::Sse<impl Stream<Item = Result<SSEvent, Infallible>>> {
@@ -64,6 +85,7 @@ pub async fn handle_status(
 
 #[derive(Clone)]
 pub struct Config {
+    pub admin_api_secret: String,
     pub be_pool: Pool,
     pub fe_pool: Pool,
     pub ro_pool: Pool,
@@ -78,8 +100,9 @@ pub struct Config {
 const MAX_ACTIVE_CONNECTIONS: usize = 10000;
 
 impl Config {
-    pub fn new(be_pool: Pool, fe_pool: Pool, ro_pool: Pool) -> Config {
+    pub fn new(admin_api_secret: String, be_pool: Pool, fe_pool: Pool, ro_pool: Pool) -> Config {
         Config {
+            admin_api_secret,
             gafe: gafe::Connection::new(fe_pool.clone()),
             broadcaster: Arc::new(broadcast::Channel::default()),
             active_connections: Arc::new(Semaphore::new(MAX_ACTIVE_CONNECTIONS)),
