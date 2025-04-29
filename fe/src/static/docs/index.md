@@ -1,35 +1,31 @@
-Index Supply is a hosted HTTP API for running SQL queries on Ethereum Logs.
+Index Supply is a hosted HTTP API for running SQL queries on Ethereum Blocks, Transactions, and Logs.
 
 You can use this API from your backend or from your user's browser.
 
 Here is an example query
 
 ```
-curl -G https://api.indexsupply.net/query \
-    --data-urlencode 'chain=8453' \
-    --data-urlencode 'query=select "from", "to", tokens from transfer limit 1' \
-    --data-urlencode 'event_signatures=Transfer(address indexed from, address indexed to, uint tokens)' \
-    | jq .
+curl -G https://api.indexsupply.net/v2/query?api-key=secret \
+    --data-urlencode 'sql=select "from", "to", tokens from transfer where chain = 8453 limit 1' \
+    --data-urlencode 'signatures=Transfer(address indexed from, address indexed to, uint tokens)' \ | jq .
 ```
+
 And the response
+
 ```
-{
-  "block_height": 18479546,
-  "result": [
-    [
-      [
-        "from",
-        "to",
-        "tokens"
-      ],
-      [
+[{
+  "cursor": "8453-18479546",
+  "columns": [
+    {"name": "from",   "pgtype": "bytea"},
+    {"name": "to",     "pgtype": "bytea"},
+    {"name": "tokens", "pgtype": "numeric"}
+  ],
+  "rows":[[
         "0x0000000000000000000000000000000000000000",
         "0xdaabdaac8073a7dabdc96f6909e8476ab4001b34",
         "0"
-      ]
-    ]
-  ]
-}
+  ]]
+}]
 ```
 
 ## TypeScript {#typescript}
@@ -45,6 +41,25 @@ See the repository for docs and examples: [https://github.com/indexsupply/indexs
 {{#each chains }}
 |{{name}} | {{chain}} |
 {{/each}}
+
+It is possible to query data across multiple chains. This is accomplished by adding a `where chain = $1` or `where chain in ($1)` predicate to queries.
+
+For example
+
+```
+select a from foo where chain in (1, 10, 8453)
+```
+
+To query multiple chains starting at multiple block heights, use the following pattern
+
+```
+select a
+from foo
+where (
+  (chain = 8453 and block_num > 42)
+  or (chain = 10 and block_num > 100)
+)
+```
 
 Email [support@indexsupply.com](mailto:support@indexsupply.com) to request new chains.
 
@@ -72,94 +87,97 @@ In the case of a chain reorg, clients will receive a block height that is lower 
 
 <hr>
 
-## Response {#query-response .reference}
+## Request {#query-request .reference}
 
-Regardless of the kind of query (ie get, post, single, batch) there is a single response object. The response is JSON and includes the block height at which the query(s) were executed and a 3-dimensional array.
+A request consists of the following fields (either form encoded or JSON encoded)
+
+| Field | Type | Description |
+| - | - | - |
+| api-key | string | API key from [your account page](https://www.indexsupply.net/account) |
+| cursor | string | Optional. See [cursor](#cursor) |
+| signatures | []string | Optional. [human readable abi signatures][3] |
+| query | string | SQL referencing tables/columns from `signatures`|
+
+
+### Cursor {#cursor}
+
+The cusror enables synchronization between your app and the Index Supply API. When you make a request without a cursor, the query will be executed on all indexed blocks available to Index Supply. The [Response](#response) will contain a `cursor` string mapping the chains referenced in the query and the latest `block_height` of the referenced chain at the time of query execution.
+
+For example
 
 ```
-{
-  block_height: {},
-  result: [[[]]]
-}
+select "from", "to", value from transfer where chain = 8453
 ```
 
-The first, outer array dimension relates to the number of queries submitted (one for single and many for batch). In the case of `GET /query` and `GET /query-live` this outer array will always have `length=1` (meaning the result is: `result[0]`).
+The response will contain a cusror indicating that the chain `8453` was at block `42` at the time of query execution.
 
-The second array dimension represents the number of rows returned from the query. This array can be empty (`length=0`) in the case that the query returned no rows.
+```
+[
+  {
+    "cursor": "8453-42",
+    "columns": [...],
+    "rows": [[...], ...]
+  }
+]
+```
 
-If a query did return a set of rows, then the second array will always contain at least 2 items. The first is an array of the column names and the rest are arrays of column values.
+The cursor is a string encode of: `chain-num-chain-num-...`. The string encoding is used to make it easy for GET requests -- since they are required for SSE in the browser.
 
-The third array dimension represents column values. In the case of the column names, this will be an array of strings. In the case of column values, it will be an array with the following types:
+Subsequent requests including the cursor, will return data where `block_num > 42`.
 
-| ABI Type | JSON Type           |
-|----------|---------------------|
-| bool     | bool                |
-| bytesN   | hexadecimal string  |
-| string   | string              |
-| intN     | decimal string      |
-| uintN    | decimal string      |
+### GET `/v2/query` {#get-query}
 
-Arrays of these types will be a JSON array of the type.
-
-All inner (3rd dimension) arrays will have the same length.
-
-### GET /query {#get-query .reference }
-
-Executes the supplied query against the latest block and returns a JSON encoded [response body](#query-response)
+Executes the supplied query against the latest block (or the block height specified by the `cursor`) and returns a JSON encoded [Response](#query-response).
 
 **URL Request Fields**
 
-| Field            | Type     | Description         |
-|-------------     |--------- |---------------------|
+| Field | Type | Description |
+| - | - | - |
 | api-key | string | API key from [your account page](https://www.indexsupply.net/account) |
-| chain            | int      | Chain id. See [chains](#chains) |
-| event_signatures | []string | [human readable event signatures][3] |
-| query | string  | SQL referencing tables/columns from `event_signatures`|
+| cursor | string | Optional. See [cursor](#cursor) |
+| signatures | []string | Optional. [Human readable abi signatures][3] |
+| sql | string | SQL referencing tables/columns from `signatures`|
 
 **Example**
 
 ```
-curl -G https://api.indexsupply.net/query \
-    --data-urlencode 'chain=8453' \
-    --data-urlencode 'query=select a from foo' \
-    --data-urlencode 'event_signatures=Foo(uint a)'
+curl -G https://api.indexsupply.net/v2/query?api-key=secret \
+    --data-urlencode 'sql=select a from foo where chain = 8453' \
+    --data-urlencode 'signatures=Foo(uint a)'
 ```
 
-Multiple event signatures enabled by adding more `event_signatures` query parameters.
-
-**Example**
+**Multiple Signatures Example**
 
 ```
-curl -G https://api.indexsupply.net/query \
-    --data-urlencode 'chain=8453' \
-    --data-urlencode 'query=select a, b from foo, bar where foo.c = bar.c' \
-    --data-urlencode 'event_signatures=Foo(uint a, uint c)' \
-    --data-urlencode 'event_signatures=Bar(uint b, uint c)'
+curl -G https://api.indexsupply.net/v2/query?api-key=secret \
+    --data-urlencode 'sql=select a, b from foo, bar where foo.c = bar.c' \
+    --data-urlencode 'signatures=Foo(uint a, uint c)' \
+    --data-urlencode 'signatures=Bar(uint b, uint c)'
 ```
 
-### GET /query-live {#get-query-live .reference }
+### GET `/v2/query-live` {#get-query-live}
 
-Executes the supplied query against the latest block and returns an HTTP SSE stream of JSON encoded [response bodies](#query-response). The HTTP SSE stream will include the results of the query for the entire range of blocks in the chain (unless a block predicate was added to the SQL query) and so long as the connection is open it will stream new results subsequently indexed blocks.
+Executes the supplied query against the latest block and returns an HTTP SSE stream of JSON encoded [response bodies](#query-response). The HTTP SSE stream will include the results of the query for the entire range of blocks in the chain (unless a block predicate was added to the SQL query) and so long as the connection is open it will stream new results for newly indexed blocks.
 
 **URL Request Fields**
 
-| Field            | Type     | Description         |
-|-------------     |--------- |---------------------|
+| Field | Type | Description |
+| - | - | - |
 | api-key | string | API key from [your account page](https://www.indexsupply.net/account) |
-| chain            | int      | Chain id. See [chains](#chains) |
-| event_signatures | []string | [human readable event signatures][3] |
-| query | string  | SQL referencing tables/columns from `event_signatures`|
+| cursor | string | Optional. See [cursor](#cursor) |
+| signatures | []string | [human readable event signatures][3] |
+| query | string  | SQL referencing tables/columns from `signatures`|
 
 The response is a standard [response](#query-response) object but delivered via HTTP SSE. The SSE protocol will keep the connection open indefinitely and each new block will trigger a new event. Events are plain text, prefixed with `data: ` and separated by a `\n\n`.
 
 ```
-curl -G https://api.indexsupply.net/query-live \
-    --data-urlencode 'chain=8453' \
+curl -G https://api.indexsupply.net/v2/query-live?api-key=secret \
+    --data-urlencode '8453-0' \
     --data-urlencode 'query=select a from transfer limit 1' \
-    --data-urlencode 'event_signatures=Transfer(address indexed a, address indexed b, uint c)'
+    --data-urlencode 'signatures=Transfer(address indexed a, address indexed b, uint c)'
 ```
 
-### POST /query {#post-query .reference }
+### POST `/v2/query` {#post-query}
 
 This endpoind accepts a JSON array of objects with the following fields. The array may contain more than one request object if callers would like for the queries to run inside of a database transaction. This enables a consistent reads.
 
@@ -169,30 +187,32 @@ Similar to `GET` requests which accept the `api-key` and `chain` in the URL, whe
 
 An array of objects with the following fields:
 
-| Field            | Type     | Description         |
-|-------------     |--------- |---------------------|
-| event_signatures | []string | [human readable event signatures][3] |
-| query | string  | SQL referencing tables/columns from `event_signatures`|
+| Field | Type | Description |
+| - | - | - |
+| cursor | string | Optional. See [cursor](#cursor) |
+| signatures | []string | [human readable event signatures][3] |
+| query | string  | SQL referencing tables/columns from `signatures`|
 
 **URL Request Fields**
 
-| Field            | Type     | Description         |
-|-------------     |--------- |---------------------|
+| Field | Type | Description |
+| - | - | - |
 | api-key | string | API key from [your account page](https://www.indexsupply.net/account) |
-| chain            | int      | Chain id. See [chains](#chains) |
 
 **Example**
 
 ```
-curl -X POST https://api.indexsupply.net/query?chain=8453 \
+curl -X POST https://api.indexsupply.net/v2/query?api-key=secret \
     -H "Content-Type: application/json" \
     -d '[
         {
-            "event_signatures": ["Foo(uint a)"],
+            "cursor": "8453-0",
+            "signatures": ["Foo(uint a)"],
             "query": "select a from foo"
         },
         {
-            "event_signatures": ["Bar(uint b)"],
+            "cursor": "8453-0",
+            "signatures": ["Bar(uint b)"],
             "query": "select b from bar"
         }
     ]'
@@ -200,9 +220,44 @@ curl -X POST https://api.indexsupply.net/query?chain=8453 \
 
 <hr>
 
+## Response {#query-response .reference}
+
+Regardless of the [Request](#request) there is a single response. The response is always a JSON array containing individual response objects. When using the POST endpoint with multiple requests the array represents responses to each request. For single requests using the GET endpoint the outer array will simply contain a single element.
+
+```
+[
+  {
+    "cursor": "chainid-blocknum",
+    "columns": [{name: string, type: string}],
+    "rows": [
+      [col1, col2, colN],
+      [col1, col2, colN],
+    ]
+  }
+]
+```
+
+The `cursor` string can be copied verbaitum into a subsequent request to query for new data. See [Cursor](#cursor) for more detail.
+
+The `columns` field contains an array of objects mapping the name of the column (derived from the query) to its postgres type (ie `bytea`, `numeric`, `json`, etc.).
+
+The order of the `columns` array matches the order of the column data in `rows`.
+
+| ABI Type | JSON Type           |
+|----------|---------------------|
+| bool     | bool                |
+| bytesN   | hexadecimal string  |
+| string   | string              |
+| intN     | decimal string      |
+| uintN    | decimal string      |
+
+The `rows` field contains a 2-dimensional array where the outer array represents the number of rows in the query's result set and the inner arrays are the columns of data for each row. The length of the inner arrays are awlays be equal to the number elements in the `columns` object.
+
+<hr>
+
 ## SQL {#sql .reference}
 
-When you provide an event signature `Foo(uint indexed bar, uint baz)` you effectively have a table named `foo` with a numeric columns named `bar` and `baz` that you can query:
+When you provide a signature `Foo(uint indexed bar, uint baz)` you effectively have a table named `foo` with a numeric columns named `bar` and `baz` that you can query:
 
 ```
 select baz from foo where bar = 1
@@ -241,9 +296,7 @@ HAVING group_condition
 LIMIT count
 OFFSET start
 
-where select_list is one of: *  | [[expression [AS output_name]], …]
-
-  * Project all column references for all from_items
+where select_list is: [[expression [AS output_name]], …]
 
   [[expression [AS output_name]], …]
 
@@ -309,7 +362,6 @@ IN, and NOT IN operators. Other operators include:
     NOT
     AND
     OR
-
 ```
 
 <hr>
