@@ -14,6 +14,7 @@ use crate::{chains, daimo, postmark, query, stripe};
 
 #[derive(Clone)]
 pub struct State {
+    pub admin_api_secret: String,
     pub be_url: String,
     pub fe_url: String,
     pub flash: axum_flash::Config,

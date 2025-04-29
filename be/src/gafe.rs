@@ -10,7 +10,7 @@ use dashmap::DashMap;
 use deadpool_postgres::Pool;
 use governor::{Quota, RateLimiter};
 use nonzero::nonzero;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::{
@@ -18,9 +18,9 @@ use crate::{
     cursor,
 };
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AccountLimitSnapshot {
-    #[serde(skip_serializing)]
+    #[serde(skip_serializing, skip_deserializing)]
     pub id: String,
     pub active_conns: i32,
     pub active_clients: HashMap<String, i32>,

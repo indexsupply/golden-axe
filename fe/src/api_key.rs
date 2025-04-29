@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use eyre::Context;
 use getrandom::getrandom;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -72,6 +74,25 @@ pub async fn list(pg: &Client, owner_email: &str) -> Result<Vec<ApiKey>, shared:
         .collect::<Vec<ApiKey>>())
 }
 
+pub async fn get_active_conns(
+    base_url: &str,
+    admin_api_secret: &str,
+    customer_api_key_secret: &str,
+) -> Result<Option<be::gafe::AccountLimitSnapshot>, shared::Error> {
+    let resp = reqwest::Client::new()
+        .get(format!("{}/conns?secret={}", base_url, admin_api_secret))
+        .send()
+        .await?
+        .json::<HashMap<String, be::gafe::AccountLimitSnapshot>>()
+        .await?;
+    let id: String = customer_api_key_secret.chars().take(4).collect();
+    if let Some(snap) = resp.get(&id) {
+        Ok(Some(snap.clone()))
+    } else {
+        Ok(None)
+    }
+}
+
 pub mod handlers {
     use axum::{
         extract::State,
@@ -82,6 +103,8 @@ pub mod handlers {
     use serde_json::json;
 
     use crate::{account, session, web};
+
+    use super::get_active_conns;
 
     pub async fn new(
         State(state): State<web::State>,
@@ -120,6 +143,39 @@ pub mod handlers {
         super::create(&pg, &user.email, req.origins, req.ip_connections).await?;
         let flash = flash.success("api key created");
         Ok((flash, Redirect::to("/account")))
+    }
+
+    #[derive(Deserialize)]
+    pub struct ShowKeyRequest {
+        secret: String,
+    }
+
+    pub async fn show(
+        State(state): State<web::State>,
+        flash: axum_flash::Flash,
+        user: session::User,
+        Form(req): Form<ShowKeyRequest>,
+    ) -> Result<impl IntoResponse, shared::Error> {
+        let snapshot =
+            get_active_conns(&state.be_url, &state.admin_api_secret, &req.secret).await?;
+        {
+            let pg = state.pool.get().await?;
+            let res = pg
+                .query(
+                    "select true from api_keys where owner_email = $1 and secret = $2",
+                    &[&user.email, &req.secret],
+                )
+                .await?;
+            if res.len() != 1 {
+                let flash = flash.error("key not found");
+                return Ok((flash, Redirect::to("/account")).into_response());
+            }
+        }
+        let rendered_html = state.templates.render(
+            "show-api-key.html",
+            &json!({"secret": req.secret, "snapshot": snapshot}),
+        )?;
+        Ok((Html(rendered_html)).into_response())
     }
 
     #[derive(Deserialize)]

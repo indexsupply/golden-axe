@@ -59,6 +59,12 @@ struct Args {
 
     #[arg(long, env = "INDEXSUPPLY_KEY")]
     indexsupply_key: Option<String>,
+
+    #[clap(
+        env = "ADMIN_API_SECRET",
+        default_value = "2d6f3071fcf70f5731575be2f407b4ef"
+    )]
+    admin_api_secret: String,
 }
 
 #[tokio::main]
@@ -91,6 +97,7 @@ async fn main() -> Result<()> {
         .clone();
 
     let state = web::State {
+        admin_api_secret: args.admin_api_secret,
         examples,
         be_url: args.be_url,
         fe_url: args.fe_url,
@@ -214,6 +221,7 @@ fn service(state: web::State) -> IntoMakeServiceWithConnectInfo<Router, SocketAd
         .route("/update-stripe", post(account::handlers::update_stripe))
         .route("/new-api-key", get(api_key::handlers::new))
         .route("/create-api-key", post(api_key::handlers::create))
+        .route("/show-api-key", post(api_key::handlers::show))
         .route("/edit-api-key", post(api_key::handlers::edit))
         .route("/update-api-key", post(api_key::handlers::update))
         .route("/delete-api-key", post(api_key::handlers::delete))
@@ -245,6 +253,7 @@ mod tests {
 
     fn test_state(pool: Pool) -> web::State {
         web::State {
+            admin_api_secret: String::new(),
             pool,
             examples: Vec::new(),
             be_url: String::new(),
