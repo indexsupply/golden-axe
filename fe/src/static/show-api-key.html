@@ -1,0 +1,85 @@
+<!doctype html>
+<html>
+    <head>
+        <link
+            rel="icon"
+            href="https://indexsupply.net/ga.ico"
+            type="image/x-icon"
+        />
+        <meta charset="utf-8" />
+        <title>Index Supply / API Key</title>
+        <style>
+            body {
+                font-family: system, sans-serif;
+                font-size: 0.95em;
+                letter-spacing: -0.005em;
+                line-height: 1.58;
+
+                max-width: 500px;
+                margin: 0 auto;
+                padding: 0 0 50px 0;
+            }
+            form {
+                width: 100%;
+            }
+            input {
+                font-size: x-large;
+                width: 100%;
+                box-sizing: border-box;
+            }
+            input::placeholder {
+                color: lightgray;
+                font-family: monospace;
+                font-style: italic;
+            }
+            button {
+                margin: 10px 0 0 0;
+                width: 100%;
+                box-sizing: border-box;
+            }
+            span.capitalize {
+                font-weight: bold;
+                text-transform: capitalize;
+            }
+            table {
+                font-family: monospace;
+                width: 100%;
+                border-collapse: collapse;
+            }
+            th,
+            td {
+                border: 0.5px solid black;
+                padding: 8px;
+                text-align: left;
+            }
+            th {
+                background-color: whitesmoke;
+            }
+            tr:nth-child(even) {
+                background-color: whitesmoke;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>API Key Status</h1>
+        <p>You are viewing key: <strong><code>{{secret}}</code> </strong><br></p>
+        {{#if snapshot }}
+        <h2>IP Address Active Connections</h2>
+        <table>
+            <thead>
+                <tr><th>Client</th><th>Connections</th></tr>
+            </thead>
+            <tbody>
+                {{#each snapshot.active_clients}}
+                <tr>
+                    <td>{{@key}}</td>
+                    <td>{{this}}</td>
+                </tr>
+                {{/each}}
+            </tbody>
+        </table>
+        {{else}}
+        <p>No active connections</p>
+        {{/if}}
+    </body>
+</html>
