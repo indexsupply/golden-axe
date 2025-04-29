@@ -45,25 +45,18 @@ pub async fn handle_service_error(error: tower::BoxError) -> Error {
 pub async fn handle_conns(
     State(config): State<Config>,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<axum::Json<serde_json::Value>, Error> {
+) -> Result<axum::Json<HashMap<String, gafe::AccountLimitSnapshot>>, Error> {
     if params.get("secret").map(|s| s.as_str()) != Some(&config.admin_api_secret) {
         return Err(Error::User("no can do".into()));
     }
-    let limits_copy = config.account_limits.lock().unwrap().clone();
-    let active_conns: HashMap<String, usize> = limits_copy
+    let limits = config.account_limits.lock().unwrap();
+    let snapshots = limits
         .iter()
-        .map(|(secret, al)| {
-            let conns = al.connections as usize - al.conn_limiter.available_permits();
-            let mut key = secret.clone();
-            key.truncate(4);
-            (key, conns)
-        })
-        .filter(|(_, v)| *v > 0)
+        .map(|(_, limit)| gafe::AccountLimitSnapshot::from_account_limit(limit))
+        .filter(|snap| snap.connections > 0)
+        .map(|snap| (snap.id.clone(), snap))
         .collect();
-
-    Ok(axum::Json(serde_json::json!({
-        "active_conns": active_conns,
-    })))
+    Ok(axum::Json(snapshots))
 }
 
 pub async fn handle_status(

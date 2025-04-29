@@ -10,12 +10,41 @@ use dashmap::DashMap;
 use deadpool_postgres::Pool;
 use governor::{Quota, RateLimiter};
 use nonzero::nonzero;
+use serde::Serialize;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::{
     api::{self},
     cursor,
 };
+
+#[derive(Serialize)]
+pub struct AccountLimitSnapshot {
+    pub id: String,
+    pub connections: i32,
+    pub clients: HashMap<String, i32>,
+}
+
+impl AccountLimitSnapshot {
+    pub fn from_account_limit(limit: &AccountLimit) -> Self {
+        let connections = limit.conn_limiter.available_permits() as i32 - limit.connections;
+        let clients = limit
+            .ip_conn_limiter
+            .iter()
+            .map(|kv| {
+                let available = kv.value().available_permits() as i32;
+                let used = available - limit.ip_connections.unwrap_or(0);
+                (kv.key().clone(), used)
+            })
+            .collect();
+        let id = limit.secret.chars().take(4).collect();
+        Self {
+            id,
+            connections,
+            clients,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct AccountLimit {
