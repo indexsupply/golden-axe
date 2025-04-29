@@ -49,14 +49,17 @@ pub async fn handle_conns(
     if params.get("secret").map(|s| s.as_str()) != Some(&config.admin_api_secret) {
         return Err(Error::User("no can do".into()));
     }
-    let limits = config.account_limits.lock().unwrap();
-    let snapshots = limits
-        .iter()
-        .map(|(_, limit)| gafe::AccountLimitSnapshot::from_account_limit(limit))
-        .filter(|snap| snap.connections > 0)
-        .map(|snap| (snap.id.clone(), snap))
-        .collect();
-    Ok(axum::Json(snapshots))
+    Ok(axum::Json(
+        config
+            .account_limits
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(_, limit)| gafe::AccountLimitSnapshot::from_account_limit(limit))
+            .filter(|snap| snap.active_conns > 0)
+            .map(|snap| (snap.id.clone(), snap))
+            .collect(),
+    ))
 }
 
 pub async fn handle_status(

@@ -20,28 +20,27 @@ use crate::{
 
 #[derive(Serialize)]
 pub struct AccountLimitSnapshot {
+    #[serde(skip_serializing)]
     pub id: String,
-    pub connections: i32,
-    pub clients: HashMap<String, i32>,
+    pub active_conns: i32,
+    pub active_clients: HashMap<String, i32>,
 }
 
 impl AccountLimitSnapshot {
     pub fn from_account_limit(limit: &AccountLimit) -> Self {
-        let connections = limit.conn_limiter.available_permits() as i32 - limit.connections;
-        let clients = limit
-            .ip_conn_limiter
-            .iter()
-            .map(|kv| {
-                let available = kv.value().available_permits() as i32;
-                let used = available - limit.ip_connections.unwrap_or(0);
-                (kv.key().clone(), used)
-            })
-            .collect();
-        let id = limit.secret.chars().take(4).collect();
         Self {
-            id,
-            connections,
-            clients,
+            id: limit.secret.chars().take(4).collect(),
+            active_conns: limit.connections - limit.conn_limiter.available_permits() as i32,
+            active_clients: limit
+                .ip_conn_limiter
+                .iter()
+                .map(|kv| {
+                    (
+                        kv.key().clone(),
+                        limit.ip_connections.unwrap_or(0) - kv.value().available_permits() as i32,
+                    )
+                })
+                .collect(),
         }
     }
 }
