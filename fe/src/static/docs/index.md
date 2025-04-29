@@ -263,25 +263,70 @@ When you provide a signature `Foo(uint indexed bar, uint baz)` you effectively h
 select baz from foo where bar = 1
 ```
 
-### EVM Columns {#evm-columns}
+### EVM Tables and Columns {#evm-data}
 
-In addition to event data, there are other EVM columns available:
+When requests include a signature and a query, it is assumed that the query is operating on a virtual table of event logs or transaction inputs. (depending on the `event` or `function` prefix) However, it is also possible to query the base tables directly.
 
-| Column    | Type    | Description                        |
-|-----------|---------|---------------------               |
-| address   | bytea   | contract address emitting the event|
-| block_num | numeric |                                    |
-| log_idx   | numeric |                                    |
-| tx_hash   | bytea   |                                    |
+#### EVM Tables {#evm-tables}
 
-These can be used with the event data. For example:
+| Table |
+|--|
+| blocks |
+| txs |
+| logs |
 
-```
-select block_num, log_idx, baz
-from foo
-where address = 0x0000000000000000000000000000000000000000
-and bar = 1
-```
+#### Blocks {#evm-blocks}
+
+Table name: `blocks`
+
+| Column | Type |
+|--|--|
+| chain | int8 |
+| num | int8 |
+| timestamp | timestamptz |
+| gas_limit | numeric |
+| gas_used | numeric |
+| nonce | bytea |
+| hash | bytea |
+| receipts_root | bytea |
+| state_root | bytea |
+| extra_data | bytea |
+| miner | bytea |
+
+#### Transactions {#evm-txs}
+
+Table name: `txs`
+
+| Column | Type |
+|--|--|
+| chain | int8 |
+| block_num | int8 |
+| block_timestamp | timestamptz |
+| idx | int4 |
+| type | int2 |
+| gas | numeric |
+| gas_price | numeric |
+| nonce | bytea |
+| hash | bytea |
+| from | bytea |
+| to | bytea |
+| input | bytea |
+| value | numeric |
+
+#### Logs {#evm-logs}
+
+Table name: `logs`
+
+| Column | Type |
+|--|--|
+| chain | int8 |
+| block_num | int8 |
+| block_timestamp | timestamptz |
+| log_idx | int4 |
+| tx_hash | bytea |
+| address | bytea |
+| topics | bytea[] |
+| data | bytea |
 
 ### SQL Details {#sql-details}
 
