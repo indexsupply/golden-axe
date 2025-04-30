@@ -1,6 +1,6 @@
 use dashmap::DashMap;
 use futures_util::stream::{FuturesUnordered, StreamExt};
-use tokio::sync::broadcast;
+use tokio::sync::broadcast::{self, error::RecvError};
 
 pub struct Channel {
     pub json_updates: broadcast::Sender<serde_json::Value>,
@@ -40,18 +40,25 @@ impl Channel {
     }
 
     pub async fn wait(&self, chain_ids: &[u64]) -> Option<u64> {
-        let tasks = self
+        let mut futs = self
             .subscribe(chain_ids)
             .into_iter()
             .map(|(chain, mut rx)| {
-                tokio::spawn(async move { rx.recv().await.ok().map(|_| chain) })
-            });
-        let mut futs = FuturesUnordered::from_iter(tasks);
-        while let Some(res) = futs.next().await {
-            if let Ok(Some(chain)) = res {
-                return Some(chain);
-            }
-        }
-        None
+                tokio::spawn(async move {
+                    match rx.recv().await {
+                        Ok(_) => Some(chain),
+                        Err(RecvError::Lagged(skipped)) => {
+                            tracing::warn!(chain, skipped, "receiver lagged");
+                            None
+                        }
+                        Err(RecvError::Closed) => {
+                            tracing::error!(chain, "receiver closed");
+                            None
+                        }
+                    }
+                })
+            })
+            .collect::<FuturesUnordered<_>>();
+        futs.next().await.and_then(|res| res.ok().flatten())
     }
 }
