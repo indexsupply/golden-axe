@@ -113,6 +113,8 @@ async fn main() -> Result<()> {
     state.pool.get().await?.batch_execute(SCHEMA).await?;
 
     tokio::spawn(update_daily_user_queries(state.pool.clone()));
+    tokio::spawn(update_wl_daily_user_queries(state.pool.clone()));
+
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8001").await?;
     axum::serve(listener, service(state)).await?;
     Ok(())
@@ -245,6 +247,7 @@ fn service(state: web::State) -> IntoMakeServiceWithConnectInfo<Router, SocketAd
         .into_make_service_with_connect_info::<SocketAddr>()
 }
 
+#[tracing::instrument(skip_all)]
 async fn update_daily_user_queries(pool: deadpool_postgres::Pool) {
     loop {
         tokio::time::sleep(Duration::from_secs(30)).await;
@@ -276,8 +279,47 @@ async fn update_daily_user_queries(pool: deadpool_postgres::Pool) {
             )
             .await;
         match res {
-            Ok(_) => tracing::info!("updated daily user queries"),
-            Err(e) => tracing::error!("{} updating daily user queries", e),
+            Ok(_) => tracing::info!("updated"),
+            Err(e) => tracing::error!("{}", e),
+        }
+    }
+}
+
+#[tracing::instrument(skip_all)]
+async fn update_wl_daily_user_queries(pool: deadpool_postgres::Pool) {
+    loop {
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        let pg = match pool.get().await {
+            Ok(pg) => pg,
+            Err(e) => {
+                tracing::error!("getting pg from pool for daily user queries: {}", e);
+                continue;
+            }
+        };
+        let res = pg
+            .query(
+                "
+                insert into wl_daily_user_queries (provision_key, org, day, n, updated_at)
+                select
+                    k.provision_key,
+                    k.org,
+                    date_trunc('day', q.created_at)::date as day,
+                    count(*)::bigint,
+                    now()
+                from user_queries q
+                join wl_api_keys k on q.api_key = k.secret
+                where q.created_at >= date_trunc('day', now())
+                  and q.created_at < date_trunc('day', now() + interval '1 day')
+                group by k.provision_key, k.org, date_trunc('day', q.created_at)::date
+                on conflict (provision_key, org, day)
+                do update set n = excluded.n, updated_at = excluded.updated_at;
+                ",
+                &[],
+            )
+            .await;
+        match res {
+            Ok(_) => tracing::info!("updated"),
+            Err(e) => tracing::error!("{}", e),
         }
     }
 }

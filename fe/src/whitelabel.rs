@@ -65,23 +65,24 @@ pub async fn usage(
     Ok(Json(
         pg.query(
             "
-            select count(*)::int8 as num_reqs
-            from user_queries
-            where api_key in (select secret from wl_api_keys where provision_key = $1 and org = $2)
-            and date_part('year', created_at)::int8 = $3
-            and date_part('month', created_at)::int8 = $4
-        ",
+            select coalesce(sum(n)::int8, 0) as n
+            from wl_daily_user_queries
+            where provision_key = $3
+            and org = $4
+            and day >= make_date($1, $2, 1)
+            and day < make_date($1, $2, 1) + interval '1 month';
+            ",
             &[
+                &(req.year as i32),
+                &(req.month as i32),
                 &provision_key.secret,
                 &req.org,
-                &(req.year as i64),
-                &(req.month as i64),
             ],
         )
         .await?
         .iter()
         .map(|row| UsageResponse {
-            num_reqs: row.get("num_reqs"),
+            num_reqs: row.get("n"),
         })
         .next()
         .unwrap_or(UsageResponse { num_reqs: 0 }),

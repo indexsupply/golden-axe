@@ -141,6 +141,15 @@ create table if not exists daily_user_queries (
     primary key (owner_email, day)
 );
 
+create table if not exists wl_daily_user_queries(
+    provision_key text not null,
+    org text not null,
+    day date not null,
+    n int8 not null,
+    updated_at timestamptz not null default now(),
+    primary key (provision_key, org, day)
+);
+
 create table if not exists config (
     enabled bool default true,
     name text,
