@@ -41,6 +41,7 @@
         }
         #api-keys {
             width: 100%;
+            margin-bottom: 50px;
         }
         .api-key {
             font-family: monospace;
@@ -90,13 +91,19 @@
             padding: 10px 0 0 0;
             text-align: right;
         }
-        .plan {
+        #current-plan {
+            margin-bottom: 50px;
+        }
+        #plan {
             width: 100%;
         }
         .plan h3 {
             margin: 0px 0 5px 0;
             font-weight: normal;
             text-transform: capitalize;
+        }
+        #usage {
+            font-weight: bold;
         }
         .menu {
             width: 100%;
@@ -123,7 +130,7 @@
             box-sizing: border-box;
             border: 2px inset black;
             padding: 0 0 10px 0;
-            min-height: 420px;
+            min-height: 440px;
         }
         .option ul {
             padding-inline-start: 20px;
@@ -203,19 +210,46 @@
                 <a href="/new-api-key">new api key</a>
             </div>
         </div>
-        <div class="plan">
-            <h2>Plan</h2>
-            <h3>
-            {{#if plan}}
-            Current Plan: {{plan.name}}
-            {{/if}}
+        {{#if plan}}
+        <div id="current-plan">
+            <h2>Current Plan: {{plan.name}}</h2>
+            <p>Queries executed this month: <span id="usage">calculating...</span></p>
             {{#if plan.expiration }}
                 <br><span>Service Until: {{plan.expiration}}</span>
             {{/if}}
             {{#if plan.stripe_session }}
-                <br><span>Charged {{(money plan.amount)}} monthly via Stripe</span>
+                <p>Charged {{(money plan.amount)}} monthly via Stripe</p>
             {{/if}}
-            </h3>
+
+            {{#if plan.hard_limit}}
+            <p>
+                Plan is configured with a hard limit of {{(commas plan.queries)}} queries per month.
+            </p>
+            <p>
+                {{#if (eq plan.name "Pro")}}
+                <span>Click to disable hard limit and pay $5 per 1M additional queries:</span>
+                <form action="/update-limit" method="POST" style="display:inline;">
+                    <input type="hidden" name="enabled" value="false">
+                    <button type="submit">Disable Hard Limit</button>
+                </form>
+                {{/if}}
+            </p>
+            {{else}}
+            <p>
+                Plan is configured with a soft limit of {{(commas plan.queries)}} queries per month.
+            </p>
+            <p>
+                <span>Click to enabled hard limit and let requests fail:</span>
+                <form action="/update-limit" method="POST" style="display:inline;">
+                    <input type="hidden" name="enabled" value="true">
+                    <button type="submit">Enable Hard Limit</button>
+                </form>
+            </p>
+            {{/if}}
+        </div>
+        {{/if}}
+        <div id="plan-options">
+            <h2>Plan Options</h2>
             <div class="menu">
                 {{#each options }}
                 <div class="option" name="{{this.name}}">
@@ -269,7 +303,20 @@
         })
       };
 
+      async function getUsage() {
+          try {
+              const res = await fetch("/usage");
+              if (!res.ok) throw new Error("Request failed");
+              const data = await res.json();
+              document.getElementById("usage").textContent = data.queries;
+          } catch (e) {
+              console.error(e);
+              document.getElementById("usage").textContent = "Error";
+          }
+      }
+
       document.addEventListener("DOMContentLoaded", () => {
+        getUsage();
         {{#if plan}}
         document.querySelector(`div.option[name="{{plan.name}}"]`).classList.add("selected");
         {{/if}}

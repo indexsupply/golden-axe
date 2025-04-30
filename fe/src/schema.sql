@@ -4,6 +4,7 @@ create table if not exists wl_api_keys(
     name text,
     secret text not null,
     origins text[] default '{}',
+    hard_limit bool default true,
     created_at timestamptz default now(),
     deleted_at timestamptz
 );
@@ -40,7 +41,8 @@ create table if not exists plan_changes (
     rate int default 10,
     timeout int default 10,
     connections int default 10,
-    queries int default 100000,
+    queries int default 3000000,
+    hard_limit bool default true,
     created_at timestamptz default now()
 );
 
@@ -57,8 +59,8 @@ create table if not exists plan_options (
 );
 
 insert into plan_options (name, owner_email, rate, timeout, connections, queries, features, daimo_amount, stripe_amount) values
-('Indie', null, 5, 5, 10, 100000, '{"5 queries \/ second \/ connection", "5 second query timeout", "10 active connections", "100,000 queries per day", "Best Effort Support"}', 40000, 5000),
-('Pro', null, 10, 10, 10000, 500000, '{"10 queries \/ second \/ connection", "10 second query timeout", "Unlimited connections", "500,000 queries per day", "Same Day Support"}', 280000, 25000),
+('Indie', null, 5, 5, 10, 3000000, '{"5 queries \/ second \/ connection", "5 second query timeout", "10 active connections", "3M queries per month", "Hard limit", "No overage","Best Effort Support"}', 40000, 5000),
+('Pro', null, 10, 10, 10000, 15000000, '{"10 queries \/ second \/ connection", "10 second query timeout", "Unlimited connections", "15M queries per month", "Configurable limit", "$5 per additional 1M queries", "Same Day Support"}', 280000, 25000),
 ('Dedicated', null, 10, 10, 10000, 500000, '{"Custom Chains", "Custom Performance", "On-call Support"}', 2200000, 200000),
 ('Ryan''s Special', 'r@32k.io', 10, 60, 1000, 500000, '{"10 requests per second", "60 second query timeout", "Unlimited connections"}', 100, 100)
 on conflict (name) do update set

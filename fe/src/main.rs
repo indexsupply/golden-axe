@@ -219,6 +219,8 @@ fn service(state: web::State) -> IntoMakeServiceWithConnectInfo<Router, SocketAd
         .route("/setup-daimo", post(account::handlers::setup_daimo))
         .route("/setup-stripe", post(account::handlers::setup_stripe))
         .route("/update-stripe", post(account::handlers::update_stripe))
+        .route("/update-limit", post(account::handlers::update_limit))
+        .route("/usage", get(account::handlers::usage))
         .route("/new-api-key", get(api_key::handlers::new))
         .route("/create-api-key", post(api_key::handlers::create))
         .route("/show-api-key", post(api_key::handlers::show))

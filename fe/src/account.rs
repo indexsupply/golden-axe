@@ -10,11 +10,15 @@ use crate::{daimo, stripe};
 time::serde::format_description!(short, OffsetDateTime, "[year]-[month]-[day]");
 
 pub mod handlers {
+
     use axum::{
         extract::State,
         response::{Html, IntoResponse, Redirect},
+        Json,
     };
     use axum_extra::extract::Form;
+    use rust_decimal::Decimal;
+    use serde::{Deserialize, Serialize};
     use serde_json::json;
 
     use crate::{
@@ -23,7 +27,7 @@ pub mod handlers {
         web::{self, FlashMessage},
     };
 
-    use super::{refresh_plan, PlanChange, PlanChangeRequest};
+    use super::{refresh_plan, with_commas, PlanChange, PlanChangeRequest};
 
     pub async fn index(
         State(state): State<web::State>,
@@ -74,6 +78,75 @@ pub mod handlers {
             }),
         )?;
         Ok((flash, Html(rendered_html)).into_response())
+    }
+
+    #[derive(Deserialize)]
+    pub struct UpdateHardLimitRequest {
+        pub enabled: bool,
+    }
+
+    pub async fn update_limit(
+        flash: axum_flash::Flash,
+        State(state): State<web::State>,
+        user: session::User,
+        Form(req): Form<UpdateHardLimitRequest>,
+    ) -> Result<impl IntoResponse, shared::Error> {
+        let pg = state.pool.get().await?;
+        let res = pg
+            .execute(
+                "
+                update plan_changes
+                set hard_limit = $1
+                where id = (
+                    select id from plan_changes
+                    where owner_email = $2
+                    order by created_at desc
+                    limit 1
+                );
+                ",
+                &[&req.enabled, &user.email],
+            )
+            .await?;
+        if res == 1 {
+            if req.enabled {
+                let flash = flash.success("Hard limit enabaled");
+                Ok((flash, Redirect::to("/account")).into_response())
+            } else {
+                let flash = flash.success("Hard limit disabled");
+                Ok((flash, Redirect::to("/account")).into_response())
+            }
+        } else {
+            tracing::error!("unable to update account for {}", &user.email);
+            let flash = flash.error("Unable to update account");
+            Ok((flash, Redirect::to("/account")).into_response())
+        }
+    }
+
+    #[derive(Serialize)]
+    pub struct UsageResponse {
+        pub queries: String,
+    }
+
+    pub async fn usage(
+        State(state): State<web::State>,
+        user: session::User,
+    ) -> Result<Json<UsageResponse>, shared::Error> {
+        let pg = state.pool.get().await?;
+        let rows = pg
+            .query(
+                "
+                select count(*)::int8 as num_reqs
+                from user_queries
+                where api_key in (select secret from api_keys where owner_email = $1)
+                and date_trunc('month', created_at) = date_trunc('month', now());
+                ",
+                &[&user.email],
+            )
+            .await?;
+        let n = rows.first().map(|r| r.get("num_reqs")).unwrap_or(0);
+        Ok(Json(UsageResponse {
+            queries: with_commas(Decimal::from(n)),
+        }))
     }
 
     pub async fn update_stripe(
@@ -393,6 +466,7 @@ pub struct PlanChange {
     timeout: i32,
     connections: i32,
     queries: i32,
+    hard_limit: bool,
     amount: i64,
     daimo_id: Option<String>,
     daimo_tx: Option<String>,
@@ -423,6 +497,7 @@ impl PlanChange {
             timeout: row.get("timeout"),
             connections: row.get("connections"),
             queries: row.get("queries"),
+            hard_limit: row.get("hard_limit"),
             amount: row.get("amount"),
             daimo_id: row.get("daimo_id"),
             daimo_tx: row.get("daimo_tx"),
@@ -445,7 +520,7 @@ impl PlanChange {
         Ok(pg
             .query(
                 "
-                select owner_email, id, name, rate, timeout, connections, queries, amount, daimo_id, daimo_tx, stripe_session, stripe_customer, created_at
+                select owner_email, id, name, rate, timeout, connections, queries, hard_limit, amount, daimo_id, daimo_tx, stripe_session, stripe_customer, created_at
                 from plan_changes
                 where owner_email = $1
                 and (
@@ -470,7 +545,7 @@ impl PlanChange {
         Ok(pg
             .query(
                 "
-                select owner_email, id, name, rate, timeout, connections, queries, amount, daimo_id, daimo_tx, stripe_session, stripe_customer, created_at
+                select owner_email, id, name, rate, timeout, connections, queries, hard_limit, amount, daimo_id, daimo_tx, stripe_session, stripe_customer, created_at
                 from plan_changes
                 where owner_email = $1
                 order by created_at desc
