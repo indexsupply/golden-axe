@@ -9,6 +9,7 @@ use crate::web;
 pub struct CreateKeyRequest {
     org: String,
     name: Option<String>,
+    hard_limit: bool,
     origins: Option<Vec<String>>,
 }
 
@@ -28,13 +29,14 @@ pub async fn create_key(
     let pg = state.pool.get().await?;
     pg.execute(
         "
-        insert into wl_api_keys(provision_key, org, name, secret, origins)
-        values ($1, $2, $3, $4, coalesce($5, '{}'::text[]))
+        insert into wl_api_keys(provision_key, org, name, hard_limit, secret, origins)
+        values ($1, $2, $3, $4, $5, coalesce($6, '{}'::text[]))
         ",
         &[
             &provision_key.secret,
             &req.org,
             &req.name,
+            &req.hard_limit,
             &secret,
             &req.origins,
         ],
@@ -93,6 +95,7 @@ pub async fn usage(
 pub struct ListKeysResponse {
     org: String,
     name: Option<String>,
+    hard_limit: bool,
     secret: String,
     origins: Vec<String>,
     created_at: i64,
@@ -116,6 +119,7 @@ pub async fn list_keys(
             select
                 org,
                 name,
+                hard_limit,
                 secret,
                 origins,
                 extract(epoch from created_at)::int8 as created_at,
@@ -131,6 +135,7 @@ pub async fn list_keys(
         .map(|row| ListKeysResponse {
             org: row.get("org"),
             name: row.get("name"),
+            hard_limit: row.get("hard_limit"),
             secret: row.get("secret"),
             origins: row.get("origins"),
             created_at: row.get("created_at"),
@@ -189,6 +194,33 @@ pub async fn update_origins(
     } else {
         Err(shared::Error::User(String::from(
             "unable to update origins",
+        )))
+    }
+}
+
+#[derive(Deserialize)]
+pub struct UpdateHardLimitRequest {
+    secret: String,
+    hard_limit: bool,
+}
+pub async fn update_hard_limit(
+    provision_key: web::ProvisionKey,
+    State(state): State<web::State>,
+    Json(req): Json<UpdateHardLimitRequest>,
+) -> Result<(), shared::Error> {
+    let pg = state.pool.get().await?;
+    let res = pg
+        .execute(
+            "update wl_api_keys set hard_limit = $3 where provision_key = $1 and secret = $2",
+            &[&provision_key.secret, &req.secret, &req.hard_limit],
+        )
+        .await
+        .map_err(|_| shared::Error::User(String::from("unable to update hard_limit")))?;
+    if res == 1 {
+        Ok(())
+    } else {
+        Err(shared::Error::User(String::from(
+            "unable to update hard_limit",
         )))
     }
 }

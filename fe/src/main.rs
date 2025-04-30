@@ -241,6 +241,10 @@ fn service(state: web::State) -> IntoMakeServiceWithConnectInfo<Router, SocketAd
             "/wl/update-api-key-origins",
             post(whitelabel::update_origins),
         )
+        .route(
+            "/wl/update-api-key-hard-limit",
+            post(whitelabel::update_hard_limit),
+        )
         .route("/wl/usage", post(whitelabel::usage))
         .fallback(fallback)
         .layer(service)

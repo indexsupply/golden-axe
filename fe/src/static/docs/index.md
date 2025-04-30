@@ -527,10 +527,11 @@ curl -v http://$secret@www.indexsupply.net/wl/disable-chain \
 
 **JSON Request Fields**
 
-| Field       | Type    | Description                        |
-|-------------|---------|---------------------               |
+| Field       | Type    | Description |
+|-------------|---------|---------------------|
 | org         | string  | A value to group multiple api keys |
-| name        | string  | An optional label for the api key  |
+| name        | string  | An optional label for the api key |
+| hard_limit  | boolean | Reject requests once plan limit has been reached |
 | origins     | []string | An optional list of allowed origins for the key. This prevents people from stealing the key for browser use. |
 
 **JSON Response Fields**
@@ -549,6 +550,7 @@ curl https://$secret@www.indexsupply.net/wl/create-api-key \
   -H "Content-Type: application/json" \
   --data '{
      "org": "my-customer-42",
+     "hard_limit": true,
      "name": "my-prod-server",
      "origins": ["facebeef.com"]
   }'
@@ -572,6 +574,7 @@ A JSON array is returned with the following object fields
 |-------------|---------|---------------------|
 | org         | string  | A value to group multiple api keys |
 | name        | string  | Optional label for the api key            |
+| hard_limit  | boolean | Reject requests once plan limit has been reached |
 | secret      | string  | The value provided when the key was created |
 | origins     | []string| The value provided when the key was created |
 | created_at  | int     | UNIX time when key was created |
@@ -589,6 +592,7 @@ curl https://$secret@www.indexsupply.net/wl/list-api-keys \
   {
     "org":"my-customer-42",
     "name": "my-prod-server",
+    "hard_limit": true,
     "secret":"facebeef",
     "created_at":1742940562,
     "deleted_at":null
@@ -612,6 +616,27 @@ curl http://$secret@www.indexsupply.net/wl/delete-api-key \
   -X POST \
   -H "Content-Type: application/json" \
   --data '{"secret": "facebeef"}'
+```
+
+### POST /wl/update-api-key-hard-limit {#update-api-key-hard-limit .whitelabel}
+
+Updates the hard limit feature of the api key.
+
+**JSON Request Fields**
+
+| Field       | Type    | Description |
+|-------------|---------|---------------------|
+| secret      | string  | The value provided when the key was created |
+| hard_limit  | boolean | Reject requests once plan limit has been reached |
+
+Returns an empty 200 response if successful.
+
+**Example**
+```
+curl http://$secret@www.indexsupply.net/wl/update-api-key-hard-limit \
+  -X POST \
+  -H "Content-Type: application/json" \
+  --data '{"secret": "facebeef", "hard_limit": false}'
 ```
 
 ### POST /wl/update-api-key-origins {#update-api-key-origins .whitelabel}
