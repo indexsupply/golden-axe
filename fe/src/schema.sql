@@ -133,6 +133,14 @@ create table if not exists user_queries(
     ip text
 );
 
+create table if not exists daily_user_queries (
+    owner_email text not null,
+    day date not null,
+    n int8 not null,
+    updated_at timestamptz not null default now(),
+    primary key (owner_email, day)
+);
+
 create table if not exists config (
     enabled bool default true,
     name text,

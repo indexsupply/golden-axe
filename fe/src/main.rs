@@ -112,6 +112,7 @@ async fn main() -> Result<()> {
     };
     state.pool.get().await?.batch_execute(SCHEMA).await?;
 
+    tokio::spawn(update_daily_user_queries(state.pool.clone()));
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8001").await?;
     axum::serve(listener, service(state)).await?;
     Ok(())
@@ -220,7 +221,6 @@ fn service(state: web::State) -> IntoMakeServiceWithConnectInfo<Router, SocketAd
         .route("/setup-stripe", post(account::handlers::setup_stripe))
         .route("/update-stripe", post(account::handlers::update_stripe))
         .route("/update-limit", post(account::handlers::update_limit))
-        .route("/usage", get(account::handlers::usage))
         .route("/new-api-key", get(api_key::handlers::new))
         .route("/create-api-key", post(api_key::handlers::create))
         .route("/show-api-key", post(api_key::handlers::show))
@@ -243,6 +243,43 @@ fn service(state: web::State) -> IntoMakeServiceWithConnectInfo<Router, SocketAd
         .layer(service)
         .with_state(state)
         .into_make_service_with_connect_info::<SocketAddr>()
+}
+
+async fn update_daily_user_queries(pool: deadpool_postgres::Pool) {
+    loop {
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        let pg = match pool.get().await {
+            Ok(pg) => pg,
+            Err(e) => {
+                tracing::error!("getting pg from pool for daily user queries: {}", e);
+                continue;
+            }
+        };
+        let res = pg
+            .query(
+                "
+                insert into daily_user_queries (owner_email, day, n, updated_at)
+                select
+                    k.owner_email,
+                    date_trunc('day', q.created_at)::date as day,
+                    count(*)::bigint,
+                    now()
+                from user_queries q
+                join api_keys k on q.api_key = k.secret
+                where q.created_at >= date_trunc('day', now())
+                  and q.created_at < date_trunc('day', now() + interval '1 day')
+                group by k.owner_email, date_trunc('day', q.created_at)::date
+                on conflict (owner_email, day)
+                do update set n = excluded.n, updated_at = excluded.updated_at;
+                ",
+                &[],
+            )
+            .await;
+        match res {
+            Ok(_) => tracing::info!("updated daily user queries"),
+            Err(e) => tracing::error!("{} updating daily user queries", e),
+        }
+    }
 }
 
 #[cfg(test)]

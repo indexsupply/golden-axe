@@ -14,7 +14,6 @@ pub mod handlers {
     use axum::{
         extract::State,
         response::{Html, IntoResponse, Redirect},
-        Json,
     };
     use axum_extra::extract::Form;
     use rust_decimal::Decimal;
@@ -67,6 +66,7 @@ pub mod handlers {
         let pg = state.pool.get().await?;
         let plan = refresh_plan(&state.daimo, &state.stripe, &pg, &user.email).await?;
         let api_keys = api_key::list(&pg, &user.email).await?;
+        let usage = super::usage(&pg, &user.email).await?;
         let rendered_html = state.templates.render(
             "account.html",
             &json!({
@@ -74,6 +74,7 @@ pub mod handlers {
                 "flash": FlashMessage::from(flash.clone()),
                 "plan": plan,
                 "api_keys": api_keys,
+                "usage": usage,
                 "options": view_plan_options(&pg, &user.email).await?,
             }),
         )?;
@@ -120,33 +121,6 @@ pub mod handlers {
             let flash = flash.error("Unable to update account");
             Ok((flash, Redirect::to("/account")).into_response())
         }
-    }
-
-    #[derive(Serialize)]
-    pub struct UsageResponse {
-        pub queries: String,
-    }
-
-    pub async fn usage(
-        State(state): State<web::State>,
-        user: session::User,
-    ) -> Result<Json<UsageResponse>, shared::Error> {
-        let pg = state.pool.get().await?;
-        let rows = pg
-            .query(
-                "
-                select count(*)::int8 as num_reqs
-                from user_queries
-                where api_key in (select secret from api_keys where owner_email = $1)
-                and date_trunc('month', created_at) = date_trunc('month', now());
-                ",
-                &[&user.email],
-            )
-            .await?;
-        let n = rows.first().map(|r| r.get("num_reqs")).unwrap_or(0);
-        Ok(Json(UsageResponse {
-            queries: with_commas(Decimal::from(n)),
-        }))
     }
 
     pub async fn update_stripe(
@@ -232,6 +206,22 @@ pub mod handlers {
         .await?;
         Ok(Redirect::to(&payment_link.url))
     }
+}
+
+pub async fn usage(pg: &tokio_postgres::Client, email: &str) -> Result<i64, shared::Error> {
+    let rows = pg
+        .query(
+            "
+            select sum(n)::int8 as n
+            from daily_user_queries
+            where day >= date_trunc('month', now())::date
+            and day < date_trunc('month', now() + interval '1 month')::date
+            and owner_email = $1
+            ",
+            &[&email],
+        )
+        .await?;
+    Ok(rows.first().map(|r| r.get("n")).unwrap_or(0))
 }
 
 pub async fn refresh_plan(
