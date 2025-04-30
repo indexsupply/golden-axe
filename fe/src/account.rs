@@ -212,7 +212,7 @@ pub async fn usage(pg: &tokio_postgres::Client, email: &str) -> Result<i64, shar
     let rows = pg
         .query(
             "
-            select sum(n)::int8 as n
+            select coalesce(sum(n)::int8, 0) as n
             from daily_user_queries
             where day >= date_trunc('month', now())::date
             and day < date_trunc('month', now() + interval '1 month')::date
