@@ -102,9 +102,6 @@
             font-weight: normal;
             text-transform: capitalize;
         }
-        #usage {
-            font-weight: bold;
-        }
         .menu {
             width: 100%;
             display: flex;
@@ -213,7 +210,7 @@
         {{#if plan}}
         <div id="current-plan">
             <h2>Current Plan: {{plan.name}}</h2>
-            <p>Queries executed this month: <span id="usage">{{usage}}</span></p>
+            <p>Queries executed this month: {{(commas usage)}}</p>
             {{#if plan.expiration }}
             <span>Service Until: {{plan.expiration}}</span>
             {{/if}}

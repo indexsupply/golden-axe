@@ -16,8 +16,7 @@ pub mod handlers {
         response::{Html, IntoResponse, Redirect},
     };
     use axum_extra::extract::Form;
-    use rust_decimal::Decimal;
-    use serde::{Deserialize, Serialize};
+    use serde::Deserialize;
     use serde_json::json;
 
     use crate::{
@@ -26,7 +25,7 @@ pub mod handlers {
         web::{self, FlashMessage},
     };
 
-    use super::{refresh_plan, with_commas, PlanChange, PlanChangeRequest};
+    use super::{refresh_plan, PlanChange, PlanChangeRequest};
 
     pub async fn index(
         State(state): State<web::State>,
