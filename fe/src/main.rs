@@ -114,6 +114,7 @@ async fn main() -> Result<()> {
 
     tokio::spawn(update_daily_user_queries(state.pool.clone()));
     tokio::spawn(update_wl_daily_user_queries(state.pool.clone()));
+    tokio::spawn(cleanup_user_queries(state.pool.clone()));
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8001").await?;
     axum::serve(listener, service(state)).await?;
@@ -319,6 +320,30 @@ async fn update_wl_daily_user_queries(pool: deadpool_postgres::Pool) {
             .await;
         match res {
             Ok(_) => tracing::info!("updated"),
+            Err(e) => tracing::error!("{}", e),
+        }
+    }
+}
+
+#[tracing::instrument(skip_all)]
+async fn cleanup_user_queries(pool: deadpool_postgres::Pool) {
+    loop {
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        let pg = match pool.get().await {
+            Ok(pg) => pg,
+            Err(e) => {
+                tracing::error!("getting pg from pool for user queries cleanup: {}", e);
+                continue;
+            }
+        };
+        let res = pg
+            .execute(
+                "delete from user_queries where created_at < now() - '45 days'::interval",
+                &[],
+            )
+            .await;
+        match res {
+            Ok(n) => tracing::info!("deleted {}", n),
             Err(e) => tracing::error!("{}", e),
         }
     }
