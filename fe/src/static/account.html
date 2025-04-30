@@ -215,10 +215,10 @@
             <h2>Current Plan: {{plan.name}}</h2>
             <p>Queries executed this month: <span id="usage">{{usage}}</span></p>
             {{#if plan.expiration }}
-                <br><span>Service Until: {{plan.expiration}}</span>
+            <span>Service Until: {{plan.expiration}}</span>
             {{/if}}
             {{#if plan.stripe_session }}
-                <p>Charged {{(money plan.amount)}} monthly via Stripe</p>
+            <p>Charged {{(money plan.amount)}} monthly via Stripe</p>
             {{/if}}
 
             {{#if plan.hard_limit}}
