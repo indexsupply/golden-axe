@@ -7,3 +7,4 @@ pub mod cursor;
 pub mod gafe;
 pub mod query;
 pub mod sync;
+pub mod user_query;

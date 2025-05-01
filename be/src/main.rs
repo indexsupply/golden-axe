@@ -6,7 +6,7 @@ use axum::{
     extract::{connect_info::IntoMakeServiceWithConnectInfo, MatchedPath},
     routing::{get, post, Router},
 };
-use be::{api, api_sql, api_sql2, sync};
+use be::{api, api_sql, api_sql2, sync, user_query};
 use clap::Parser;
 use tower::ServiceBuilder;
 use tower_http::{
@@ -209,11 +209,7 @@ fn service(config: api::Config) -> IntoMakeServiceWithConnectInfo<Router, Socket
         .layer(CorsLayer::permissive())
         .layer(axum::middleware::from_fn_with_state(
             config.clone(),
-            api_sql::log_request,
-        ))
-        .layer(axum::middleware::from_fn_with_state(
-            config.clone(),
-            api_sql2::log_request,
+            user_query::log_request,
         ))
         .layer(axum::middleware::from_fn_with_state(
             config.clone(),

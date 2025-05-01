@@ -125,10 +125,9 @@ create table if not exists user_queries(
     api_key text,
     events text[],
     user_query text,
-    rewritten_query text,
-    generated_query text,
     latency int,
     status int2,
+    qty int2 default 1,
     created_at timestamptz default now(),
     ip text
 );

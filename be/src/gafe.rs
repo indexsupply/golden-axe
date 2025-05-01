@@ -5,7 +5,6 @@ use std::{
     time::Duration,
 };
 
-use alloy::primitives::U64;
 use dashmap::DashMap;
 use deadpool_postgres::Pool;
 use governor::{Quota, RateLimiter};
@@ -13,10 +12,7 @@ use nonzero::nonzero;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-use crate::{
-    api::{self},
-    cursor,
-};
+use crate::api::{self};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AccountLimitSnapshot {
@@ -194,56 +190,5 @@ impl Connection {
                 .map(|al| (al.secret.clone(), Arc::new(al)))
                 .collect(),
         )
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    #[tracing::instrument(level = "debug" skip_all)]
-    pub async fn log_query(
-        &self,
-        key: Option<api::Key>,
-        ip: api::OriginIp,
-        cursor: cursor::Cursor,
-        events: Vec<String>,
-        query: String,
-        latency: u64,
-        status: u16,
-    ) {
-        let fe_pool = self.fe_pool.clone();
-        tokio::spawn(async move {
-            let timeout_res = tokio::time::timeout(Duration::from_secs(1), async {
-                let res = fe_pool
-                    .get()
-                    .await
-                    .expect("unable to get pg from pool")
-                    .query(
-                        "insert into user_queries (
-                            api_key,
-                            chain,
-                            events,
-                            user_query,
-                            latency,
-                            status,
-                            ip
-                        ) values ($1, $2, $3, $4, $5, $6, $7)",
-                        &[
-                            &key.map(|k| k.to_string()),
-                            &U64::from(cursor.chain()),
-                            &events,
-                            &query,
-                            &(latency as i32),
-                            &(status as i16),
-                            &ip.to_string(),
-                        ],
-                    )
-                    .await;
-                if res.is_err() {
-                    tracing::error!("logging user query: {:?}", res);
-                }
-            })
-            .await;
-            if timeout_res.is_err() {
-                tracing::error!("logging user query timed out");
-            }
-        });
     }
 }

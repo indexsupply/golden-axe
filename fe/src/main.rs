@@ -270,7 +270,7 @@ async fn update_daily_user_queries(pool: deadpool_postgres::Pool) {
                 select
                     k.owner_email,
                     date_trunc('day', q.created_at)::date as day,
-                    count(*)::bigint,
+                    sum(qty)::int8,
                     now()
                 from user_queries q
                 join api_keys k on q.api_key = k.secret
@@ -309,7 +309,7 @@ async fn update_wl_daily_user_queries(pool: deadpool_postgres::Pool) {
                     k.provision_key,
                     k.org,
                     date_trunc('day', q.created_at)::date as day,
-                    count(*)::bigint,
+                    sum(qty)::int8,
                     now()
                 from user_queries q
                 join wl_api_keys k on q.api_key = k.secret

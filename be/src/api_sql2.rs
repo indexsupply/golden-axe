@@ -1,8 +1,4 @@
-use std::{
-    convert::Infallible,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::{convert::Infallible, sync::Arc, time::Duration};
 
 use alloy::{
     hex,
@@ -18,17 +14,30 @@ use axum::{
 };
 use axum_extra::extract::Form;
 use deadpool_postgres::Pool;
-use eyre::Context;
+use eyre::{eyre, Context};
 use futures::Stream;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio_postgres::types::Type;
 
-use crate::{
-    api::{self},
-    cursor, gafe, query,
-};
+use crate::{api, cursor, gafe, query, user_query};
+
+impl From<&Request> for user_query::Row {
+    fn from(req: &Request) -> user_query::Row {
+        let api_key = req
+            .api_key
+            .as_ref()
+            .map(|k| k.to_string())
+            .unwrap_or_default();
+        user_query::Row::new(
+            &api_key,
+            req.cursor.chain(),
+            req.signatures.clone(),
+            &req.query,
+        )
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
 pub struct Request {
@@ -55,70 +64,71 @@ pub struct Response {
 }
 
 pub async fn handle_post(
-    Extension(log): Extension<RequestLog>,
+    Extension(log): Extension<user_query::RequestLog>,
     api_key: api::Key,
     State(config): State<api::Config>,
-    account_limit: Arc<gafe::AccountLimit>,
+    al: Arc<gafe::AccountLimit>,
     api::Json(mut req): api::Json<Vec<Request>>,
 ) -> Result<Json<Vec<Response>>, api::Error> {
-    let ttl = account_limit.timeout;
     // api-key will be coming from the URL
     req.iter_mut().for_each(|r| {
         r.api_key.get_or_insert(api_key.clone());
     });
-    log.add(req.clone());
-    Ok(Json(query(config.ro_pool, ttl, &req).await?))
+    log.add(req.iter().map(|r| r.into()).collect());
+    Ok(Json(query(config.ro_pool, al.timeout, &req).await?))
 }
 
 pub async fn handle_get(
-    Extension(log): Extension<RequestLog>,
+    Extension(log): Extension<user_query::RequestLog>,
     State(config): State<api::Config>,
-    account_limit: Arc<gafe::AccountLimit>,
+    al: Arc<gafe::AccountLimit>,
     Form(req): Form<Request>,
 ) -> Result<Json<Vec<Response>>, api::Error> {
-    let ttl = account_limit.timeout;
-    log.add(vec![req.clone()]);
-    Ok(Json(query(config.ro_pool, ttl, &[req]).await?))
+    log.add_one((&req).into());
+    Ok(Json(query(config.ro_pool, al.timeout, &[req]).await?))
 }
 
 #[tracing::instrument(skip_all)]
 pub async fn handle_sse(
-    Extension(log): Extension<RequestLog>,
+    Extension(log): Extension<user_query::RequestLog>,
     State(config): State<api::Config>,
-    origin_ip: api::OriginIp,
-    account_limit: Arc<gafe::AccountLimit>,
+    ip: api::OriginIp,
+    al: Arc<gafe::AccountLimit>,
     Form(mut req): Form<Request>,
 ) -> Result<axum::response::Sse<impl Stream<Item = Result<SSEvent, Infallible>>>, api::Error> {
-    log.add(vec![req.clone()]);
-
     let active_connections = config.new_connection().await?;
-    let plan_limit = account_limit.conn_limiter()?;
-    let ip_limit = account_limit.conn_ip_limiter(&origin_ip.to_string())?;
+    let plan_limit = al.conn_limiter()?;
+    let ip_limit = al.conn_ip_limiter(&ip.to_string())?;
 
+    log.add_one((&req).into());
     let stream = async_stream::stream! {
         let _hold_onto_permits = (active_connections, plan_limit, ip_limit);
+        let mut log_guard = log.guard(config.fe_pool.clone(), ip.to_string());
         loop {
             match query(
                 config.ro_pool.clone(),
-                account_limit.timeout,
+                al.timeout,
                 &[req.clone()],
             )
             .await
             {
                 Ok(resp) if resp.len() == 1 => {
+                    log.incr();
                     req.cursor = resp[0].cursor.clone();
                     yield Ok(SSEvent::default().json_data(&resp).unwrap());
                 }
                 Err(err) => {
+                    log_guard.error(&err);
+                    yield Ok(SSEvent::default().json_data(err).unwrap());
+                    return;
+                },
+                _ => {
+                    let err = api::Error::Server(eyre!("expected only one result").into());
+                    log_guard.error(&err);
                     yield Ok(SSEvent::default().json_data(err).unwrap());
                     return;
                 }
-                _ => {
-                    yield Ok(SSEvent::default()
-                        .json_data("unable to find query result")
-                        .unwrap());
-                    return;
-                }
+
             }
             let waiting = config
                 .broadcaster
@@ -131,57 +141,6 @@ pub async fn handle_sse(
         }
     };
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
-}
-
-#[derive(Clone)]
-pub struct RequestMeta {
-    requests: Vec<Request>,
-    start: std::time::SystemTime,
-}
-
-#[derive(Clone)]
-pub struct RequestLog(Arc<Mutex<RequestMeta>>);
-
-impl RequestLog {
-    fn add(&self, requests: Vec<Request>) {
-        self.0.lock().unwrap().requests = requests;
-    }
-
-    async fn done(&self, gafe: gafe::Connection, status: u16, ip: api::OriginIp) {
-        let log = self.0.lock().unwrap().clone();
-        let latency = std::time::SystemTime::now()
-            .duration_since(log.start)
-            .unwrap()
-            .as_millis() as u64;
-        for req in &log.requests {
-            gafe.log_query(
-                req.api_key.clone(),
-                ip.clone(),
-                req.cursor.clone(),
-                req.signatures.clone(),
-                req.query.clone(),
-                latency,
-                status,
-            )
-            .await
-        }
-    }
-}
-
-pub async fn log_request(
-    State(config): State<api::Config>,
-    ip: api::OriginIp,
-    mut request: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> Result<axum::response::Response, api::Error> {
-    let log: RequestLog = RequestLog(Arc::new(Mutex::new(RequestMeta {
-        requests: Vec::new(),
-        start: std::time::SystemTime::now(),
-    })));
-    request.extensions_mut().insert(log.clone());
-    let resp = next.run(request).await;
-    log.done(config.gafe, resp.status().as_u16(), ip).await;
-    Ok(resp)
 }
 
 async fn query(
