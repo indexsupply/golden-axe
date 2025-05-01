@@ -210,7 +210,7 @@
         {{#if plan}}
         <div id="current-plan">
             <h2>Current Plan: {{plan.name}}</h2>
-            <p>Queries executed this month: {{(commas usage)}}</p>
+
             {{#if plan.expiration }}
             <span>Service Until: {{plan.expiration}}</span>
             {{/if}}
@@ -218,6 +218,7 @@
             <p>Charged {{(money plan.amount)}} monthly via Stripe</p>
             {{/if}}
 
+            <p>Queries executed this month: {{(commas usage)}}</p>
             {{#if plan.hard_limit}}
             <p>
                 Plan is configured with a hard limit of {{(commas plan.queries)}} queries per month.
