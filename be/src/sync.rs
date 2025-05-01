@@ -207,8 +207,8 @@ impl Downloader {
             return Ok(());
         }
         let block = match self.start_block {
-            Some(n) => self.remote_block(U64::from(n)).await?,
-            None => self.remote_block_latest().await?,
+            Some(n) => remote_block(&self.jrpc_client, U64::from(n)).await?,
+            None => remote_block_latest(&self.jrpc_client).await?,
         };
         tracing::info!("initializing blocks table at: {}", block.number);
         let mut pg = self.be_pool.get().await.wrap_err("getting pg")?;
@@ -297,7 +297,7 @@ impl Downloader {
     */
     #[tracing::instrument(level="info" skip_all, fields(from, to, blocks, txs, logs))]
     async fn download(&mut self, batch_size: u16) -> Result<u64, Error> {
-        let latest = self.remote_block_latest().await?;
+        let latest = remote_block_latest(&self.jrpc_client).await?;
         let _ = self.broadcaster.json_updates.send(serde_json::json!({
             "new_block": "remote",
             "chain": self.chain.0,
@@ -320,9 +320,9 @@ impl Downloader {
         tracing::Span::current()
             .record("from", from)
             .record("to", to);
-        let (mut logs, mut blocks) = (
-            self.download_logs(from, to).await?,
-            self.download_blocks(from, to).await?,
+        let (mut blocks, mut logs) = (
+            download_blocks(&self.jrpc_client, from, to).await?,
+            download_logs(&self.jrpc_client, from, to).await?,
         );
         add_timestamp(&mut blocks, &mut logs);
         validate_blocks(from, to, &blocks)?;
@@ -345,45 +345,6 @@ impl Downloader {
         Ok(last_block.number.to())
     }
 
-    #[tracing::instrument(level="info" skip_all, fields(from, to))]
-    async fn download_logs(&self, from: u64, to: u64) -> Result<Vec<jrpc::Log>, Error> {
-        Ok(self
-            .jrpc_client
-            .send_one(serde_json::json!({
-                "id": "1",
-                "jsonrpc": "2.0",
-                "method": "eth_getLogs",
-                "params": [{"fromBlock": U64::from(from), "toBlock": U64::from(to)}],
-            }))
-            .await?
-            .to()?)
-    }
-
-    #[tracing::instrument(level="info" skip_all, fields(from, to))]
-    async fn download_blocks(&self, from: u64, to: u64) -> Result<Vec<jrpc::Block>, Error> {
-        Ok(self
-            .jrpc_client
-            .send(
-                (from..=to)
-                    .map(|n| {
-                        serde_json::json!({
-                            "id": "1",
-                            "jsonrpc": "2.0",
-                            "method": "eth_getBlockByNumber",
-                            "params": [U64::from(n), true],
-                        })
-                    })
-                    .collect(),
-            )
-            .await?
-            .into_iter()
-            .map(|resp| resp.to::<jrpc::Block>())
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .sorted_by(|a, b| a.number.cmp(&b.number))
-            .collect())
-    }
-
     async fn local_latest(&self) -> Result<(u64, BlockHash), Error> {
         let pg = self.be_pool.get().await.wrap_err("pg pool")?;
         let q = "SELECT num, hash from blocks where chain = $1 order by num desc limit 1";
@@ -396,32 +357,70 @@ impl Downloader {
             row.try_get("hash")?,
         ))
     }
+}
 
-    async fn remote_block(&self, n: U64) -> Result<jrpc::Block, Error> {
-        Ok(self
-            .jrpc_client
-            .send_one(serde_json::json!({
-                "id": "1",
-                "jsonrpc": "2.0",
-                "method": "eth_getBlockByNumber",
-                "params": [n, true],
-            }))
-            .await?
-            .to()?)
-    }
+async fn remote_block(client: &jrpc::Client, n: U64) -> Result<jrpc::Block, Error> {
+    Ok(client
+        .send_one(serde_json::json!({
+            "id": "1",
+            "jsonrpc": "2.0",
+            "method": "eth_getBlockByNumber",
+            "params": [n, true],
+        }))
+        .await?
+        .to()?)
+}
 
-    async fn remote_block_latest(&self) -> Result<jrpc::Block, Error> {
-        Ok(self
-            .jrpc_client
-            .send_one(serde_json::json!({
-                "id": "1",
-                "jsonrpc": "2.0",
-                "method": "eth_getBlockByNumber",
-                "params": ["latest", true],
-            }))
-            .await?
-            .to()?)
-    }
+async fn remote_block_latest(client: &jrpc::Client) -> Result<jrpc::Block, Error> {
+    Ok(client
+        .send_one(serde_json::json!({
+            "id": "1",
+            "jsonrpc": "2.0",
+            "method": "eth_getBlockByNumber",
+            "params": ["latest", true],
+        }))
+        .await?
+        .to()?)
+}
+#[tracing::instrument(level="info" skip_all, fields(from, to))]
+async fn download_blocks(
+    client: &jrpc::Client,
+    from: u64,
+    to: u64,
+) -> Result<Vec<jrpc::Block>, Error> {
+    Ok(client
+        .send(
+            (from..=to)
+                .map(|n| {
+                    serde_json::json!({
+                        "id": "1",
+                        "jsonrpc": "2.0",
+                        "method": "eth_getBlockByNumber",
+                        "params": [U64::from(n), true],
+                    })
+                })
+                .collect(),
+        )
+        .await?
+        .into_iter()
+        .map(|resp| resp.to::<jrpc::Block>())
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .sorted_by(|a, b| a.number.cmp(&b.number))
+        .collect())
+}
+
+#[tracing::instrument(level="info" skip_all, fields(from, to))]
+async fn download_logs(client: &jrpc::Client, from: u64, to: u64) -> Result<Vec<jrpc::Log>, Error> {
+    Ok(client
+        .send_one(serde_json::json!({
+            "id": "1",
+            "jsonrpc": "2.0",
+            "method": "eth_getLogs",
+            "params": [{"fromBlock": U64::from(from), "toBlock": U64::from(to)}],
+        }))
+        .await?
+        .to()?)
 }
 
 fn validate_blocks(from: u64, to: u64, blocks: &[jrpc::Block]) -> Result<(), Error> {
