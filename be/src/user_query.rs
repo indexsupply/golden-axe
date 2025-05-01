@@ -135,7 +135,7 @@ pub async fn insert(pool: deadpool_postgres::Pool, row: Row) {
                     &(row.latency as i32),
                     &(row.status as i16),
                     &row.ip,
-                    &(row.qty as i32),
+                    &(row.qty as i16),
                 ],
             )
             .await;
