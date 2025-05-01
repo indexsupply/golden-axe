@@ -101,7 +101,7 @@ A request consists of the following fields (either form encoded or JSON encoded)
 
 ### Cursor {#cursor}
 
-The cusror enables synchronization between your app and the Index Supply API. When you make a request without a cursor, the query will be executed on all indexed blocks available to Index Supply. The [Response](#response) will contain a `cursor` string mapping the chains referenced in the query and the latest `block_height` of the referenced chain at the time of query execution.
+The cursor enables synchronization between your app and the Index Supply API. When you make a request without a cursor, the query will be executed on all indexed blocks available to Index Supply. The [Response](#response) will contain a `cursor` string mapping the chains referenced in the query and the latest `block_height` of the referenced chain at the time of query execution.
 
 For example
 
