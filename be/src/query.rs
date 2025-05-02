@@ -622,6 +622,10 @@ impl UserQuery {
                 }
                 self.validate_expression(expr)
             }
+            ast::Expr::InSubquery { expr, subquery, .. } => {
+                self.validate_expression(expr)?;
+                self.validate_query(subquery)
+            }
             ast::Expr::Subscript { expr, .. } => self.validate_expression(expr),
             ast::Expr::Substring { expr, .. } => self.validate_expression(expr),
             ast::Expr::Function(f) => self.validate_function(f),
@@ -1744,37 +1748,23 @@ mod tests {
             vec!["Transfer(address indexed from, address indexed to, uint256 value)"],
             r#"
             select
-            block_num,
-            count (distinct "to") as migrated_users,
-            sum (case
-                when address = 0x2cfc85d8e48f8eab294be644d9e25c3030863003
-                then value
-                else 0
-                end
-            ) as wld,
-            sum (case
-                when address = 0x03c7054bcb39f7b2e5b2c7acb37583e32d70cfa3
-                then value
-                else 0
-                end
-            ) as btc,
-            sum(case
-                when address = 0x4200000000000000000000000000000000000006
-                then value
-                else 0
-                end
-            ) as eth,
-            sum (case
-                when address = 0x79a02482a880bce3f13e09da970dc34db4cd24d1
-                then value
-                else 0
-                end
-            ) as usdc
+              block_num,
+              count(distinct "to") as migrated_users,
+              sum(case when address = 0x2cfc85d8e48f8eab294be644d9e25c3030863003 then value else 0 end) as wld,
+              sum(case when address = 0x03c7054bcb39f7b2e5b2c7acb37583e32d70cfa3 then value else 0 end) as btc,
+              sum(case when address = 0x4200000000000000000000000000000000000006 then value else 0 end) as eth,
+              sum(case when address = 0x79a02482a880bce3f13e09da970dc34db4cd24d1 then value else 0 end) as usdc
             from transfer
             where "from" = 0xc6968c6df1a2c31ac66b42945bbad91635a0095b
+              and block_num in (
+                select block_num
+                from transfer
+                where "from" = 0xc6968c6df1a2c31ac66b42945bbad91635a0095b
+                order by block_num desc
+                limit 20
+              )
             group by block_num
-            order by block_num desc
-            limit 20
+            order by block_num desc;
             "#,
             r#"
             with transfer as not materialized (
@@ -1816,10 +1806,17 @@ mod tests {
                 end
               ) as usdc
             from transfer
-            where "from" = '\x000000000000000000000000c6968c6df1a2c31ac66b42945bbad91635a0095b'
+            where
+              "from" = '\x000000000000000000000000c6968c6df1a2c31ac66b42945bbad91635a0095b'
+              and block_num in (
+                select block_num
+                from transfer
+                where "from" = '\x000000000000000000000000c6968c6df1a2c31ac66b42945bbad91635a0095b'
+                order by block_num desc
+                limit 20
+              )
             group by block_num
             order by block_num desc
-            limit 20
             "#,
         )
         .await;
