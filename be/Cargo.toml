@@ -10,8 +10,8 @@ name = "be"
 path = "src/main.rs"
 
 [[bin]]
-name = "sync_logs"
-path = "src/bin/sync_logs.rs"
+name = "download_missing_logs"
+path = "src/bin/download_missing_logs.rs"
 
 [dependencies]
 alloy = { version = "0.8.3", features = ["postgres"] }
