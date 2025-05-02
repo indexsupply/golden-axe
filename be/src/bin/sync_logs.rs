@@ -27,7 +27,7 @@ async fn main() {
         .await
         .expect("finding missing logs");
     if blocks.is_empty() {
-        println!("nothing to do");
+        println!("no missing logs");
     }
     for block in blocks {
         println!("missing {} txs: {}", block.num, block.txs);
