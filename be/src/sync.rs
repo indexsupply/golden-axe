@@ -7,7 +7,7 @@ use time::OffsetDateTime;
 use tokio::task::JoinHandle;
 use url::Url;
 
-use alloy::primitives::{BlockHash, U16, U256, U64};
+use alloy::primitives::{BlockHash, FixedBytes, U16, U256, U64};
 use eyre::{eyre, Context, Result};
 use futures::pin_mut;
 use tokio_postgres::{binary_copy::BinaryCopyInWriter, Transaction};
@@ -326,6 +326,7 @@ impl Downloader {
         );
         add_timestamp(&mut blocks, &mut logs);
         validate_blocks(from, to, &blocks)?;
+        validate_logs(&blocks, &logs)?;
         let (first_block, last_block) = (blocks.first().unwrap(), blocks.last().unwrap());
 
         if first_block.parent_hash != local_hash {
@@ -438,6 +439,23 @@ async fn download_logs(client: &jrpc::Client, from: u64, to: u64) -> Result<Vec<
         }))
         .await?
         .to()?)
+}
+
+fn validate_logs(blocks: &[jrpc::Block], logs: &[jrpc::Log]) -> Result<(), Error> {
+    let mut logs_by_block: HashMap<U64, Vec<&jrpc::Log>> = HashMap::new();
+    for log in logs {
+        logs_by_block.entry(log.block_number).or_default().push(log);
+    }
+    for block in blocks {
+        let has_logs = logs_by_block
+            .get(&block.number)
+            .map_or(false, |v| !v.is_empty());
+        let has_bloom = block.logs_bloom != FixedBytes::<256>::ZERO;
+        if !has_logs && has_bloom {
+            return Err(Error::Fatal(eyre!("bloom without logs {}", block.number)));
+        }
+    }
+    Ok(())
 }
 
 fn validate_blocks(from: u64, to: u64, blocks: &[jrpc::Block]) -> Result<(), Error> {

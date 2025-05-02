@@ -72,6 +72,8 @@ pub struct Block {
     pub gas_limit: U256,
     #[serde(rename = "gasUsed")]
     pub gas_used: U256,
+    #[serde(rename = "logsBloom")]
+    pub logs_bloom: FixedBytes<256>,
     #[serde(rename = "receiptsRoot")]
     pub receipts_root: FixedBytes<32>,
     #[serde(rename = "stateRoot")]

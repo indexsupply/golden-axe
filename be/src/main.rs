@@ -234,7 +234,7 @@ fn service(config: api::Config) -> IntoMakeServiceWithConnectInfo<Router, Socket
 #[cfg(test)]
 mod tests {
     use alloy::{
-        primitives::{fixed_bytes, Address, Bytes, B256, U256, U64},
+        primitives::{fixed_bytes, Address, Bytes, FixedBytes, B256, U256, U64},
         sol,
         sol_types::{JsonAbiExt, SolEvent},
     };
@@ -262,6 +262,7 @@ mod tests {
                 transactions: vec![],
                 gas_limit: U256::from(1),
                 gas_used: U256::from(1),
+                logs_bloom: FixedBytes::<256>::with_last_byte(0x00),
                 receipts_root: B256::with_last_byte(0x01),
                 state_root: B256::with_last_byte(0x01),
                 extra_data: Bytes::from(vec![]),
