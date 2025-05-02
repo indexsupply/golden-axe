@@ -356,12 +356,12 @@ impl UserQuery {
                         .and_then(|o| self.abi_decode_expr(o).map(|e| Box::new(e.expr))),
                     conditions: conditions
                         .iter()
-                        .map(|e| self.abi_decode_expr(e).map(|e| e.expr))
-                        .collect::<Option<_>>()?,
+                        .map(|e| self.abi_decode_expr(e).map(|e| e.expr).unwrap_or(e.clone()))
+                        .collect(),
                     results: results
                         .iter()
-                        .map(|e| self.abi_decode_expr(e).map(|e| e.expr))
-                        .collect::<Option<_>>()?,
+                        .map(|e| self.abi_decode_expr(e).map(|e| e.expr).unwrap_or(e.clone()))
+                        .collect(),
                     else_result: else_result
                         .as_ref()
                         .and_then(|expr| self.abi_decode_expr(expr))
@@ -1736,5 +1736,92 @@ mod tests {
                 from store_setrecord
             "#,
         ).await;
+    }
+
+    #[tokio::test]
+    async fn test_world_transfer() {
+        check_sql(
+            vec!["Transfer(address indexed from, address indexed to, uint256 value)"],
+            r#"
+            select
+            block_num,
+            count (distinct "to") as migrated_users,
+            sum (case
+                when address = 0x2cfc85d8e48f8eab294be644d9e25c3030863003
+                then value
+                else 0
+                end
+            ) as wld,
+            sum (case
+                when address = 0x03c7054bcb39f7b2e5b2c7acb37583e32d70cfa3
+                then value
+                else 0
+                end
+            ) as btc,
+            sum(case
+                when address = 0x4200000000000000000000000000000000000006
+                then value
+                else 0
+                end
+            ) as eth,
+            sum (case
+                when address = 0x79a02482a880bce3f13e09da970dc34db4cd24d1
+                then value
+                else 0
+                end
+            ) as usdc
+            from transfer
+            where "from" = 0xc6968c6df1a2c31ac66b42945bbad91635a0095b
+            group by block_num
+            order by block_num desc
+            limit 20
+            "#,
+            r#"
+            with transfer as not materialized (
+              select
+                address,
+                block_num,
+                topics [2] as "from",
+                topics [3] as "to",
+                abi_fixed_bytes(data, 0, 32) as value
+              from logs
+              where chain = 1
+              and topics [1] = '\xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
+            )
+            select
+              block_num,
+              count(distinct abi_address("to")) as migrated_users,
+              sum(
+                case
+                  when address = '\x2cfc85d8e48f8eab294be644d9e25c3030863003' then abi_uint(value)
+                  else 0
+                end
+              ) as wld,
+              sum(
+                case
+                  when address = '\x03c7054bcb39f7b2e5b2c7acb37583e32d70cfa3' then abi_uint(value)
+                  else 0
+                end
+              ) as btc,
+              sum(
+                case
+                  when address = '\x4200000000000000000000000000000000000006' then abi_uint(value)
+                  else 0
+                end
+              ) as eth,
+              sum(
+                case
+                  when address = '\x79a02482a880bce3f13e09da970dc34db4cd24d1' then abi_uint(value)
+                  else 0
+                end
+              ) as usdc
+            from transfer
+            where "from" = '\x000000000000000000000000c6968c6df1a2c31ac66b42945bbad91635a0095b'
+            group by block_num
+            order by block_num desc
+            limit 20
+            "#,
+        )
+        .await;
     }
 }
