@@ -264,10 +264,10 @@ pub async fn limit(
 ) -> Result<axum::response::Response, Error> {
     if !account_limit.origins.is_empty() {
         match origin_domain {
-            None => tracing::error!("missing origin"),
+            None => tracing::warn!("missing origin"),
             Some(domain) => {
                 if !account_limit.origins.contains(domain.0.as_str()) {
-                    tracing::error!("origin {:?} not allowed", domain);
+                    tracing::warn!("origin {:?} not allowed", domain);
                 }
             }
         }
