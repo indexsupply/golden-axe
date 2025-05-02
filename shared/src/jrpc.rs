@@ -150,6 +150,18 @@ impl Client {
         }
     }
 
+    pub async fn chain_id(&self) -> Result<u64, Error> {
+        let resp = self
+            .send_one(serde_json::json!({
+                "id": "1",
+                "jsonrpc": "2.0",
+                "method": "eth_chainId",
+                "params": [],
+            }))
+            .await?;
+        Ok(resp.to::<U64>()?.to())
+    }
+
     pub async fn send_one(&self, request: serde_json::Value) -> Result<Response, Error> {
         match self.send(request).await {
             Ok(res) if res.len() == 1 => Ok(res.into_iter().next().unwrap()),

@@ -359,6 +359,23 @@ impl Downloader {
     }
 }
 
+pub async fn sync_one(
+    pg: &mut tokio_postgres::Client,
+    client: &jrpc::Client,
+    chain: u64,
+    n: u64,
+) -> Result<u64, Error> {
+    let mut blocks = download_blocks(client, n, n).await?;
+    let mut logs = download_logs(client, n, n).await?;
+    add_timestamp(&mut blocks, &mut logs);
+    validate_blocks(n, n, &blocks)?;
+
+    let pgtx = pg.transaction().await?;
+    let num_logs = copy_logs(&pgtx, api::Chain(chain), logs).await?;
+    pgtx.commit().await.wrap_err("unable to commit tx")?;
+    Ok(num_logs)
+}
+
 async fn remote_block(client: &jrpc::Client, n: U64) -> Result<jrpc::Block, Error> {
     Ok(client
         .send_one(serde_json::json!({
