@@ -1,13 +1,16 @@
 use alloy::primitives::U64;
+use be::sync;
 use clap::Parser;
 use shared::{jrpc, pg};
 
 #[derive(Parser)]
 struct Args {
-    #[arg(long = "pg", env = "PG_URL", default_value = "postgres://localhost/be")]
+    #[arg(env = "PG_URL", default_value = "postgres://localhost/be")]
     pg_url: String,
-    #[arg(long = "rpc", env = "RPC_URL")]
-    rpc_url: String,
+    #[arg(env = "PG_URL_FE", default_value = "postgres://localhost/fe")]
+    pg_url_fe: String,
+    #[arg(long = "chain")]
+    chain: u64,
     #[arg(long = "range")]
     range: u64,
     #[clap(short = 'd', action = clap::ArgAction::SetTrue)]
@@ -17,13 +20,19 @@ struct Args {
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
-    let pool = pg::new_pool(&args.pg_url, 1).expect("unable to create pg pool");
-    let mut pg = pool.get().await.expect("unable to get pg from pool");
+    let fe_pool = pg::new_pool(&args.pg_url_fe, 1).expect("unable to create fe pg pool");
+    let be_pool = pg::new_pool(&args.pg_url, 1).expect("unable to create pg pool");
+    let mut pg = be_pool.get().await.expect("unable to get pg from pool");
+    let config = sync::RemoteConfig::load(&fe_pool)
+        .await
+        .expect("loading config")
+        .iter()
+        .find(|c| c.chain == args.chain)
+        .cloned()
+        .expect("unable to find chain");
 
-    let client = jrpc::Client::new(&args.rpc_url);
-    let chain = client.chain_id().await.expect("getting chain id");
-
-    let blocks = find_missing(&pg, chain, args.range)
+    let client = jrpc::Client::new(config.url.as_str());
+    let blocks = find_missing(&pg, args.chain, args.range)
         .await
         .expect("finding missing logs");
     if blocks.is_empty() {
@@ -32,7 +41,7 @@ async fn main() {
     for block in blocks {
         println!("missing {} txs: {}", block.num, block.txs);
         if args.download {
-            sync_if_missing(&mut pg, &client, chain, block.num).await;
+            sync_if_missing(&mut pg, &client, args.chain, block.num).await;
         }
     }
 }
@@ -76,7 +85,8 @@ async fn find_missing(
     chain: u64,
     range: u64,
 ) -> Result<Vec<Missing>, shared::Error> {
-    let (from, to) = ((range * 1000000), (range + 2 * 1000000));
+    let from = range * 1000000;
+    let to = from + 2000000;
     Ok(pg
         .query(
             &format!(
