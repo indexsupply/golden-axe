@@ -112,9 +112,22 @@ async fn main() -> Result<()> {
     };
     state.pool.get().await?.batch_execute(SCHEMA).await?;
 
-    tokio::spawn(update_daily_user_queries(state.pool.clone()));
-    tokio::spawn(update_wl_daily_user_queries(state.pool.clone()));
-    tokio::spawn(cleanup_user_queries(state.pool.clone()));
+    let pool = state.pool.clone();
+    tokio::spawn(async move {
+        loop {
+            let pool = pool.clone();
+            let res = tokio::spawn(async move {
+                cleanup_user_queries(&pool).await.unwrap();
+                update_daily_user_queries(&pool).await.unwrap();
+                update_wl_daily_user_queries(&pool).await.unwrap();
+            })
+            .await;
+            if let Err(e) = res {
+                tracing::error!("updating usage task error: {}", e);
+            }
+            tokio::time::sleep(Duration::from_secs(30)).await;
+        }
+    });
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8001").await?;
     axum::serve(listener, service(state)).await?;
@@ -252,105 +265,108 @@ fn service(state: web::State) -> IntoMakeServiceWithConnectInfo<Router, SocketAd
         .into_make_service_with_connect_info::<SocketAddr>()
 }
 
-#[tracing::instrument(skip_all)]
-async fn update_daily_user_queries(pool: deadpool_postgres::Pool) {
-    loop {
-        let pool = pool.clone();
-        let result = tokio::spawn(async move {
-            pool.get()
-                .await
-                .expect("getting pg from pool")
-                .query(
-                    "
-                    insert into daily_user_queries (owner_email, day, n, updated_at)
-                    select
-                        k.owner_email,
-                        date_trunc('day', q.created_at)::date as day,
-                        sum(qty)::int8,
-                        now()
-                    from user_queries q
-                    join api_keys k on q.api_key = k.secret
-                    where q.created_at >= date_trunc('day', now())
-                      and q.created_at < date_trunc('day', now() + interval '1 day')
-                    group by k.owner_email, date_trunc('day', q.created_at)::date
-                    on conflict (owner_email, day)
-                    do update set n = excluded.n, updated_at = excluded.updated_at;
-                    ",
-                    &[],
-                )
-                .await
-                .expect("updating records");
-        })
-        .await;
-        match result {
-            Ok(_) => tracing::info!("updated"),
-            Err(e) => tracing::error!("{}", e),
-        }
-        tokio::time::sleep(Duration::from_secs(30)).await;
-    }
+#[tracing::instrument(skip_all, fields(count, qty))]
+async fn update_daily_user_queries(
+    pool: &deadpool_postgres::Pool,
+) -> Result<(i64, i64), shared::Error> {
+    let row = pool
+        .get()
+        .await?
+        .query_one(
+            "
+            with one_day as (
+              select
+                q.api_key,
+                k.owner_email,
+                date_trunc('day', q.created_at)::date as day,
+                q.qty
+              from user_queries q
+              join api_keys k on q.api_key = k.secret
+              where q.created_at >= date_trunc('day', now())
+                and q.created_at < date_trunc('day', now() + interval '1 day')
+            ),
+            aggregated as (
+              select owner_email, day, sum(qty)::int8 as total_qty
+              from one_day
+              group by owner_email, day
+            ),
+            upserted as (
+              insert into daily_user_queries (owner_email, day, n, updated_at)
+              select owner_email, day, total_qty, now()
+              from aggregated
+              on conflict (owner_email, day)
+              do update set n = excluded.n, updated_at = excluded.updated_at
+            )
+            select count(*)::int8, coalesce(sum(qty), 0)::int8
+            from one_day
+            ",
+            &[],
+        )
+        .await?;
+    let (count, qty) = (row.get(0), row.get(1));
+    tracing::Span::current()
+        .record("count", count)
+        .record("qty", qty);
+    Ok((count, qty))
 }
 
-#[tracing::instrument(skip_all)]
-async fn update_wl_daily_user_queries(pool: deadpool_postgres::Pool) {
-    loop {
-        let pool = pool.clone();
-        let result = tokio::spawn(async move {
-            pool.get()
-                .await
-                .expect("getting pg from pool")
-                .query(
-                    "
-                    insert into wl_daily_user_queries (provision_key, org, day, n, updated_at)
-                    select
-                        k.provision_key,
-                        k.org,
-                        date_trunc('day', q.created_at)::date as day,
-                        sum(qty)::int8,
-                        now()
-                    from user_queries q
-                    join wl_api_keys k on q.api_key = k.secret
-                    where q.created_at >= date_trunc('day', now())
-                      and q.created_at < date_trunc('day', now() + interval '1 day')
-                    group by k.provision_key, k.org, date_trunc('day', q.created_at)::date
-                    on conflict (provision_key, org, day)
-                    do update set n = excluded.n, updated_at = excluded.updated_at;
-                    ",
-                    &[],
-                )
-                .await
-                .expect("updating records");
-        })
-        .await;
-        match result {
-            Ok(_) => tracing::info!("updated"),
-            Err(e) => tracing::error!("{}", e),
-        }
-        tokio::time::sleep(Duration::from_secs(30)).await;
-    }
+#[tracing::instrument(skip_all, fields(count, qty))]
+async fn update_wl_daily_user_queries(
+    pool: &deadpool_postgres::Pool,
+) -> Result<(i64, i64), shared::Error> {
+    let row = pool
+        .get()
+        .await?
+        .query_one(
+            "
+            with one_day as (
+              select
+                k.provision_key,
+                k.org,
+                date_trunc('day', q.created_at)::date as day,
+                q.qty
+              from user_queries q
+              join wl_api_keys k on q.api_key = k.secret
+              where q.created_at >= date_trunc('day', now())
+                and q.created_at < date_trunc('day', now() + interval '1 day')
+            ),
+            aggregated as (
+              select provision_key, org, day, sum(qty)::int8 as total_qty
+              from one_day
+              group by provision_key, org, day
+            ),
+            upserted as (
+              insert into wl_daily_user_queries (provision_key, org, day, n, updated_at)
+              select provision_key, org, day, total_qty, now()
+              from aggregated
+              on conflict (provision_key, org, day)
+              do update set n = excluded.n, updated_at = excluded.updated_at
+            )
+            select count(*)::int8, coalesce(sum(qty), 0)::int8
+            from one_day;
+            ",
+            &[],
+        )
+        .await?;
+    let (count, qty) = (row.get(0), row.get(1));
+    tracing::Span::current()
+        .record("count", count)
+        .record("qty", qty);
+    Ok((count, qty))
 }
 
-#[tracing::instrument(skip_all)]
-async fn cleanup_user_queries(pool: deadpool_postgres::Pool) {
-    loop {
-        let pool = pool.clone();
-        let task = tokio::spawn(async move {
-            pool.get()
-                .await
-                .expect("getting pg from pool")
-                .execute(
-                    "delete from user_queries where created_at < now() - '45 days'::interval",
-                    &[],
-                )
-                .await
-                .expect("deleting records");
-        })
-        .await;
-        match task {
-            Ok(_) => tracing::info!("updated"),
-            Err(e) => tracing::error!("{}", e),
-        }
-        tokio::time::sleep(Duration::from_secs(30)).await;
-    }
+#[tracing::instrument(skip_all, fields(count))]
+async fn cleanup_user_queries(pool: &deadpool_postgres::Pool) -> Result<u64, shared::Error> {
+    let n = pool
+        .get()
+        .await?
+        .execute(
+            "delete from user_queries where created_at < now() - '45 days'::interval",
+            &[],
+        )
+        .await?;
+    tracing::Span::current().record("count", n);
+    Ok(n)
 }
 
 #[cfg(test)]
