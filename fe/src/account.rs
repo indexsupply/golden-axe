@@ -16,6 +16,7 @@ pub mod handlers {
         response::{Html, IntoResponse, Redirect},
     };
     use axum_extra::extract::Form;
+    use itertools::Itertools;
     use serde::Deserialize;
     use serde_json::json;
 
@@ -41,6 +42,7 @@ pub mod handlers {
         let chains = chains::list(&pg)
             .await?
             .into_iter()
+            .sorted_by_key(|c| c.name.to_string())
             .filter(|c| c.enabled)
             .collect::<Vec<_>>();
         let resp = Html(state.templates.render(

@@ -1959,6 +1959,7 @@ dependencies = [
  "handlebars",
  "hex",
  "http-basic-auth",
+ "itertools 0.13.0",
  "openssl",
  "postgres-openssl",
  "pulldown-cmark",

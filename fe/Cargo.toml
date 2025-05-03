@@ -49,6 +49,7 @@ rust_decimal = { version = "1.36", features = ["db-tokio-postgres"] }
 rust_decimal_macros = "1.36"
 base64 = "0.22.1"
 http-basic-auth = "0.1.2"
+itertools = "0.13.0"
 
 [dev-dependencies]
 shared = { path = "../shared", features = ["test"] }
