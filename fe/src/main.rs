@@ -255,101 +255,101 @@ fn service(state: web::State) -> IntoMakeServiceWithConnectInfo<Router, SocketAd
 #[tracing::instrument(skip_all)]
 async fn update_daily_user_queries(pool: deadpool_postgres::Pool) {
     loop {
-        tokio::time::sleep(Duration::from_secs(30)).await;
-        let pg = match pool.get().await {
-            Ok(pg) => pg,
-            Err(e) => {
-                tracing::error!("getting pg from pool for daily user queries: {}", e);
-                continue;
-            }
-        };
-        let res = pg
-            .query(
-                "
-                insert into daily_user_queries (owner_email, day, n, updated_at)
-                select
-                    k.owner_email,
-                    date_trunc('day', q.created_at)::date as day,
-                    sum(qty)::int8,
-                    now()
-                from user_queries q
-                join api_keys k on q.api_key = k.secret
-                where q.created_at >= date_trunc('day', now())
-                  and q.created_at < date_trunc('day', now() + interval '1 day')
-                group by k.owner_email, date_trunc('day', q.created_at)::date
-                on conflict (owner_email, day)
-                do update set n = excluded.n, updated_at = excluded.updated_at;
-                ",
-                &[],
-            )
-            .await;
-        match res {
+        let pool = pool.clone();
+        let result = tokio::spawn(async move {
+            pool.get()
+                .await
+                .expect("getting pg from pool")
+                .query(
+                    "
+                    insert into daily_user_queries (owner_email, day, n, updated_at)
+                    select
+                        k.owner_email,
+                        date_trunc('day', q.created_at)::date as day,
+                        sum(qty)::int8,
+                        now()
+                    from user_queries q
+                    join api_keys k on q.api_key = k.secret
+                    where q.created_at >= date_trunc('day', now())
+                      and q.created_at < date_trunc('day', now() + interval '1 day')
+                    group by k.owner_email, date_trunc('day', q.created_at)::date
+                    on conflict (owner_email, day)
+                    do update set n = excluded.n, updated_at = excluded.updated_at;
+                    ",
+                    &[],
+                )
+                .await
+                .expect("updating records");
+        })
+        .await;
+        match result {
             Ok(_) => tracing::info!("updated"),
             Err(e) => tracing::error!("{}", e),
         }
+        tokio::time::sleep(Duration::from_secs(30)).await;
     }
 }
 
 #[tracing::instrument(skip_all)]
 async fn update_wl_daily_user_queries(pool: deadpool_postgres::Pool) {
     loop {
-        tokio::time::sleep(Duration::from_secs(30)).await;
-        let pg = match pool.get().await {
-            Ok(pg) => pg,
-            Err(e) => {
-                tracing::error!("getting pg from pool for daily user queries: {}", e);
-                continue;
-            }
-        };
-        let res = pg
-            .query(
-                "
-                insert into wl_daily_user_queries (provision_key, org, day, n, updated_at)
-                select
-                    k.provision_key,
-                    k.org,
-                    date_trunc('day', q.created_at)::date as day,
-                    sum(qty)::int8,
-                    now()
-                from user_queries q
-                join wl_api_keys k on q.api_key = k.secret
-                where q.created_at >= date_trunc('day', now())
-                  and q.created_at < date_trunc('day', now() + interval '1 day')
-                group by k.provision_key, k.org, date_trunc('day', q.created_at)::date
-                on conflict (provision_key, org, day)
-                do update set n = excluded.n, updated_at = excluded.updated_at;
-                ",
-                &[],
-            )
-            .await;
-        match res {
+        let pool = pool.clone();
+        let result = tokio::spawn(async move {
+            pool.get()
+                .await
+                .expect("getting pg from pool")
+                .query(
+                    "
+                    insert into wl_daily_user_queries (provision_key, org, day, n, updated_at)
+                    select
+                        k.provision_key,
+                        k.org,
+                        date_trunc('day', q.created_at)::date as day,
+                        sum(qty)::int8,
+                        now()
+                    from user_queries q
+                    join wl_api_keys k on q.api_key = k.secret
+                    where q.created_at >= date_trunc('day', now())
+                      and q.created_at < date_trunc('day', now() + interval '1 day')
+                    group by k.provision_key, k.org, date_trunc('day', q.created_at)::date
+                    on conflict (provision_key, org, day)
+                    do update set n = excluded.n, updated_at = excluded.updated_at;
+                    ",
+                    &[],
+                )
+                .await
+                .expect("updating records");
+        })
+        .await;
+        match result {
             Ok(_) => tracing::info!("updated"),
             Err(e) => tracing::error!("{}", e),
         }
+        tokio::time::sleep(Duration::from_secs(30)).await;
     }
 }
 
 #[tracing::instrument(skip_all)]
 async fn cleanup_user_queries(pool: deadpool_postgres::Pool) {
     loop {
-        tokio::time::sleep(Duration::from_secs(30)).await;
-        let pg = match pool.get().await {
-            Ok(pg) => pg,
-            Err(e) => {
-                tracing::error!("getting pg from pool for user queries cleanup: {}", e);
-                continue;
-            }
-        };
-        let res = pg
-            .execute(
-                "delete from user_queries where created_at < now() - '45 days'::interval",
-                &[],
-            )
-            .await;
-        match res {
-            Ok(n) => tracing::info!("deleted {}", n),
+        let pool = pool.clone();
+        let task = tokio::spawn(async move {
+            pool.get()
+                .await
+                .expect("getting pg from pool")
+                .execute(
+                    "delete from user_queries where created_at < now() - '45 days'::interval",
+                    &[],
+                )
+                .await
+                .expect("deleting records");
+        })
+        .await;
+        match task {
+            Ok(_) => tracing::info!("updated"),
             Err(e) => tracing::error!("{}", e),
         }
+        tokio::time::sleep(Duration::from_secs(30)).await;
     }
 }
 
