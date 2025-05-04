@@ -5,9 +5,10 @@ You can use this API from your backend or from your user's browser.
 Here is an example query
 
 ```
-curl -G https://api.indexsupply.net/v2/query?api-key=secret \
-    --data-urlencode 'sql=select "from", "to", tokens from transfer where chain = 8453 limit 1' \
-    --data-urlencode 'signatures=Transfer(address indexed from, address indexed to, uint tokens)' \ | jq .
+curl 'https://api.indexsupply.net/v2/query?api-key=secret' \
+  -G \
+  --data-urlencode 'query=select "from", "to", tokens from transfer where chain = 8453 limit 1' \
+  --data-urlencode 'signatures=Transfer(address indexed from, address indexed to, uint tokens)'
 ```
 
 And the response
