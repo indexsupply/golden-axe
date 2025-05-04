@@ -9,20 +9,20 @@ use itertools::Itertools;
 use sqlparser::ast::Ident;
 
 #[derive(Debug)]
-pub struct Event {
+pub struct Schema {
     pub name: Ident,
     fields: Parameter,
 }
 
-impl Event {
-    pub fn parse(input: &str) -> Result<Event> {
+impl Schema {
+    pub fn parse(input: &str) -> Result<Schema> {
         let input = input.trim();
         let input = input.strip_prefix("event").unwrap_or(input);
         let (name, tuple_desc) = match input.find('(') {
             Some(index) => (&input[..index], &input[index..]),
             None => (input, ""),
         };
-        Ok(Event {
+        Ok(Schema {
             name: Ident::new(name.trim()),
             fields: Token::parse(&mut Token::lex(tuple_desc)?)?,
         })
@@ -655,7 +655,7 @@ mod tests {
     use alloy::{hex::ToHexExt, primitives::hex, sol_types::SolEvent};
     use assert_json_diff::assert_json_eq;
 
-    use crate::abi::{Event, Parameter};
+    use crate::abi::{Parameter, Schema};
 
     use super::Token;
     use sqlparser::ast::Ident;
@@ -675,14 +675,14 @@ mod tests {
     fn test_sighash() {
         assert_eq!(
             "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
-            Event::parse("Transfer(address from, address to, uint256 value)")
+            Schema::parse("Transfer(address from, address to, uint256 value)")
                 .unwrap()
                 .sighash()
                 .encode_hex()
         );
         assert_eq!(
             "8dbb3a9672eebfd3773e72dd9c102393436816d832c7ba9e1e1ac8fcadcac7a9",
-            Event::parse(
+            Schema::parse(
                 //underscores
                 r#"
                 Store_SetRecord(
@@ -700,7 +700,7 @@ mod tests {
         );
         assert_eq!(
             "30ebccc1ba352c4539c811df296809a7ae8446c4965445b6ee359b7a47f1bc8f",
-            Event::parse(
+            Schema::parse(
                 r#"
                     IntentFinished(
                         address indexed intentAddr,
@@ -895,18 +895,18 @@ mod tests {
                 (ident!("a"), String::from("topics[2]")),
                 (ident!("b"), String::from("abi_bytes(abi_dynamic(data, 0))"))
             ]),
-            Event::parse("foo(int indexed a, bytes b)").unwrap().sql()
+            Schema::parse("foo(int indexed a, bytes b)").unwrap().sql()
         );
         assert_eq!(
             HashMap::from([(ident!("a"), String::from("abi_fixed_bytes(data, 0, 32)"))]),
-            Event::parse("foo(int a)").unwrap().sql()
+            Schema::parse("foo(int a)").unwrap().sql()
         );
         assert_eq!(
             HashMap::from([(
                 ident!("a"),
                 String::from("abi2json(abi_dynamic(data, 0), '(bytes b,int256 c)')")
             )]),
-            Event::parse("foo((bytes b, int c) a)").unwrap().sql()
+            Schema::parse("foo((bytes b, int c) a)").unwrap().sql()
         );
         assert_eq!(
             HashMap::from([
@@ -919,14 +919,16 @@ mod tests {
                     String::from("abi2json(abi_fixed_bytes(data, 32, 32), '(uint256 d)')")
                 )
             ]),
-            Event::parse("((bytes b) a, (uint d) c) foo").unwrap().sql()
+            Schema::parse("((bytes b) a, (uint d) c) foo")
+                .unwrap()
+                .sql()
         );
     }
 
     static SCHEMA: &str = include_str!("./sql/schema.sql");
 
     #[tokio::test]
-    async fn test_complex_event() {
+    async fn test_complex_schema0() {
         let pool = shared::pg::test::new(SCHEMA).await;
         let pg = pool.get().await.expect("getting pg from test pool");
         let data = hex!(
@@ -954,8 +956,8 @@ mod tests {
             68656C6C6F000000000000000000000000000000000000000000000000000000
             "#
         );
-        let event = Event::parse("IntentFinished(address indexed intentAddr, address indexed destinationAddr, bool indexed success,(uint256 toChainId, (address token, uint256 amount)[] bridgeTokenOutOptions, (address token, uint256 amount) finalCallToken, (address to, uint256 value, bytes data) finalCall, address escrow, address refundAddress, uint256 nonce) intent)").unwrap();
-        let query = event.sql();
+        let schema = Schema::parse("IntentFinished(address indexed intentAddr, address indexed destinationAddr, bool indexed success,(uint256 toChainId, (address token, uint256 amount)[] bridgeTokenOutOptions, (address token, uint256 amount) finalCallToken, (address to, uint256 value, bytes data) finalCall, address escrow, address refundAddress, uint256 nonce) intent)").unwrap();
+        let query = schema.sql();
         let row = pg
             .query_one(
                 &format!(
@@ -1030,7 +1032,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_complex_event_dynamic_array() {
+    async fn test_complex_schema_dynamic_array() {
         let pool = shared::pg::test::new(SCHEMA).await;
         let pg = pool.get().await.expect("getting pg from test pool");
         let data = hex!(
@@ -1053,8 +1055,8 @@ mod tests {
             4242000000000000000000000000000000000000000000000000000000000000
             "#
         );
-        let event = Event::parse("Foo((string b, string[] c, string[] d)[] a)").unwrap();
-        let query = event.sql();
+        let schema = Schema::parse("Foo((string b, string[] c, string[] d)[] a)").unwrap();
+        let query = schema.sql();
         let row = pg
             .query_one(
                 &format!(

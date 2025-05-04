@@ -166,7 +166,7 @@ Executes the supplied query against the latest block and returns an HTTP SSE str
 | - | - | - |
 | api-key | string | API key from [your account page](https://www.indexsupply.net/account) |
 | cursor | string | Optional. See [cursor](#cursor) |
-| signatures | []string | [human readable event signatures][3] |
+| signatures | []string | [human readable abi signatures][3] |
 | query | string  | SQL referencing tables/columns from `signatures`|
 
 The response is a standard [response](#query-response) object but delivered via HTTP SSE. The SSE protocol will keep the connection open indefinitely and each new block will trigger a new event. Events are plain text, prefixed with `data: ` and separated by a `\n\n`.
@@ -191,7 +191,7 @@ An array of objects with the following fields:
 | Field | Type | Description |
 | - | - | - |
 | cursor | string | Optional. See [cursor](#cursor) |
-| signatures | []string | [human readable event signatures][3] |
+| signatures | []string | [human readable abi signatures][3] |
 | query | string  | SQL referencing tables/columns from `signatures`|
 
 **URL Request Fields**
@@ -362,16 +362,16 @@ where aggregate function can be one of:
   sum(), count(), avg(), min(), max()
 
 where from_item can be one of:
-  [[event_name [AS name]], …]
+  [[abi_name [AS name]], …]
 
   [
-      [event_name [AS name]]
+      [abi_name [AS name]]
       join_type from_item
       ON join_condition
   ]
 
-  where event_name is an ascii string representing the
-  name of the Ethereum Event. For example: "transfer" for
+  where abi_name is an ascii string representing the
+  name of the Ethereum Event or Function. For example: "transfer" for
   `Transfer(address indexed from, address indexed to, uint tokens)`
 
   If more than one table is specified then the tables are CROSS JOIN-ed.

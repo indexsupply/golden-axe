@@ -28,7 +28,7 @@ macro_rules! no {
 const PG: &sqlparser::dialect::PostgreSqlDialect = &sqlparser::dialect::PostgreSqlDialect {};
 
 /// Parses the user supplied query into a SQL AST
-/// and validates the query against the provided event signatures.
+/// and validates the query against the provided abi signatures.
 /// The SQL API implements onlny a subset of SQL so un-supported
 /// SQL results in an error.
 pub fn sql(
@@ -79,8 +79,8 @@ and possibly a block_num > X if a "from" block is requested.
 
 #[derive(Debug)]
 struct Relation {
-    event: Option<abi::Event>,
-    // A single event can be referenced
+    abi_schema: Option<abi::Schema>,
+    // A single abi_schema can be referenced
     // multiple times eg multiple joins
     // on single table.
     table_alias: HashSet<Ident>,
@@ -91,7 +91,7 @@ struct Relation {
 impl Default for Relation {
     fn default() -> Self {
         Relation {
-            event: None,
+            abi_schema: None,
             table_alias: HashSet::new(),
             table_name: Ident::new(""),
             selected_fields: HashSet::new(),
@@ -106,7 +106,8 @@ impl Relation {
     }
 
     fn has_field(&self, id: &Ident) -> bool {
-        base_column_type(id).is_some() || self.event.as_ref().map(|e| e.get_field(id)).is_some()
+        base_column_type(id).is_some()
+            || self.abi_schema.as_ref().map(|e| e.get_field(id)).is_some()
     }
 
     fn to_sql(&self, cursor: cursor::Cursor) -> String {
@@ -116,7 +117,7 @@ impl Relation {
         let mut select_list = Vec::new();
 
         let statements: HashMap<String, String> = self
-            .event
+            .abi_schema
             .as_ref()
             .map(|e| e.sql())
             .unwrap_or_default()
@@ -143,9 +144,9 @@ impl Relation {
         } else {
             predicates.push(cursor.to_sql("block_num"));
         }
-        if let Some(event) = self.event.as_ref() {
-            predicates.push(event.sighash_sql_predicate());
-            res.push(format!("from {}", event.base_table()));
+        if let Some(abi_schema) = self.abi_schema.as_ref() {
+            predicates.push(abi_schema.sighash_sql_predicate());
+            res.push(format!("from {}", abi_schema.base_table()));
         } else {
             res.push(format!("from {}", self.table_name));
         }
@@ -167,13 +168,13 @@ impl UserQuery {
     fn new(sigs: Vec<&str>) -> Result<UserQuery, api::Error> {
         let mut relations = vec![];
         for sig in sigs.iter().filter(|s| !s.is_empty()) {
-            let event = abi::Event::parse(sig)
-                .map_err(|_| api::Error::User(format!("unable to parse event: {}", sig)))?;
+            let abi_schema = abi::Schema::parse(sig)
+                .map_err(|_| api::Error::User(format!("unable to parse abi_schema: {}", sig)))?;
             relations.push(Relation {
-                table_name: event.name.clone(),
+                table_name: abi_schema.name.clone(),
                 table_alias: HashSet::new(),
                 selected_fields: HashSet::new(),
-                event: Some(event),
+                abi_schema: Some(abi_schema),
             });
         }
         Ok(UserQuery {
@@ -227,12 +228,12 @@ impl UserQuery {
             [field] => self
                 .relations
                 .iter()
-                .find_map(|rel| rel.event.as_ref().and_then(|e| e.get_field(field))),
+                .find_map(|rel| rel.abi_schema.as_ref().and_then(|e| e.get_field(field))),
             [rel_name, field] => self
                 .relations
                 .iter()
                 .find(|rel| rel.named(rel_name))?
-                .event
+                .abi_schema
                 .as_ref()
                 .and_then(|e| e.get_field(field)),
             _ => None,
@@ -914,8 +915,8 @@ mod tests {
         ))
     }
 
-    async fn check_sql(event_sigs: Vec<&str>, user_query: &str, want: &str) {
-        let got = sql(&mut cursor::Cursor::new(1, None), event_sigs, user_query)
+    async fn check_sql(sigs: Vec<&str>, user_query: &str, want: &str) {
+        let got = sql(&mut cursor::Cursor::new(1, None), sigs, user_query)
             .unwrap_or_else(|e| panic!("unable to create sql for:\n{} error: {:?}", user_query, e));
         let (got, want) = (
             fmt_sql(&got).unwrap_or_else(|_| panic!("unable to format got: {}", got)),

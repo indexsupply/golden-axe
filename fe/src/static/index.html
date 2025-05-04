@@ -336,11 +336,11 @@
                     <p><img src="https://indexsupply.net/hourglass-last.gif"/><strong>This query is taking too much time.</strong></p>
                     <p>Reasons Why</p>
                     <ol>
-                        <li>The Event is common and has millions of rows. For instance: <code>Transfer</code> or <code>Swap</code></li>
-                        <li>The Event and Contract have millions of rows. For instance: <code>USDC</code></li>
+                        <li>The Event or Function is common and has millions of rows. For instance: <code>Transfer</code> or <code>Swap</code></li>
+                        <li>The Event or Function and Contract have millions of rows. For instance: <code>USDC</code></li>
                         <li>
-                            The Event and Contract are common and the query has a predicate on a non-indexed field. <br /><br />
-                            When an Event contains an indexed field <em>(eg <code>Foo(address indexed bar, uint256 baz)</code>)</em>
+                            The Event/Function and Contract are common and the query has a predicate on a non-indexed field. <br /><br />
+                            When an Event or Function contains an indexed field <em>(eg <code>Foo(address indexed bar, uint256 baz)</code>)</em>
                             and there is a query <code>`select baz from foo where bar = 0x... and baz > 42`</code> the query planner
                             will use a database index to find all <code>Foo</code> Events <code>`where bar = 0x...`</code> but if that
                             set contains millions of rows then the database will have to scan each of them checking for
