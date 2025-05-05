@@ -126,7 +126,7 @@ The cursor is a string encode of: `chain-num-chain-num-...`. The string encoding
 
 Subsequent requests including the cursor, will return data where `block_num > 42`.
 
-### Signatures
+### Signatures {#signatures}
 
 Each query may accept an array of signatures. A signature is a human readlable ABI type signature as defined [here][3].
 
