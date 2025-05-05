@@ -126,6 +126,41 @@ The cursor is a string encode of: `chain-num-chain-num-...`. The string encoding
 
 Subsequent requests including the cursor, will return data where `block_num > 42`.
 
+### Signatures
+
+Each query may accept an array of signatures. A signature is a human readlable ABI type signature as defined [here][3].
+
+A signature may contain an optional prefix that must be one of: `event` or `function`.
+
+When no prefix is provided the API defaults to `event`. Signatures must be all `event` or all `function`. When signatures contain `function` types, the query targets the `txs` table. Signatures containing `event` types target the logs table.
+
+The API creates a _virtual table_ based on the signature's schema. This gives the illusion that you have a table named after the event or function name with columns matching the event or function parameter names. Signatures with nested data are treated as JSON and Postgres JSONB operators are available to filter JSON column data.
+
+Requests containing multiple signatures allow accompanying queries to use JOINs across the generated tables.
+
+Here are signature examples:
+```
+Foo(uint a)
+event Foo(uint a)
+function bar(uint b, (bytes baz) c)
+```
+
+These signatures would produce the following _virtual tables_
+
+```
+foo(a numeric);
+bar(b numeric, c jsonb);
+```
+
+Which would enable queries including these basic examples:
+
+```
+select a from foo;
+select b, c->>'baz' from bar;
+```
+
+For more information on the underlying tables, see [EVM Columns & Tables](#evm-data).
+
 ### GET `/v2/query` {#get-query}
 
 Executes the supplied query against the latest block (or the block height specified by the `cursor`) and returns a JSON encoded [Response](#query-response).

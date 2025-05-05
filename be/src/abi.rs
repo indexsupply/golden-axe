@@ -9,21 +9,39 @@ use itertools::Itertools;
 use sqlparser::ast::Ident;
 
 #[derive(Debug)]
+enum Prefix {
+    Event,
+    Function,
+}
+
+#[derive(Debug)]
 pub struct Schema {
     pub name: Ident,
+    prefix: Prefix,
     fields: Parameter,
 }
 
 impl Schema {
     pub fn parse(input: &str) -> Result<Schema> {
-        let input = input.trim();
-        let input = input.strip_prefix("event").unwrap_or(input);
-        let (name, tuple_desc) = match input.find('(') {
+        let input = input.replace('\n', " ");
+        let input = input.split_whitespace().collect::<Vec<_>>().join(" ");
+        let (prefix, tuple_desc) = match input.find('(') {
             Some(index) => (&input[..index], &input[index..]),
-            None => (input, ""),
+            None => (input.as_str(), ""),
         };
+        let parts = prefix.split_whitespace().collect_vec();
+        let (prefix, name) = match parts.as_slice() {
+            [name] => (Prefix::Event, Ident::new(*name)),
+            [pref, name] => match *pref {
+                "function" => (Prefix::Function, Ident::new(*name)),
+                _ => (Prefix::Event, Ident::new(*name)),
+            },
+            _ => return Err(eyre!("invalid prefix")),
+        };
+
         Ok(Schema {
-            name: Ident::new(name.trim()),
+            name,
+            prefix,
             fields: Token::parse(&mut Token::lex(tuple_desc)?)?,
         })
     }
@@ -38,10 +56,14 @@ impl Schema {
     }
 
     pub fn sql(&self) -> HashMap<Ident, String> {
+        let source_column = match self.prefix {
+            Prefix::Event => "data",
+            Prefix::Function => "substring(input, 4)",
+        };
         self.fields
             .topics_sql()
             .into_iter()
-            .chain(self.fields.data_sql("data"))
+            .chain(self.fields.data_sql(source_column))
             .collect()
     }
 
@@ -54,11 +76,20 @@ impl Schema {
     }
 
     pub fn sighash_sql_predicate(&self) -> String {
-        format!(r#"topics[1] = '\x{}'"#, hex::encode(self.sighash()))
+        match self.prefix {
+            Prefix::Event => format!(r#"topics[1] = '\x{}'"#, hex::encode(self.sighash())),
+            Prefix::Function => format!(
+                r#"substring(input, 1, 4) = '\x{}'"#,
+                hex::encode(&self.sighash()[0..4])
+            ),
+        }
     }
 
     pub fn base_table(&self) -> String {
-        String::from("logs")
+        match self.prefix {
+            Prefix::Event => String::from("logs"),
+            Prefix::Function => String::from("txs"),
+        }
     }
 }
 
@@ -919,9 +950,7 @@ mod tests {
                     String::from("abi2json(abi_fixed_bytes(data, 32, 32), '(uint256 d)')")
                 )
             ]),
-            Schema::parse("((bytes b) a, (uint d) c) foo")
-                .unwrap()
-                .sql()
+            Schema::parse("foo((bytes b) a, (uint d) c)").unwrap().sql()
         );
     }
 
