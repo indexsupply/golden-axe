@@ -79,8 +79,9 @@ impl Schema {
         match self.prefix {
             Prefix::Event => format!(r#"topics[1] = '\x{}'"#, hex::encode(self.sighash())),
             Prefix::Function => format!(
-                r#"(substring(input, 1, 4) = '\x{}' and input is not null and octet_length(input) >= 4)"#,
-                hex::encode(&self.sighash()[0..4])
+                r#"(substring(input, 1, 4) = '\x{}' and input is not null and octet_length(input) >= {})"#,
+                hex::encode(&self.sighash()[0..4]),
+                self.fields.size()
             ),
         }
     }
