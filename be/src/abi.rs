@@ -58,7 +58,7 @@ impl Schema {
     pub fn sql(&self) -> HashMap<Ident, String> {
         let source_column = match self.prefix {
             Prefix::Event => "data",
-            Prefix::Function => "substring(input, 4)",
+            Prefix::Function => "substring(input, 5)",
         };
         self.fields
             .topics_sql()
