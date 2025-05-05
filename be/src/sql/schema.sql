@@ -109,7 +109,7 @@ declare
 begin
 	offset_data := substring(input from pos+1 for 32);
 	if length(offset_data) != 32 then
-		raise exception 'expected length(offset_data) == 32. got: %', length(offset_data);
+		raise exception 'unable to decode. check signature or contract';
 	end if;
 
 	offset_pos := b2i(substring(offset_data from 29 for 4));

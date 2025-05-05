@@ -110,7 +110,7 @@ For example
 select "from", "to", value from transfer where chain = 8453
 ```
 
-The response will contain a cusror indicating that the chain `8453` was at block `42` at the time of query execution.
+The response will contain a cursor indicating that the chain `8453` was at block `42` at the time of query execution.
 
 ```
 [
@@ -122,7 +122,7 @@ The response will contain a cusror indicating that the chain `8453` was at block
 ]
 ```
 
-The cursor is a string encode of: `chain-num-chain-num-...`. The string encoding is used to make it easy for GET requests -- since they are required for SSE in the browser.
+The cursor is a string encoding of: `chain-num-chain-num-...`. The string encoding is used to make it easy for GET requests -- since they are required for SSE in the browser.
 
 Subsequent requests including the cursor, will return data where `block_num > 42`.
 
@@ -215,7 +215,7 @@ curl -G https://api.indexsupply.net/v2/query-live?api-key=secret \
 
 ### POST `/v2/query` {#post-query}
 
-This endpoind accepts a JSON array of objects with the following fields. The array may contain more than one request object if callers would like for the queries to run inside of a database transaction. This enables a consistent reads.
+This endpoint accepts a JSON array of objects with the following fields. The array may contain more than one request object if callers would like for the queries to run inside of a database transaction. This enables consistent reads across queries.
 
 Similar to `GET` requests which accept the `api-key` and `chain` in the URL, when making a `POST` request the `api-key` and `chain` must also be included in the URL.
 
@@ -287,7 +287,7 @@ The order of the `columns` array matches the order of the column data in `rows`.
 | intN     | decimal string      |
 | uintN    | decimal string      |
 
-The `rows` field contains a 2-dimensional array where the outer array represents the number of rows in the query's result set and the inner arrays are the columns of data for each row. The length of the inner arrays are awlays be equal to the number elements in the `columns` object.
+The `rows` field contains a 2-dimensional array where the outer array represents the number of rows in the query's result set and the inner arrays are the columns of data for each row. The length of the inner arrays are always be equal to the number elements in the `columns` object.
 
 <hr>
 
@@ -451,9 +451,9 @@ IN, and NOT IN operators. Other operators include:
 
 Index Supply can be white labeled. Please reach out to setup an account: [support@indexsupply.com](mailto:support@indexsupply.com)
 
-APIs require an provisioning key that will be established out-of-band.
+APIs require a provisioning key that will be established out-of-band.
 
-Authentication is *http basic authentication* with the provisioning key set in the user portion of the authorzation header. The Authorization header should be base64 encoded per RFC 7617. For example: `curl https://$secret:@www.indexsupply.net`.
+Authentication is *http basic authentication* with the provisioning key set in the user portion of the authorization header. The Authorization header should be base64 encoded per RFC 7617. For example: `curl https://$secret:@www.indexsupply.net`.
 
 All requests should be sent to: `www.indexsupply.net` Normal, user based api traffic is sent to `api.indexsupply.net`.
 
@@ -714,7 +714,7 @@ Returns a single JSON object
 
 | Field       | Type    | Description                        |
 |-------------|---------|---------------------               |
-| num_reqs    | int     | Numher of requests made during the month. |
+| num_reqs    | int     | Number of requests made during the month. |
 
 **Example**
 ```
