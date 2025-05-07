@@ -191,7 +191,8 @@ async fn update_cursor(
                 &[&U64::from(c)],
             )
             .await?;
-        cursor.set_block_height(c, row.get::<usize, U64>(0).to());
+        let latest: u64 = row.get::<usize, U64>(0).to();
+        cursor.set_block_height(c, latest + 1);
     }
     Ok(())
 }

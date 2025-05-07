@@ -102,7 +102,7 @@ A request consists of the following fields (either form encoded or JSON encoded)
 
 ### Cursor {#cursor}
 
-The cursor enables synchronization between your app and the Index Supply API. When you make a request without a cursor, the query will be executed on all indexed blocks available to Index Supply. The [Response](#response) will contain a `cursor` string mapping the chains referenced in the query and the latest `block_height` of the referenced chain at the time of query execution.
+The cursor enables synchronization between your app and the Index Supply API. When you make a request without a cursor, the query will be executed on all blocks. The [Response](#response) contains a `cursor` string mapping chains referenced in the query to the next block number that should be requested (latest `block_num + 1`).
 
 For example
 
@@ -110,12 +110,12 @@ For example
 select "from", "to", value from transfer where chain = 8453
 ```
 
-The response will contain a cursor indicating that the chain `8453` was at block `42` at the time of query execution.
+The response will contain a cursor indicating that the chain `8453` was at block `42` at the time of query execution and block `43` is the next to be requested.
 
 ```
 [
   {
-    "cursor": "8453-42",
+    "cursor": "8454-43",
     "columns": [...],
     "rows": [[...], ...]
   }
@@ -124,7 +124,7 @@ The response will contain a cursor indicating that the chain `8453` was at block
 
 The cursor is a string encoding of: `chain-num-chain-num-...`. The string encoding is used to make it easy for GET requests -- since they are required for SSE in the browser.
 
-Subsequent requests including the cursor, will return data where `block_num > 42`.
+Subsequent requests including the cursor, will return data where `block_num >= 43`.
 
 ### Signatures {#signatures}
 

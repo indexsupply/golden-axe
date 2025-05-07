@@ -944,7 +944,7 @@ mod tests {
         assert_eq!(cursor.chains(), vec![1, 10, 8453]);
         assert_eq!(
             cursor.to_sql("foo"),
-            "(chain = 1 or (chain = 10 and foo > 42) or (chain = 8453 and foo > 100))"
+            "(chain = 1 or (chain = 10 and foo >= 42) or (chain = 8453 and foo >= 100))"
         );
     }
 

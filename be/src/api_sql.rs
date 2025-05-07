@@ -108,7 +108,7 @@ pub async fn handle_sse(
             match query(config.ro_pool.clone(), al.timeout, &[req.clone()]).await {
                 Ok(resp) =>  {
                     log.incr();
-                    req.block_height = Some(resp.block_height);
+                    req.block_height = Some(resp.block_height + 1);
                     yield Ok(SSEvent::default().json_data(resp).expect("sse serialize query"));
                 },
                 Err(err) => {
