@@ -224,7 +224,7 @@ fn handle_rows(rows: Vec<tokio_postgres::Row>) -> Result<Rows, api::Error> {
                     None => Value::Null,
                 },
                 Type::DATE => row
-                    .get::<usize, Option<time::OffsetDateTime>>(idx)
+                    .get::<usize, Option<time::Date>>(idx)
                     .map(|t| Value::String(t.to_string()))
                     .unwrap_or(Value::Null),
                 Type::TIMESTAMPTZ => row
