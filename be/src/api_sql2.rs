@@ -88,7 +88,7 @@ pub async fn handle_get(
     Ok(Json(query(config.ro_pool, al.timeout, &[req]).await?))
 }
 
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(skip_all, fields(cursor))]
 pub async fn handle_sse(
     Extension(log): Extension<user_query::RequestLog>,
     State(config): State<api::Config>,
@@ -96,6 +96,7 @@ pub async fn handle_sse(
     al: Arc<gafe::AccountLimit>,
     Form(mut req): Form<Request>,
 ) -> Result<axum::response::Sse<impl Stream<Item = Result<SSEvent, Infallible>>>, api::Error> {
+    tracing::Span::current().record("cursor", req.cursor.to_string());
     let active_connections = config.new_connection().await?;
     let plan_limit = al.conn_limiter()?;
     let ip_limit = al.conn_ip_limiter(&ip.to_string())?;

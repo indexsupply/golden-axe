@@ -82,6 +82,21 @@ impl FromStr for Cursor {
     }
 }
 
+impl std::fmt::Display for Cursor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (i, (k, v)) in self.0.iter().enumerate() {
+            if i > 0 {
+                write!(f, "-")?;
+            }
+            match v {
+                Some(val) => write!(f, "{}-{}", k, val)?,
+                None => write!(f, "{}-0", k)?,
+            }
+        }
+        Ok(())
+    }
+}
+
 impl<'de> Deserialize<'de> for Cursor {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
