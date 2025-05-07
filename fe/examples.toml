@@ -1,4 +1,15 @@
 [[queries]]
+chain = 1
+desc = "Account's First Transaction"
+events = []
+sql = """
+select block_timestamp::date, hash
+from txs
+where "from" = 0xd8da6bf26964af9d7eed9e03e53415d37aa96045
+order by block_num asc
+"""
+
+[[queries]]
 chain = 7777777
 desc = "Nested Tuples: Zora Sparked Comment"
 events = [
