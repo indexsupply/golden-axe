@@ -7,7 +7,7 @@ select
   block_timestamp::date,
   hash,
   "to",
-  substring(input, 1, 4) as ƒ
+  substring(input, 1, 4) as "4b"
 from txs
 where "from" = 0xd8da6bf26964af9d7eed9e03e53415d37aa96045
 order by block_num asc
