@@ -3,7 +3,11 @@ chain = 1
 desc = "Account's First Transactions"
 events = []
 sql = """
-select block_timestamp::date, hash
+select
+  block_timestamp::date,
+  hash,
+  "to",
+  substring(input, 1, 4) as ƒ
 from txs
 where "from" = 0xd8da6bf26964af9d7eed9e03e53415d37aa96045
 order by block_num asc
