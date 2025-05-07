@@ -257,6 +257,10 @@ fn value_from_column(
             .get::<usize, Option<String>>(idx)
             .map(Value::String)
             .unwrap_or(Value::Null),
+        Type::DATE => row
+            .get::<usize, Option<time::OffsetDateTime>>(idx)
+            .map(|t| Value::String(t.to_string()))
+            .unwrap_or(Value::Null),
         Type::TIMESTAMPTZ => row
             .get::<usize, Option<time::OffsetDateTime>>(idx)
             .map(|t| Value::String(t.to_string()))
