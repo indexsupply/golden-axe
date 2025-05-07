@@ -106,6 +106,11 @@ impl Relation {
     }
 
     fn has_field(&self, id: &Ident) -> bool {
+        //TODO find a better way of dealing with this, perhaps we should keep
+        //a mapping of base table -> columns
+        if self.named(&Ident::new("blocks")) && id.value.to_lowercase() == "block_num" {
+            return false;
+        }
         base_column_type(id).is_some()
             || self.abi_schema.as_ref().map(|e| e.get_field(id)).is_some()
     }
