@@ -124,7 +124,7 @@ The response will contain a cursor indicating that the chain `8453` was at block
 
 The cursor is a string encoding of: `chain-num-chain-num-...`. The string encoding is used to make it easy for GET requests -- since they are required for SSE in the browser.
 
-Subsequent requests including the cursor, will return data where `block_num >= 43`.
+Subsequent requests including the cursor will return data where `block_num >= 43`.
 
 ### Signatures {#signatures}
 
