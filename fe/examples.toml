@@ -1,6 +1,6 @@
 [[queries]]
 chain = 1
-desc = "Account's First Transactions"
+desc = "Transactions by Account Address"
 events = []
 sql = """
 select
@@ -10,8 +10,6 @@ select
   substring(input, 1, 4) as "4b"
 from txs
 where "from" = 0xd8da6bf26964af9d7eed9e03e53415d37aa96045
-order by block_num asc
-limit 5
 """
 
 [[queries]]
