@@ -67,6 +67,7 @@ pub struct Block {
     pub number: U64,
     pub nonce: U256,
     pub timestamp: U64,
+    pub size: U64,
     pub transactions: Vec<Tx>,
     #[serde(rename = "gasLimit")]
     pub gas_limit: U256,

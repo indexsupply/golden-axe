@@ -826,7 +826,7 @@ fn base_column_type(id: &Ident) -> Option<ast::DataType> {
         "abi_uint" | "abi_int" => Some(ast::DataType::Int64),
 
         // Blocks
-        "num" => Some(ast::DataType::Int64),
+        "num" | "size" => Some(ast::DataType::Int64),
         "receipts_root" | "state_root" | "extra_data" | "miner" => Some(ast::DataType::Bytea),
 
         "timestamp" => Some(ast::DataType::Timestamp(None, ast::TimezoneInfo::Tz)),

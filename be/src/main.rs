@@ -259,6 +259,7 @@ mod tests {
                 number: U64::from($block_num),
                 nonce: U256::from(1),
                 timestamp: U64::from(1),
+                size: U64::from(0),
                 transactions: vec![],
                 gas_limit: U256::from(1),
                 gas_used: U256::from(1),

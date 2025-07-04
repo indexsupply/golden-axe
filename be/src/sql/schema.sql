@@ -4,6 +4,7 @@ create table if not exists blocks(
     chain int8 not null,
     num int8 not null,
     timestamp timestamptz not null,
+    size int4 default 0,
 
     gas_limit numeric not null,
     gas_used numeric not null,
