@@ -320,6 +320,7 @@ Table name: `blocks`
 | chain | int8 |
 | num | int8 |
 | timestamp | timestamptz |
+| size | int4 |
 | gas_limit | numeric |
 | gas_used | numeric |
 | nonce | bytea |
@@ -328,6 +329,8 @@ Table name: `blocks`
 | state_root | bytea |
 | extra_data | bytea |
 | miner | bytea |
+
+_size_ is not available on blocks created before July 4th 2025.
 
 #### Transactions {#evm-txs}
 
