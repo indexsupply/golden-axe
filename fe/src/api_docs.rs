@@ -11,7 +11,7 @@ pub async fn index(State(state): State<web::State>) -> Result<Html<String>, shar
         .into_iter()
         .filter(|c| c.enabled)
         .map(|mut c| {
-            c.start_block = Some(c.start_block.unwrap_or(0));
+            c.start_block = Some(c.start_block.unwrap_or(1));
             c
         })
         .collect::<Vec<_>>();
