@@ -37,11 +37,13 @@ See the repository for docs and examples: [https://github.com/indexsupply/indexs
 
 ## Chains {#chains}
 
-| Name                         | Id     |
-|------------------------------|--------|
+| Name | Id     | Earliest Block |
+|------|--------|----------------|
 {{#each chains }}
-|{{name}} | {{chain}} |
+|{{name}} | {{chain}} | {{(commas start_block)}}
 {{/each}}
+
+Some chains have been indexed since the genisis block. Others have been indexed at a more recent block. If you would like earlier blocks to be indexed for a particular chain, please email [support](mailto:support@indexsupply.com)
 
 It is possible to query data across multiple chains. This is accomplished by adding a `where chain = $1` or `where chain in ($1)` predicate to queries.
 
