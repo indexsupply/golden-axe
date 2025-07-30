@@ -42,7 +42,7 @@ pub struct PaymentLink {
     pub url: String,
 }
 
-static INTENT_FINISHED : &str = "IntentFinished(address indexed intentAddr, address indexed destinationAddr, bool indexed success,(uint256 toChainId, (address token, uint256 amount)[] bridgeTokenOutOptions, (address token, uint256 amount) finalCallToken, (address to, uint256 value, bytes data) finalCall, address escrow, address refundAddress, uint256 nonce) intent)";
+static INTENT_FINISHED : &str = "IntentFinished(address indexed intentAddr, address indexed destinationAddr, bool indexed success,(uint256 toChainId, (address token, uint256 amount)[] bridgeTokenOutOptions, (address token, uint256 amount) finalCallToken, (address to, uint256 value, bytes data) finalCall, address bridger, address escrow, address refundAddress, uint256 nonce, uint256 expiration) intent)";
 
 impl Client {
     pub fn new(daimo_key: Option<String>, is_key: Option<String>) -> Client {
@@ -93,6 +93,7 @@ impl Client {
     }
 
     pub async fn check(&self, daimo_id: &str) -> Result<Option<String>, shared::Error> {
+        tracing::info!("checking for daimo payment: {}", nonce(daimo_id));
         let res: Vec<Row> = self
             .is
             .query(
