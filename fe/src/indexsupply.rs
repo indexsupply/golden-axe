@@ -40,7 +40,12 @@ impl Client {
         let resp = self
             .http_client
             .post("https://api.indexsupply.net/query")
-            .query(&[("chain", chain.to_string())])
+            .query(&[(
+                "chain",
+                chain.to_string(),
+                "api-key",
+                "8d622273f07ea179e6d50177ef6ca94d",
+            )])
             .json(&vec![Request {
                 event_signatures: signatures,
                 query: query.to_string(),
