@@ -65,14 +65,14 @@ async fn sync_if_missing(
         let num_logs = be::sync::sync_one(pg, client, chain, block as u64)
             .await
             .expect("sync failed");
-        println!("downloaded {} logs", num_logs);
+        println!("downloaded {num_logs} logs");
     } else {
         println!("nothing to do");
     }
 }
 
 fn table_name(tbl: &str, chain: u64, range: u64) -> String {
-    format!("{}_c{}_b{}", tbl, chain, range)
+    format!("{tbl}_c{chain}_b{range}")
 }
 
 struct Missing {

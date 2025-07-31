@@ -138,7 +138,7 @@ impl Relation {
         }
         for col in self.selected_fields.iter().sorted() {
             if let Some(sql) = statements.get(&col.value.to_lowercase()) {
-                select_list.push(format!("{} as {}", sql, col));
+                select_list.push(format!("{sql} as {col}"));
             }
         }
         res.push(select_list.join(","));
@@ -174,7 +174,7 @@ impl UserQuery {
         let mut relations = vec![];
         for sig in sigs.iter().filter(|s| !s.is_empty()) {
             let abi_schema = abi::Schema::parse(sig)
-                .map_err(|_| api::Error::User(format!("unable to parse abi_schema: {}", sig)))?;
+                .map_err(|_| api::Error::User(format!("unable to parse abi_schema: {sig}")))?;
             relations.push(Relation {
                 table_name: abi_schema.name.clone(),
                 table_alias: HashSet::new(),
@@ -207,7 +207,7 @@ impl UserQuery {
     fn set_chain(&mut self, left: &mut ast::Expr, right: &mut ast::Expr) {
         if left
             .last()
-            .map_or(false, |s| s.value.to_lowercase() == "chain")
+            .is_some_and(|s| s.value.to_lowercase() == "chain")
         {
             if let ast::Expr::Value(ast::Value::Number(numstr, _)) = right {
                 self.chains.insert(numstr.parse().unwrap_or_default());
@@ -745,8 +745,7 @@ impl UserQuery {
             } => {
                 if name_parts.len() != 1 {
                     return Err(api::Error::User(format!(
-                        "table {} has multiple parts; only unqualified table names supported",
-                        relation
+                        "table {relation} has multiple parts; only unqualified table names supported",
                     )));
                 }
                 self.set_relation(&name_parts[0], Some(&alias.name))
@@ -757,8 +756,7 @@ impl UserQuery {
             } => {
                 if name_parts.len() != 1 {
                     return Err(api::Error::User(format!(
-                        "table {} has multiple parts; only unqualified table names supported",
-                        relation
+                        "table {relation} has multiple parts; only unqualified table names supported",
                     )));
                 }
                 self.set_relation(&name_parts[0], None)
@@ -813,8 +811,7 @@ fn bytes_to_expr(bytes: Vec<u8>, to: ast::DataType) -> Result<ast::Expr, api::Er
             })
         }
         _ => Err(api::Error::User(format!(
-            "unable to convert {:?} to {:?}",
-            bytes, to
+            "unable to convert {bytes:?} to {to:?}",
         ))),
     }
 }
@@ -922,13 +919,13 @@ mod tests {
 
     async fn check_sql(sigs: Vec<&str>, user_query: &str, want: &str) {
         let got = sql(&mut cursor::Cursor::new(1, None), sigs, user_query)
-            .unwrap_or_else(|e| panic!("unable to create sql for:\n{} error: {:?}", user_query, e));
+            .unwrap_or_else(|e| panic!("unable to create sql for:\n{user_query} error: {e:?}"));
         let (got, want) = (
-            fmt_sql(&got).unwrap_or_else(|_| panic!("unable to format got: {}", got)),
-            fmt_sql(want).unwrap_or_else(|_| panic!("unable to format want: {}", want)),
+            fmt_sql(&got).unwrap_or_else(|_| panic!("unable to format got: {got}")),
+            fmt_sql(want).unwrap_or_else(|_| panic!("unable to format want: {want}")),
         );
         if got.to_lowercase().ne(&want.to_lowercase()) {
-            panic!("got:\n{}\n\nwant:\n{}\n", got, want);
+            panic!("got:\n{got}\n\nwant:\n{want}\n");
         }
         let pool = shared::pg::test::new(SCHEMA).await;
         let pg = pool.get().await.expect("getting pg from test pool");

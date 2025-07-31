@@ -2,3 +2,6 @@
 
 resolver = "2"
 members = ["be", "fe", "pg_golden_axe", "shared"]
+
+[workspace.package]
+rust-version = "1.88"

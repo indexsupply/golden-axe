@@ -32,7 +32,7 @@ impl From<jrpc::Error> for Error {
         if err.message == "no result" {
             Self::Wait
         } else {
-            Self::Retry(format!("jrpc error {:?}", err))
+            Self::Retry(format!("jrpc error {err:?}"))
         }
     }
 }
@@ -101,14 +101,13 @@ pub async fn test(url: &str, chain: u64) -> Result<(), shared::Error> {
         }))
         .await;
     match resp {
-        Err(e) => Err(shared::Error::User(format!("rpc error {}", e))),
+        Err(e) => Err(shared::Error::User(format!("rpc error {e}"))),
         Ok(resp) => match resp.to::<U64>() {
             Ok(id) if id.to::<u64>() == chain => Ok(()),
             Ok(id) => Err(shared::Error::User(format!(
-                "expected chain {} got {}",
-                chain, id
+                "expected chain {chain} got {id}",
             ))),
-            Err(e) => Err(shared::Error::User(format!("rpc error {}", e))),
+            Err(e) => Err(shared::Error::User(format!("rpc error {e}"))),
         },
     }
 }
@@ -449,7 +448,7 @@ fn validate_logs(blocks: &[jrpc::Block], logs: &[jrpc::Log]) -> Result<(), Error
     for block in blocks {
         let has_logs = logs_by_block
             .get(&block.number)
-            .map_or(false, |v| !v.is_empty());
+            .is_some_and(|v| !v.is_empty());
         let has_bloom = block.logs_bloom != FixedBytes::<256>::ZERO;
         if !has_logs && has_bloom {
             return Err(Error::Fatal(eyre!("bloom without logs {}", block.number)));

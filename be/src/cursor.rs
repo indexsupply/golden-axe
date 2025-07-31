@@ -50,8 +50,8 @@ impl Cursor {
             .iter()
             .sorted_by_key(|(chain, _)| *chain)
             .map(|(chain, block_num)| match block_num {
-                Some(n) => format!("(chain = {} and {} >= {})", chain, col_name, n),
-                None => format!("chain = {}", chain),
+                Some(n) => format!("(chain = {chain} and {col_name} >= {n})"),
+                None => format!("chain = {chain}"),
             })
             .collect::<Vec<_>>();
         if predicates.len() == 1 {
@@ -89,8 +89,8 @@ impl std::fmt::Display for Cursor {
                 write!(f, "-")?;
             }
             match v {
-                Some(val) => write!(f, "{}-{}", k, val)?,
-                None => write!(f, "{}-0", k)?,
+                Some(val) => write!(f, "{k}-{val}")?,
+                None => write!(f, "{k}-0")?,
             }
         }
         Ok(())

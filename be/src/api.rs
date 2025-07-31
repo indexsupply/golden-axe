@@ -54,8 +54,8 @@ pub async fn handle_conns(
             .account_limits
             .lock()
             .unwrap()
-            .iter()
-            .map(|(_, limit)| gafe::AccountLimitSnapshot::from_account_limit(limit))
+            .values()
+            .map(|limit| gafe::AccountLimitSnapshot::from_account_limit(limit))
             .filter(|snap| snap.active_conns > 0)
             .map(|snap| (snap.id.clone(), snap))
             .collect(),
@@ -162,12 +162,12 @@ impl Serialize for Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::User(msg) => write!(f, "User error: {}", msg),
-            Error::Timeout(Some(msg)) => write!(f, "Operation timed out: {}", msg),
+            Error::User(msg) => write!(f, "User error: {msg}"),
+            Error::Timeout(Some(msg)) => write!(f, "Operation timed out: {msg}"),
             Error::Timeout(None) => write!(f, "Operation timed out"),
-            Error::TooManyRequests(Some(msg)) => write!(f, "Too many requests: {}", msg),
+            Error::TooManyRequests(Some(msg)) => write!(f, "Too many requests: {msg}"),
             Error::TooManyRequests(None) => write!(f, "Too many requests"),
-            Error::Server(err) => write!(f, "Server error: {}", err),
+            Error::Server(err) => write!(f, "Server error: {err}"),
         }
     }
 }
@@ -477,7 +477,7 @@ pub async fn latency_header(
     let start = tokio::time::Instant::now();
     let mut response = next.run(request).await;
     let duration = start.elapsed().as_millis();
-    let latency = format!("{:.2?}ms", duration);
+    let latency = format!("{duration:.2?}ms");
     response.headers_mut().insert(
         "Latency",
         axum::http::HeaderValue::from_str(&latency).unwrap(),

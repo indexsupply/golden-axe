@@ -444,7 +444,7 @@ pub fn with_commas(num: Decimal) -> String {
     if right.is_empty() {
         formatted
     } else {
-        format!("{}.{}", formatted, right)
+        format!("{formatted}.{right}")
     }
 }
 

@@ -102,16 +102,13 @@ impl Client {
     pub async fn get_session(&self, id: &str) -> Result<Option<Session>> {
         let resp = self
             .reqwest
-            .get(format!(
-                "https://api.stripe.com/v1/checkout/sessions/{}",
-                id
-            ))
+            .get(format!("https://api.stripe.com/v1/checkout/sessions/{id}",))
             .basic_auth(self.key.as_ref().unwrap().to_string(), Some(""))
             .send()
             .await?;
         if resp.status().is_success() {
             let session = resp.json::<Session>().await?;
-            println!("session: {:?}", session);
+            tracing::info!("session: {session:?}");
             Ok(Some(session))
         } else {
             Err(eyre!(resp.text().await?))
@@ -133,7 +130,7 @@ impl Client {
         // Although the stripe docs do not specify, experimentation
         // has shown that the order id created_at desc
         let (path, data) = (
-            format!("v1/customers/{}/payment_methods", customer_id),
+            format!("v1/customers/{customer_id}/payment_methods"),
             [("limit", 1)],
         );
         let res: List<PaymentMethod> = self.get(&path, &data).await?;
@@ -174,7 +171,7 @@ impl Client {
     ) -> Result<T> {
         let request = self
             .reqwest
-            .get(format!("https://api.stripe.com/{}", path))
+            .get(format!("https://api.stripe.com/{path}"))
             .basic_auth(self.key.as_ref().unwrap().to_string(), Some(""))
             .form(data);
         let response = request.send().await?;
@@ -193,7 +190,7 @@ impl Client {
     ) -> Result<T> {
         let response = self
             .reqwest
-            .post(format!("https://api.stripe.com/{}", path))
+            .post(format!("https://api.stripe.com/{path}"))
             .basic_auth(
                 self.key.as_ref().expect("missing stripe key").to_string(),
                 Some(""),

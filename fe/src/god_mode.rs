@@ -57,10 +57,10 @@ impl Request {
             "user_queries.created_at > now() - '1 day'::interval",
         )];
         if let Some(email) = &self.owner_email {
-            predicates.push(format!("owner_email like '%{}%'", email))
+            predicates.push(format!("owner_email like '%{email}%'"))
         }
         if let Some(status) = &self.status {
-            predicates.push(format!("status = {}", status))
+            predicates.push(format!("status = {status}"))
         }
         if predicates.is_empty() {
             String::new()

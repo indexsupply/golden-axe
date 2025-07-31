@@ -403,14 +403,11 @@ impl Parameter {
                     ),
                     Parameter::Tuple { .. } | Parameter::Array { .. } => (
                         component.name(),
-                        format!(
-                            "abi2json(abi_dynamic({}, {}), '{:#}')",
-                            inner, pos, component
-                        ),
+                        format!("abi2json(abi_dynamic({inner}, {pos}), '{component:#}')",),
                     ),
                     Parameter::Bytes { size: None, .. } | Parameter::String { .. } => (
                         component.name(),
-                        format!("abi_bytes(abi_dynamic({}, {}))", inner, pos),
+                        format!("abi_bytes(abi_dynamic({inner}, {pos}))"),
                     ),
                     Parameter::Address { .. }
                     | Parameter::Bool { .. }
@@ -512,7 +509,7 @@ impl std::fmt::Display for Parameter {
                 if f.alternate() && !element.is_array() {
                     write!(f, "[{}] {}", length, self.name())
                 } else {
-                    write!(f, "[{}]", length)
+                    write!(f, "[{length}]")
                 }
             }
             Self::Array {
@@ -539,16 +536,16 @@ impl std::fmt::Display for Parameter {
             Self::Bytes {
                 size: Some(size), ..
             } => {
-                write!(f, "bytes{}", size)
+                write!(f, "bytes{size}")
             }
             Self::Int { bits, .. } => {
-                write!(f, "int{}", bits)
+                write!(f, "int{bits}")
             }
             Self::String { .. } => {
                 write!(f, "string")
             }
             Self::Uint { bits, .. } => {
-                write!(f, "uint{}", bits)
+                write!(f, "uint{bits}")
             }
         }
     }
@@ -1042,7 +1039,7 @@ mod tests {
             .map(|c| c.iter().collect::<String>())
             .collect::<Vec<_>>()
             .join("\n");
-        println!("{}", out);
+        println!("{out}");
     }
 
     #[test]

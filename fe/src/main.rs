@@ -146,7 +146,7 @@ fn templates() -> Result<handlebars::Handlebars<'static>, handlebars::TemplateEr
     struct Assets;
 
     fn get_snippet(snippet_name: String, file_name: String) -> String {
-        let key = format!("!!!{}", snippet_name);
+        let key = format!("!!!{snippet_name}");
         let file = Assets::get(&file_name).unwrap().data;
         let contents = std::str::from_utf8(&file).unwrap();
         let lines: Vec<&str> = contents.lines().collect();
@@ -166,7 +166,7 @@ fn templates() -> Result<handlebars::Handlebars<'static>, handlebars::TemplateEr
             }
             result.join("\n")
         } else {
-            format!("snippet {} not found", snippet_name)
+            format!("snippet {snippet_name} not found")
         }
     }
 

@@ -80,7 +80,7 @@ pub async fn get_active_conns(
     customer_api_key_secret: &str,
 ) -> Result<Option<be::gafe::AccountLimitSnapshot>, shared::Error> {
     let resp = reqwest::Client::new()
-        .get(format!("{}/conns?secret={}", base_url, admin_api_secret))
+        .get(format!("{base_url}/conns?secret={admin_api_secret}"))
         .send()
         .await?
         .json::<HashMap<String, be::gafe::AccountLimitSnapshot>>()

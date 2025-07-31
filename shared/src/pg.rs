@@ -66,7 +66,7 @@ pub mod test {
                         *running = true;
                         break;
                     }
-                    Err(e) if i == 4 => panic!("starting pg: {}", e),
+                    Err(e) if i == 4 => panic!("starting pg: {e}"),
                     Err(e) => tracing::error!("error starting pg {}", e),
                 }
             }
@@ -76,10 +76,10 @@ pub mod test {
         pool.get()
             .await
             .expect("getting local postgres")
-            .execute(&format!("create database {}", db_name), &[])
+            .execute(&format!("create database {db_name}"), &[])
             .await
             .expect("creating database");
-        let db_url = format!("postgres://localhost:7999/{}", db_name);
+        let db_url = format!("postgres://localhost:7999/{db_name}");
         drop(pool);
         let pool = super::new_pool(&db_url, 2).unwrap();
         pool.get()

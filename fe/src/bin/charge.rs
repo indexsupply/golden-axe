@@ -66,12 +66,12 @@ async fn main() {
             INVOICE_HEADER,
             customer
                 .extras
-                .map(|e| format!("{}\n\n", e))
+                .map(|e| format!("{e}\n\n"))
                 .unwrap_or_default(),
             line_items.join("\n"),
             amount as f64 / 100.0,
         );
-        println!("{}", description);
+        println!("{description}");
         println!("-----------\n");
         if args.charge && wait_for_yes() {
             stripe_client
