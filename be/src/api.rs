@@ -454,7 +454,15 @@ impl FromRequestParts<Config> for Arc<gafe::AccountLimit> {
         let params = parts.uri.query().unwrap_or_default();
         let decoded =
             serde_urlencoded::from_str::<HashMap<String, String>>(params).unwrap_or_default();
-        let client_id = decoded.get("api-key").cloned().unwrap_or_default();
+
+        let header_key = parts
+            .headers
+            .get("api-key")
+            .and_then(|v| v.to_str().ok())
+            .map(String::from);
+        let url_key = decoded.get("api-key").cloned();
+
+        let client_id = url_key.or(header_key).unwrap_or_default();
         match config.account_limits.lock().unwrap().get(&client_id) {
             Some(limit) => Ok(limit.clone()),
             None => Ok(config.free_limit.clone()),
