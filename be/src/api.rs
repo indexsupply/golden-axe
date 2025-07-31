@@ -378,11 +378,18 @@ impl<S: Send + Sync> FromRequestParts<S> for Key {
         let params = parts.uri.query().unwrap_or_default();
         let decoded =
             serde_urlencoded::from_str::<HashMap<String, String>>(params).unwrap_or_default();
-        Ok(Key(decoded
+
+        let header_key = parts
+            .headers
+            .get("api-key")
+            .and_then(|v| v.to_str().ok())
+            .map(String::from);
+        let url_key = decoded
             .get("api-key")
             .or_else(|| decoded.get("api_key"))
-            .cloned()
-            .unwrap_or_default()))
+            .cloned();
+
+        Ok(Key(url_key.or(header_key).unwrap_or_default()))
     }
 }
 
