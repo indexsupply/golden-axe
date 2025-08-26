@@ -6,5 +6,6 @@ pub mod broadcast;
 pub mod cursor;
 pub mod gafe;
 pub mod query;
+pub mod s256;
 pub mod sync;
 pub mod user_query;

@@ -2,7 +2,7 @@ use std::{convert::Infallible, sync::Arc, time::Duration};
 
 use alloy::{
     hex,
-    primitives::{Bytes, I256, U64},
+    primitives::{Bytes, U64},
 };
 use axum::{
     extract::State,
@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio_postgres::types::Type;
 
-use crate::{api, cursor, gafe, query, user_query};
+use crate::{api, cursor, gafe, query, s256, user_query};
 
 impl From<&Request> for user_query::Row {
     fn from(req: &Request) -> user_query::Row {
@@ -234,7 +234,7 @@ fn value_from_column(
             .map(Value::Bool)
             .unwrap_or(Value::Bool(false)),
         Type::NUMERIC => row
-            .get::<usize, Option<I256>>(idx)
+            .get::<usize, Option<s256::Int>>(idx)
             .map(|n| Value::String(n.to_string()))
             .unwrap_or(Value::Null),
         Type::INT2 => row
