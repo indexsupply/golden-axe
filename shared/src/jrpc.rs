@@ -52,7 +52,9 @@ pub struct Tx {
     pub nonce: U256,
     pub from: Address,
     pub to: Option<Address>,
+    #[serde(default)]
     pub input: Bytes,
+    #[serde(default)]
     pub value: U256,
     pub gas: U256,
     #[serde(rename = "gasPrice")]
@@ -220,7 +222,7 @@ mod tests {
 
     #[test_log::test(tokio::test)]
     async fn test_batch() {
-        let client = super::Client::new("https://eth.merkle.io/");
+        let client = super::Client::new("https://rpc.flashbots.net");
         let block_number = U64::from(12911679);
         client
             .send(serde_json::json!([
