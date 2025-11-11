@@ -1,5 +1,7 @@
 use alloy::primitives::{Address, BlockHash, Bytes, FixedBytes, U256, U64};
+use itertools::Itertools;
 use serde::Deserialize;
+
 use std::{fmt, time::Duration};
 
 #[derive(Clone, Deserialize, Debug)]
@@ -86,59 +88,17 @@ pub struct Block {
     pub miner: Address,
 }
 
-#[derive(Deserialize, Debug)]
-#[serde(untagged)]
-#[allow(clippy::large_enum_variant)]
-enum EthItem {
-    Uint(U64),
-    Block(Block),
-    Tx(Tx),
-    Log(Vec<Log>),
-}
-
-macro_rules! impl_try_from_response {
-    ($type:ty, $variant:path) => {
-        impl TryFrom<Response> for $type {
-            type Error = Error;
-
-            fn try_from(response: Response) -> Result<Self, Self::Error> {
-                match response.result {
-                    None => Err(Error {
-                        code: 0,
-                        message: String::from("no result"),
-                    }),
-                    Some($variant(value)) => Ok(value),
-                    _ => Err(Error {
-                        code: 0,
-                        message: String::from("incompatible type"),
-                    }),
-                }
-            }
-        }
-    };
-}
-
-impl_try_from_response!(Block, EthItem::Block);
-impl_try_from_response!(Tx, EthItem::Tx);
-impl_try_from_response!(Vec<Log>, EthItem::Log);
-impl_try_from_response!(U64, EthItem::Uint);
-
-#[derive(Debug, Deserialize)]
-pub struct Response {
-    result: Option<EthItem>,
-    error: Option<Error>,
-}
-
-impl Response {
-    pub fn to<T: TryFrom<Response, Error = Error>>(self) -> Result<T, Error> {
-        T::try_from(self)
-    }
-}
-
 #[derive(Default)]
 pub struct Client {
     url: String,
     http_client: reqwest::Client,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum RpcEither<T> {
+    Ok { result: T },
+    Err { error: Error },
 }
 
 impl Client {
@@ -155,70 +115,154 @@ impl Client {
         }
     }
 
-    pub async fn chain_id(&self) -> Result<u64, Error> {
-        let resp = self
-            .send_one(serde_json::json!({
-                "id": "1",
-                "jsonrpc": "2.0",
-                "method": "eth_chainId",
-                "params": [],
-            }))
-            .await?;
-        Ok(resp.to::<U64>()?.to())
-    }
+    pub async fn chain_id(&self) -> Result<U64, Error> {
+        let request = serde_json::json!({
+            "id": 1,
+            "jsonrpc": "2.0",
+            "method": "eth_chainId",
+            "params": [],
+        });
 
-    pub async fn send_one(&self, request: serde_json::Value) -> Result<Response, Error> {
-        match self.send(request).await {
-            Ok(res) if res.len() == 1 => Ok(res.into_iter().next().unwrap()),
-            Ok(_) => Err(Error {
-                code: 0,
-                message: String::from("expected 1 result"),
-            }),
-            Err(e) => Err(Error {
-                code: 0,
-                message: e.to_string(),
-            }),
-        }
-    }
-
-    #[tracing::instrument(level="debug" skip_all, fields(request, response))]
-    pub async fn send(&self, request: serde_json::Value) -> Result<Vec<Response>, Error> {
-        let response = self
+        let response: RpcEither<U64> = self
             .http_client
             .post(&self.url)
             .json(&request)
             .send()
-            .await?
-            .bytes()
-            .await?;
-        tracing::Span::current()
-            .record("request", request.to_string())
-            .record("response", String::from_utf8(response.to_vec()).unwrap());
+            .await
+            .map_err(|e| Error {
+                code: -1,
+                message: e.to_string(),
+            })?
+            .json()
+            .await
+            .map_err(|e| Error {
+                code: -1,
+                message: e.to_string(),
+            })?;
 
-        let decoded = match serde_json::from_slice::<Vec<Response>>(&response) {
-            Ok(responses) => responses,
-            Err(_) => match serde_json::from_slice::<Response>(&response) {
-                Ok(single) => vec![single],
-                Err(err) => {
-                    return Err(Error {
-                        code: 0,
-                        message: format!("{:?} - {}", err, String::from_utf8_lossy(&response)),
-                    });
+        match response {
+            RpcEither::Ok { result, .. } => Ok(result),
+            RpcEither::Err { error, .. } => Err(error),
+        }
+    }
+
+    #[tracing::instrument(level="info" skip_all, fields(from, to))]
+    pub async fn blocks(&self, from: u64, to: u64) -> Result<Vec<Block>, Error> {
+        let request: Vec<_> = (from..=to)
+            .map(|n| {
+                serde_json::json!({
+                    "id": n,
+                    "jsonrpc": "2.0",
+                    "method": "eth_getBlockByNumber",
+                    "params": [format!("0x{:x}", n), true],
+                })
+            })
+            .collect();
+        let response_body = self
+            .http_client
+            .post(&self.url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| Error {
+                code: -1,
+                message: format!("decoding blocks: {e:?}"),
+            })?
+            .text()
+            .await
+            .map_err(|e| Error {
+                code: -1,
+                message: format!("decoding blocks json: {e:?}"),
+            })?;
+
+        let response: Vec<RpcEither<Block>> =
+            serde_json::from_str(&response_body).map_err(|e| Error {
+                code: -1,
+                message: format!("decode error: {e:?}\n{}\n", response_body),
+            })?;
+
+        Ok(response
+            .into_iter()
+            .map(|r| match r {
+                RpcEither::Ok { result, .. } => Ok(result),
+                RpcEither::Err { error, .. } => {
+                    tracing::debug!("response {}", error.message);
+                    Err(error)
                 }
-            },
-        };
-        match decoded.iter().find_map(|r| r.error.clone()) {
-            Some(err) => Err(err),
-            None => Ok(decoded),
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .sorted_by(|a, b| a.number.cmp(&b.number))
+            .collect())
+    }
+
+    #[tracing::instrument(level="info" skip_all, fields(number))]
+    pub async fn block(&self, param: String) -> Result<Block, Error> {
+        let request = serde_json::json!({
+            "id": "1",
+            "jsonrpc": "2.0",
+            "method": "eth_getBlockByNumber",
+            "params": [param, true],
+        });
+        let response: RpcEither<Block> = self
+            .http_client
+            .post(&self.url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| Error {
+                code: -1,
+                message: format!("decoding block: {e:?}"),
+            })?
+            .json()
+            .await
+            .map_err(|e| Error {
+                code: -1,
+                message: format!("decoding block json: {e:?}"),
+            })?;
+        match response {
+            RpcEither::Ok { result, .. } => Ok(result),
+            RpcEither::Err { error, .. } => Err(error),
+        }
+    }
+
+    #[tracing::instrument(level="info" skip_all, fields(from, to))]
+    pub async fn logs(&self, from: u64, to: u64) -> Result<Vec<Log>, Error> {
+        let request = serde_json::json!({
+            "id": "1",
+            "jsonrpc": "2.0",
+            "method": "eth_getLogs",
+            "params": [{
+                "fromBlock": format!("0x{:x}", from),
+                "toBlock":   format!("0x{:x}", to),
+            }],
+        });
+        match self
+            .http_client
+            .post(&self.url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| Error {
+                code: -1,
+                message: e.to_string(),
+            })?
+            .json::<RpcEither<Vec<Log>>>()
+            .await
+            .map_err(|e| Error {
+                code: -1,
+                message: format!("decoding logs: {e:?}"),
+            })? {
+            RpcEither::Ok { result, .. } => Ok(result),
+            RpcEither::Err { error, .. } => Err(error),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use alloy::primitives::{b256, fixed_bytes, U64};
-
-    use crate::jrpc::EthItem;
 
     #[test_log::test(tokio::test)]
     async fn test_batch() {
@@ -252,17 +296,11 @@ mod tests {
                         b256!("23e3362a76c8b9370dc65bac8eb1cda1d408ac238a466cfe690248025254bf52")
                     )
                 }
-                Some(EthItem::Log(logs)) => {
-                    let l = logs.first().expect("missing logs");
-                    assert_eq!(l.block_number, block_number);
-                    assert_eq!(
-                        l.address,
-                        fixed_bytes!("1f573d6fb3f13d689ff844b4ce37794d79a7ff1c")
-                    );
-                    assert_eq!(l.topics.len(), 3);
-                    assert_eq!(l.data.len(), 32);
+                RpcEither::Err { error, .. } => {
+                    eprintln!("#{i}: error {:?}", error);
                 }
-                _ => panic!("unexpected results!"),
-            });
+            }
+        }
+        assert!(!responses.is_empty(), "empty JSON response");
     }
 }

@@ -823,9 +823,9 @@ dependencies = [
 
 [[package]]
 name = "async-trait"
-version = "0.1.84"
+version = "0.1.89"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b1244b10dcd56c92219da4e14caa97e312079e185f04ba3eea25061561dc0a0"
+checksum = "9035ad2d096bed7955a320ee7e2230574d28fd3c3a0f186cbea1ff3c7eed5dbb"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4619,6 +4619,7 @@ dependencies = [
  "eyre",
  "flate2",
  "handlebars",
+ "itertools 0.13.0",
  "openssl",
  "postgres-openssl",
  "rand 0.8.5",
