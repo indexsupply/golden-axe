@@ -261,46 +261,31 @@ impl Client {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use alloy::primitives::{b256, fixed_bytes, U64};
 
     #[test_log::test(tokio::test)]
-    async fn test_batch() {
-        let client = super::Client::new("https://rpc.flashbots.net");
-        let block_number = U64::from(12911679);
-        client
-            .send(serde_json::json!([
-            {
-                "id": "1",
-                "jsonrpc": "2.0",
-                "method": "eth_getBlockByNumber",
-                "params": [block_number, true],
-            },
-            {
-                "id": "1",
-                "jsonrpc": "2.0",
-                "method": "eth_getLogs",
-                "params": [{"fromBlock": block_number, "toBlock": block_number}],
-            }]))
-            .await
-            .unwrap()
-            .iter()
-            .for_each(|resp| match resp.result.as_ref() {
-                Some(EthItem::Block(b)) => {
-                    assert_eq!(
-                        b.hash,
-                        b256!("a917fcc721a5465a484e9be17cda0cc5493933dd3bc70c9adbee192cb419c9d7")
-                    );
-                    assert_eq!(
-                        b.transactions.first().unwrap().hash,
-                        b256!("23e3362a76c8b9370dc65bac8eb1cda1d408ac238a466cfe690248025254bf52")
-                    )
-                }
-                RpcEither::Err { error, .. } => {
-                    eprintln!("#{i}: error {:?}", error);
-                }
-            }
-        }
-        assert!(!responses.is_empty(), "empty JSON response");
+    async fn test_block_and_logs() {
+        let client = super::Client::new("https://eth.merkle.io/");
+        let n: u64 = 12_911_679;
+
+        let b = client.block(format!("0x{:x}", n)).await.unwrap();
+        assert_eq!(
+            b.hash,
+            b256!("a917fcc721a5465a484e9be17cda0cc5493933dd3bc70c9adbee192cb419c9d7")
+        );
+        assert_eq!(
+            b.transactions.first().unwrap().hash,
+            b256!("23e3362a76c8b9370dc65bac8eb1cda1d408ac238a466cfe690248025254bf52")
+        );
+
+        let logs = client.logs(n, n).await.unwrap();
+        let l = logs.first().expect("missing logs");
+        assert_eq!(l.block_number, U64::from(n));
+        assert_eq!(
+            l.address,
+            fixed_bytes!("1f573d6fb3f13d689ff844b4ce37794d79a7ff1c")
+        );
+        assert_eq!(l.topics.len(), 3);
+        assert_eq!(l.data.len(), 32);
     }
 }
