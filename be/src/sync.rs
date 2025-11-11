@@ -92,23 +92,12 @@ impl RemoteConfig {
 pub async fn test(url: &str, chain: u64) -> Result<(), shared::Error> {
     let parsed: Url = url.parse().wrap_err("unable to parse rpc url")?;
     let jrpc_client = jrpc::Client::new(parsed.as_str());
-    let resp = jrpc_client
-        .send_one(serde_json::json!({
-            "id": "1",
-            "jsonrpc": "2.0",
-            "method": "eth_chainId",
-            "params": [],
-        }))
-        .await;
-    match resp {
+    match jrpc_client.chain_id().await {
         Err(e) => Err(shared::Error::User(format!("rpc error {e}"))),
-        Ok(resp) => match resp.to::<U64>() {
-            Ok(id) if id.to::<u64>() == chain => Ok(()),
-            Ok(id) => Err(shared::Error::User(format!(
-                "expected chain {chain} got {id}",
-            ))),
-            Err(e) => Err(shared::Error::User(format!("rpc error {e}"))),
-        },
+        Ok(resp) if resp.to::<u64>() == chain => Ok(()),
+        Ok(id) => Err(shared::Error::User(format!(
+            "expected chain {chain} got {id}",
+        ))),
     }
 }
 
@@ -206,8 +195,8 @@ impl Downloader {
             return Ok(());
         }
         let block = match self.start_block {
-            Some(n) => remote_block(&self.jrpc_client, U64::from(n)).await?,
-            None => remote_block_latest(&self.jrpc_client).await?,
+            Some(n) => self.jrpc_client.block(U64::from(n).to_string()).await?,
+            None => self.jrpc_client.block("latest".to_string()).await?,
         };
         tracing::info!("initializing blocks table at: {}", block.number);
         let mut pg = self.be_pool.get().await.wrap_err("getting pg")?;
@@ -296,7 +285,7 @@ impl Downloader {
     */
     #[tracing::instrument(level="info" skip_all, fields(from, to, blocks, txs, logs))]
     async fn download(&mut self, batch_size: u16) -> Result<u64, Error> {
-        let latest = remote_block_latest(&self.jrpc_client).await?;
+        let latest = self.jrpc_client.block("latest".to_string()).await?;
         let _ = self.broadcaster.json_updates.send(serde_json::json!({
             "new_block": "remote",
             "chain": self.chain.0,
@@ -320,8 +309,8 @@ impl Downloader {
             .record("from", from)
             .record("to", to);
         let (mut blocks, mut logs) = (
-            download_blocks(&self.jrpc_client, from, to).await?,
-            download_logs(&self.jrpc_client, from, to).await?,
+            self.jrpc_client.blocks(from, to).await?,
+            self.jrpc_client.logs(from, to).await?,
         );
         add_timestamp(&mut blocks, &mut logs);
         validate_blocks(from, to, &blocks)?;
@@ -365,8 +354,8 @@ pub async fn sync_one(
     chain: u64,
     n: u64,
 ) -> Result<u64, Error> {
-    let mut blocks = download_blocks(client, n, n).await?;
-    let mut logs = download_logs(client, n, n).await?;
+    let mut blocks = client.blocks(n, n).await?;
+    let mut logs = client.logs(n, n).await?;
     add_timestamp(&mut blocks, &mut logs);
     validate_blocks(n, n, &blocks)?;
 
@@ -374,70 +363,6 @@ pub async fn sync_one(
     let num_logs = copy_logs(&pgtx, api::Chain(chain), logs).await?;
     pgtx.commit().await.wrap_err("unable to commit tx")?;
     Ok(num_logs)
-}
-
-async fn remote_block(client: &jrpc::Client, n: U64) -> Result<jrpc::Block, Error> {
-    Ok(client
-        .send_one(serde_json::json!({
-            "id": "1",
-            "jsonrpc": "2.0",
-            "method": "eth_getBlockByNumber",
-            "params": [n, true],
-        }))
-        .await?
-        .to()?)
-}
-
-async fn remote_block_latest(client: &jrpc::Client) -> Result<jrpc::Block, Error> {
-    Ok(client
-        .send_one(serde_json::json!({
-            "id": "1",
-            "jsonrpc": "2.0",
-            "method": "eth_getBlockByNumber",
-            "params": ["latest", true],
-        }))
-        .await?
-        .to()?)
-}
-#[tracing::instrument(level="info" skip_all, fields(from, to))]
-async fn download_blocks(
-    client: &jrpc::Client,
-    from: u64,
-    to: u64,
-) -> Result<Vec<jrpc::Block>, Error> {
-    Ok(client
-        .send(
-            (from..=to)
-                .map(|n| {
-                    serde_json::json!({
-                        "id": "1",
-                        "jsonrpc": "2.0",
-                        "method": "eth_getBlockByNumber",
-                        "params": [U64::from(n), true],
-                    })
-                })
-                .collect(),
-        )
-        .await?
-        .into_iter()
-        .map(|resp| resp.to::<jrpc::Block>())
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .sorted_by(|a, b| a.number.cmp(&b.number))
-        .collect())
-}
-
-#[tracing::instrument(level="info" skip_all, fields(from, to))]
-async fn download_logs(client: &jrpc::Client, from: u64, to: u64) -> Result<Vec<jrpc::Log>, Error> {
-    Ok(client
-        .send_one(serde_json::json!({
-            "id": "1",
-            "jsonrpc": "2.0",
-            "method": "eth_getLogs",
-            "params": [{"fromBlock": U64::from(from), "toBlock": U64::from(to)}],
-        }))
-        .await?
-        .to()?)
 }
 
 fn validate_logs(blocks: &[jrpc::Block], logs: &[jrpc::Log]) -> Result<(), Error> {
