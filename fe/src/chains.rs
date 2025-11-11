@@ -116,7 +116,7 @@ pub mod handlers {
 pub async fn list(pg: &tokio_postgres::Client) -> Result<Vec<Config>> {
     Ok(pg
         .query(
-            "select enabled, chain, name, url, start_block, popular from config order by chain",
+            "select enabled, chain, name, url, start_block, popular from config where chain != 42429 order by chain",
             &[],
         )
         .await?
