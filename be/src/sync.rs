@@ -195,7 +195,7 @@ impl Downloader {
             return Ok(());
         }
         let block = match self.start_block {
-            Some(n) => self.jrpc_client.block(U64::from(n).to_string()).await?,
+            Some(n) => self.jrpc_client.block(format!("0x{:x}", n)).await?,
             None => self.jrpc_client.block("latest".to_string()).await?,
         };
         tracing::info!("initializing blocks table at: {}", block.number);
