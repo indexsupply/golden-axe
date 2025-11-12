@@ -460,6 +460,7 @@ impl UserQuery {
         if let Some(lit) = expr_to_bytes(right) {
             if let Some(param) = self.get_param(left) {
                 *right = match param {
+                    abi::Parameter::Tuple { .. } => right.clone(),
                     abi::Parameter::Address { .. } | abi::Parameter::Uint { .. } => {
                         ast::Expr::Value(ast::Value::SingleQuotedString(format!(
                             r#"\x{}"#,
@@ -596,8 +597,8 @@ impl UserQuery {
             ast::Expr::IsNotFalse(_) => Ok(()),
             ast::Expr::IsTrue(_) => Ok(()),
             ast::Expr::IsNotTrue(_) => Ok(()),
-            ast::Expr::IsNull(_) => Ok(()),
-            ast::Expr::IsNotNull(_) => Ok(()),
+            ast::Expr::IsNull(expr) => self.validate_expression(expr),
+            ast::Expr::IsNotNull(expr) => self.validate_expression(expr),
             ast::Expr::Ceil { expr, field: _ } => self.validate_expression(expr),
             ast::Expr::Floor { expr, field: _ } => self.validate_expression(expr),
             ast::Expr::Value(_) => Ok(()),
@@ -605,15 +606,6 @@ impl UserQuery {
             ast::Expr::Subquery(subquery) => self.validate_query(subquery),
             ast::Expr::Tuple(exprs) => self.validate_expressions(exprs),
             ast::Expr::UnaryOp { expr, .. } => self.validate_expression(expr),
-            ast::Expr::BinaryOp {
-                left,
-                right,
-                op: ast::BinaryOperator::LongArrow | ast::BinaryOperator::Arrow,
-                ..
-            } => {
-                self.validate_expression(left)?;
-                self.validate_expression(right)
-            }
             ast::Expr::BinaryOp { left, right, .. } => {
                 self.set_chain(left, right);
                 self.rewrite_binary_expr(left, right)?;
@@ -658,7 +650,7 @@ impl UserQuery {
 
     fn validate_function(&mut self, function: &mut ast::Function) -> Result<(), api::Error> {
         let name = function.name.to_string().to_lowercase();
-        const VALID_FUNCS: [&str; 14] = [
+        const VALID_FUNCS: [&str; 15] = [
             "coalesce",
             "min",
             "max",
@@ -673,6 +665,7 @@ impl UserQuery {
             "abi_uint",
             "abi_int",
             "abi_string",
+            "jsonb_path_query_array",
         ];
         if !VALID_FUNCS.contains(&name.as_str()) {
             return no!(format!(r#"'{}' function"#, name));
@@ -810,6 +803,9 @@ fn bytes_to_expr(bytes: Vec<u8>, to: ast::DataType) -> Result<ast::Expr, api::Er
                 value: s,
             })
         }
+        ast::DataType::JSONB => Ok(ast::Expr::Value(ast::Value::SingleQuotedString(
+            String::from_utf8(bytes).map_err(|_| api::Error::User("invalid JSONB".to_string()))?,
+        ))),
         _ => Err(api::Error::User(format!(
             "unable to convert {bytes:?} to {to:?}",
         ))),
@@ -831,9 +827,10 @@ fn base_column_type(id: &Ident) -> Option<ast::DataType> {
 
         // Txs
         "idx" | "type" => Some(ast::DataType::Int64),
-        "from" | "to" | "input" => Some(ast::DataType::Bytea),
+        "from" | "to" | "input" | "fee_token" => Some(ast::DataType::Bytea),
         "value" => Some(ast::DataType::Numeric(ast::ExactNumberInfo::None)),
         "gas" | "gas_price" => Some(ast::DataType::Numeric(ast::ExactNumberInfo::None)),
+        "calls" => Some(ast::DataType::JSONB),
 
         // Logs
         "tx_hash" | "address" | "topics" | "data" => Some(ast::DataType::Bytea),

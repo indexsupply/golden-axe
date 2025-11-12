@@ -551,7 +551,9 @@ pub async fn copy_txs(
             "from",
             "to",
             input,
-            value
+            value,
+            fee_token,
+            calls
         )
         from stdin binary
     "#;
@@ -572,6 +574,8 @@ pub async fn copy_txs(
             tokio_postgres::types::Type::BYTEA,
             tokio_postgres::types::Type::BYTEA,
             tokio_postgres::types::Type::NUMERIC,
+            tokio_postgres::types::Type::BYTEA,
+            tokio_postgres::types::Type::JSONB,
         ],
     );
     pin_mut!(writer);
@@ -595,6 +599,11 @@ pub async fn copy_txs(
                     &tx.to.unwrap_or_default().to_vec(),
                     &tx.input.to_vec(),
                     &tx.value,
+                    &tx.fee_token.as_ref().map(|a| a.to_vec()),
+                    &tx.calls
+                        .as_ref()
+                        .filter(|v| !v.is_empty())
+                        .map(|v| tokio_postgres::types::Json(v.as_slice())),
                 ])
                 .await?;
         }

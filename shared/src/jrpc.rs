@@ -1,6 +1,6 @@
 use alloy::primitives::{Address, BlockHash, Bytes, FixedBytes, U256, U64};
 use itertools::Itertools;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use std::{fmt, time::Duration};
 
@@ -41,6 +41,14 @@ pub struct Log {
     pub data: Bytes,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Call {
+    pub from: Option<Address>,
+    pub to: Option<Address>,
+    pub value: Option<U256>,
+    pub data: Option<Bytes>,
+}
+
 #[derive(Deserialize, Debug)]
 pub struct Tx {
     #[serde(rename = "type")]
@@ -61,6 +69,9 @@ pub struct Tx {
     pub gas: U256,
     #[serde(rename = "gasPrice")]
     pub gas_price: Option<U256>,
+    pub calls: Option<Vec<Call>>,
+    #[serde(rename = "feeToken")]
+    pub fee_token: Option<Address>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -115,6 +126,7 @@ impl Client {
         }
     }
 
+    #[tracing::instrument(level="info" skip_all)]
     pub async fn chain_id(&self) -> Result<U64, Error> {
         let request = serde_json::json!({
             "id": 1,
@@ -196,13 +208,13 @@ impl Client {
             .collect())
     }
 
-    #[tracing::instrument(level="info" skip_all, fields(number))]
-    pub async fn block(&self, param: String) -> Result<Block, Error> {
+    #[tracing::instrument(level="info" skip_all, fields(number = %number))]
+    pub async fn block(&self, number: String) -> Result<Block, Error> {
         let request = serde_json::json!({
             "id": "1",
             "jsonrpc": "2.0",
             "method": "eth_getBlockByNumber",
-            "params": [param, true],
+            "params": [number, true],
         });
         let response: RpcEither<Block> = self
             .http_client

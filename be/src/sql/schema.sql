@@ -30,7 +30,9 @@ create table if not exists txs (
     "from" bytea not null,
     "to" bytea not null,
     input bytea not null,
-    value numeric not null
+    value numeric not null,
+    fee_token bytea,
+    calls jsonb
 ) partition by list(chain);
 
 create table if not exists logs (
