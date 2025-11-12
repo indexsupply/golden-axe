@@ -277,7 +277,8 @@ mod tests {
 
     #[test_log::test(tokio::test)]
     async fn test_block_and_logs() {
-        let client = super::Client::new("https://eth.merkle.io/");
+        let url = std::env::var("RPC_URL").unwrap_or_else(|_| "https://eth.merkle.io/".to_string());
+        let client = super::Client::new(&url);
         let n: u64 = 12_911_679;
 
         let b = client.block(format!("0x{:x}", n)).await.unwrap();
