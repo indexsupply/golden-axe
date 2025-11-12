@@ -58,6 +58,10 @@ cargo test
 
 ```
 createdb be
+psql be -f src/sql/schema.sql
+psql be -f src/sql/indexes.sql
+psql be -f src/sql/roles.sql
+
 createdb fe
 ```
 
