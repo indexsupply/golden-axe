@@ -89,11 +89,11 @@ impl AccountLimit {
             timeout: Duration::from_secs(10),
             rate: 10,
             rate_limiter: Arc::new(governor::DefaultKeyedRateLimiter::dashmap(
-                Quota::per_second(nonzero!(10u32)),
+                Quota::per_second(nonzero!(100u32)),
             )),
             connections: 1000,
             conn_limiter: Arc::new(Semaphore::new(1000)),
-            ip_connections: Some(5),
+            ip_connections: Some(100),
             ip_conn_limiter: DashMap::new(),
         }
     }
