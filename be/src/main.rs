@@ -42,6 +42,9 @@ struct Args {
     #[arg(env = "MAX_PG_CONNS")]
     max_pg_conns: Option<usize>,
 
+    #[arg(env = "MAX_PG_FE_CONNS", default_value = "4")]
+    max_pg_fe_conns: usize,
+
     #[arg(short = 'l', env = "LISTEN", default_value = "0.0.0.0:8000")]
     listen: String,
 
@@ -74,10 +77,9 @@ async fn main() {
     let config = api::Config::new(
         args.admin_api_secret.to_string(),
         shared::pg::new_pool(&args.pg_url, args.max_pg_conns.unwrap_or(32)).expect("pg_be pool"),
-        shared::pg::new_pool(&args.pg_url_fe, args.max_pg_conns.unwrap_or(4)).expect("pg_fe pool"),
+        shared::pg::new_pool(&args.pg_url_fe, args.max_pg_fe_conns).expect("pg_fe pool"),
         shared::pg::new_pool(&args.pg_url_ro, args.max_pg_conns.unwrap_or(32)).expect("pg_ro pool"),
     );
-
     config
         .be_pool
         .get()
