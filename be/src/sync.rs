@@ -469,10 +469,8 @@ fn add_timestamp(blocks: &mut [jrpc::Block], logs: &mut Vec<jrpc::Log>) {
     }
     let indexed: HashMap<u64, &jrpc::Block> = blocks.iter().map(|b| (b.number.to(), b)).collect();
     for log in logs {
-        if log.block_timestamp.is_none() {
-            if let Some(block) = indexed.get(&log.block_number.to()) {
-                log.block_timestamp = Some(block.timestamp);
-            }
+        if let Some(block) = indexed.get(&log.block_number.to()) {
+            log.block_timestamp = Some(block.timestamp);
         }
     }
 }
