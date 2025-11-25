@@ -706,6 +706,7 @@ impl UserQuery {
             self.validate_relation(&mut join.relation)?;
             match &mut join.join_operator {
                 ast::JoinOperator::Inner(c) => self.validate_join_constraint(c)?,
+                ast::JoinOperator::FullOuter(c) => self.validate_join_constraint(c)?,
                 ast::JoinOperator::LeftOuter(c) => self.validate_join_constraint(c)?,
                 ast::JoinOperator::RightOuter(c) => self.validate_join_constraint(c)?,
                 _ => return no!("must be inner, left outer, or right outer join"),

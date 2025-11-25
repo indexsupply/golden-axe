@@ -9,6 +9,7 @@ create index if not exists txs_block on txs(block_num);
 create index if not exists txs_hash on txs(hash);
 create index if not exists txs_from on txs("from");
 create index if not exists txs_to on txs("to");
+create index if not exists txs_calls on txs(calls) using gin(calls);
 
 create index if not exists txs_selector
 on txs (substring(input, 1, 4))
