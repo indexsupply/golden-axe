@@ -755,6 +755,7 @@ impl UserQuery {
                 }
                 self.set_relation(&name_parts[0], None)
             }
+            ast::TableFactor::Derived { subquery, .. } => self.validate_query(subquery),
             _ => no!(relation),
         }
     }
@@ -946,6 +947,20 @@ mod tests {
             cursor.to_sql("foo"),
             "(chain = 1 or (chain = 10 and foo >= 42) or (chain = 8453 and foo >= 100))"
         );
+    }
+
+    #[tokio::test]
+    async fn test_sub_query() {
+        check_sql(
+            vec![],
+            r#"select count(c) from (select 1 as c from txs where "from" = 0xab12 limit 10)"#,
+            r#"
+            WITH txs AS NOT MATERIALIZED (SELECT "from" FROM txs WHERE chain = 1)
+            SELECT count(c)
+            FROM (SELECT 1 AS c FROM txs WHERE "from" = '\xab12'  LIMIT 10)
+            "#,
+        )
+        .await;
     }
 
     #[tokio::test]
