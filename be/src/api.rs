@@ -192,10 +192,14 @@ impl From<deadpool_postgres::PoolError> for Error {
 
 impl From<tokio_postgres::Error> for Error {
     fn from(err: tokio_postgres::Error) -> Self {
-        match err.as_db_error() {
-            Some(e) => Error::User(e.message().to_string()),
-            None => Error::User(err.to_string()),
+        if let Some(code) = err.code().map(|c| c.code()) {
+            // https://www.postgresql.org/docs/current/errcodes-appendix.html
+            if code.starts_with("53") || code.starts_with("54") {
+                return Error::Server(Box::new(err));
+            }
+            return Error::User(err.to_string());
         }
+        Error::Server(Box::new(err))
     }
 }
 
