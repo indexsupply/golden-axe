@@ -154,11 +154,6 @@ begin
 end;
 $$ language plpgsql immutable strict;
 
-create or replace function h2s(input bytea) returns text
-    language sql immutable
-    returns null on null input
-    return convert_from(rtrim(input, '\x00'), 'UTF8');
-
 create or replace function abi_string(input bytea) returns text
     language sql immutable
     returns null on null input
