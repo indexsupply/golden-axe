@@ -154,7 +154,17 @@ begin
 end;
 $$ language plpgsql immutable strict;
 
-create or replace function abi_string(input bytea) returns text
-    language sql immutable
-    returns null on null input
-    return convert_from(rtrim(input, '\x00'), 'UTF8');
+create or replace function abi_string(input bytea)
+returns text immutable returns null on null input
+language plpgsql
+as $$
+declare
+    cleaned bytea;
+begin
+    cleaned := decode(replace(encode(input, 'hex'), '00', ''), 'hex');
+    return convert_from(cleaned, 'UTF8');
+exception
+    when others then
+    return null;
+end;
+$$;
