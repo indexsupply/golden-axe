@@ -5,37 +5,67 @@ on:
   pull_request:
     branches: ["master"]
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
   test:
     runs-on: large
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: dtolnay/rust-toolchain@master
         name: Install rust
         with:
           toolchain: 1.88.0
+
       - uses: Swatinem/rust-cache@v2
-      - name: Run initial test to setup PG
-        run: cargo test -p shared --features test -- --no-capture
-        env:
-          RPC_URL: ${{ secrets.RPC_URL }}
-      - name: Install pgrx system dependencies
-        run: >
-          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list' &&
-          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg &&
-          sudo apt update -y &&
-          sudo apt install -y build-essential pkg-config libssl-dev postgresql-server-dev-17
+
+      - name: Cache cargo-pgrx + cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-pgrx
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-pgrx-0.16.1-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install PostgreSQL 18 (PGDG)
+        run: |
+          sudo install -d -m 0755 /etc/apt/keyrings
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            | sudo gpg --dearmor --yes --batch --no-tty \
+              -o /etc/apt/keyrings/postgresql.gpg
+          sudo chmod 0644 /etc/apt/keyrings/postgresql.gpg
+          echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            build-essential pkg-config libssl-dev \
+            postgresql-server-dev-18 postgresql-18 postgresql-client-18
+
+          echo "/usr/lib/postgresql/18/bin" >> $GITHUB_PATH
+          sudo pg_ctlcluster 18 main start
+          /usr/lib/postgresql/18/bin/pg_config --version
+          psql --version
+
+      - name: Wait for Postgres
+        run: |
+          for i in {1..30}; do
+            pg_isready -h localhost -p 5432 && exit 0
+            sleep 1
+          done
+          echo "Postgres did not become ready in time" >&2
+          exit 1
+
       - name: Install pgrx
-        run: >
-          cargo install --locked cargo-pgrx --version="0.15.0" &&
-          cargo pgrx init --pg17 /tmp/golden-axe-pg-test/install/postgresql-17.2.0-x86_64-unknown-linux-gnu/bin/pg_config
+        run: |
+          cargo install --locked cargo-pgrx --version="0.16.1"
+          cargo pgrx init --pg18 /usr/lib/postgresql/18/bin/pg_config
+
       - name: Install PG extension
-        run: >
-          cd pg_golden_axe &&
-          cargo pgrx install -p pg_golden_axe --pg-config /tmp/golden-axe-pg-test/install/postgresql-17.2.0-x86_64-unknown-linux-gnu/bin/pg_config
+        run: |
+          cd pg_golden_axe
+          cargo pgrx install -p pg_golden_axe
+
       - name: Run tests
         run: cargo test -- --no-capture
         env:
