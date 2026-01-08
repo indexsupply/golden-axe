@@ -44,7 +44,7 @@ jobs:
 
           echo "/usr/lib/postgresql/18/bin" >> $GITHUB_PATH
           sudo systemctl start postgresql
-          createdb golden_axe_test
+          sudo -u postgres createdb golden_axe_test
 
       - name: Wait for Postgres
         run: |
