@@ -100,7 +100,7 @@ pub mod test {
         format!("be_test_{}", random_str.to_lowercase())
     }
 
-    const PG_VERSION: &str = "17.2.0";
+    const PG_VERSION: &str = "18.1.0";
 
     fn pg_install_dir() -> String {
         format!("postgresql-{}-{}", PG_VERSION, target_triple::TARGET)
