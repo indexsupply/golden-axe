@@ -31,7 +31,7 @@ sudo apt install -y build-essential pkg-config libssl-dev postgresql-server-dev-
 3. Build
 
 ```
-cargo install --locked cargo-pgrx --version="0.15.0"
+cargo install --locked cargo-pgrx --version="0.16.1"
 cargo pgrx init --pg17 download
 cargo build
 cargo test
