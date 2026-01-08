@@ -47,7 +47,7 @@ pub mod test {
     const MAX_AGE: Duration = Duration::from_secs(300);
 
     pub async fn new(schema: &str) -> Pool {
-        let admin_db_url = "postgres://r:@localhost:5432/golden_axe_test";
+        let admin_db_url = "postgres://postgres:@localhost:5432/golden_axe_test";
         let admin = super::new_pool(admin_db_url, 1).unwrap();
         cleanup_old_dbs(&admin).await;
 
