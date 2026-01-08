@@ -62,7 +62,7 @@ jobs:
       - name: Install PG extension
         run: |
           cd pg_golden_axe
-          cargo pgrx install -p pg_golden_axe
+          cargo pgrx install --sudo -p pg_golden_axe
 
       - name: Run tests
         run: cargo test -- --no-capture
