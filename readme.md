@@ -6,6 +6,8 @@
 
 `fe`'s database stores plan information and user queries and is r/w by `be` for account rate limiting and analytics.
 
+`pg_golden_axe` is a small pg extension wrapper around the abi decoding bits in `be`.
+
 ## Local Setup
 
 ### Dependencies
