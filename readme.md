@@ -45,6 +45,7 @@ cargo pgrx install -p pg_golden_axe
 4. Test
 
 ```
+createuser --superuser --createdb --createrole golden_axe
 createdb golden_axe_test
 cargo test
 ```
