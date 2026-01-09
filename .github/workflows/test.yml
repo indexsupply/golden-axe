@@ -46,6 +46,10 @@ jobs:
 
           echo "/usr/lib/postgresql/18/bin" >> $GITHUB_PATH
           sudo systemctl start postgresql
+          sudo -u postgres psql -c "ALTER USER postgres PASSWORD NULL;"
+          PG_HBA="/etc/postgresql/18/main/pg_hba.conf" grep -q '127.0.0.1/32 trust' "$PG_HBA" ||echo "host all all 127.0.0.1/32 trust" | sudo tee -a "$PG_HBA" >/dev/null
+          grep -q '::1/128 trust' "$PG_HBA" || echo "host all all ::1/128 trust" | sudo tee -a "$PG_HBA" >/dev/null
+          sudo systemctl reload postgresql
           sudo -u postgres psql -c "SELECT version();"
           sudo -u postgres psql -tAc "SHOW port;"
           sudo -u postgres createdb golden_axe_test
