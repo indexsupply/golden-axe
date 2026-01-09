@@ -51,10 +51,7 @@ struct Args {
     #[clap(long, env = "NO_SYNC", action = clap::ArgAction::SetTrue)]
     no_sync: bool,
 
-    #[clap(
-        env = "ADMIN_API_SECRET",
-        default_value = "2d6f3071fcf70f5731575be2f407b4ef"
-    )]
+    #[clap(env = "ADMIN_API_SECRET", default_value = "foo")]
     admin_api_secret: String,
 }
 

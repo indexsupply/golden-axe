@@ -60,10 +60,7 @@ struct Args {
     #[arg(long, env = "INDEXSUPPLY_KEY")]
     indexsupply_key: Option<String>,
 
-    #[clap(
-        env = "ADMIN_API_SECRET",
-        default_value = "2d6f3071fcf70f5731575be2f407b4ef"
-    )]
+    #[clap(env = "ADMIN_API_SECRET", default_value = "foo")]
     admin_api_secret: String,
 }
 
