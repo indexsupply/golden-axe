@@ -44,8 +44,8 @@ jobs:
 
           echo "/usr/lib/postgresql/18/bin" >> $GITHUB_PATH
           sudo systemctl start postgresql
-          psql -U postgres -c "SELECT version();"
-          psql -U postgres -tAc "SHOW port;"
+          sudo -u postgres psql -c "SELECT version();"
+          sudo -u postgres psql -tAc "SHOW port;"
           sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres';"
           sudo -u postgres createdb golden_axe_test
 
