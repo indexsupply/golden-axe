@@ -50,7 +50,7 @@ jobs:
 
           sudo -u postgres psql -tAc "select version(); show data_directory; show port; show listen_addresses;"
           sudo -u postgres createuser --superuser --createdb --createrole golden_axe
-          sudo tee -a /etc/postgresql/18/main/pg_hba.conf >/dev/null <<'EOF'
+          sudo tee /etc/postgresql/18/main/pg_hba.conf >/dev/null <<'EOF'
           local   all   all                 trust
           host    all   all   127.0.0.1/32  trust
           host    all   all   ::1/128       trust
