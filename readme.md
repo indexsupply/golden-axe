@@ -8,11 +8,13 @@
 
 ## Local Setup
 
-1. Dependencies
+### Dependencies
 
 [Install rust](https://www.rust-lang.org/tools/install)
 
-Mac
+Be sure to take a look at pgrx's [system requirements](https://github.com/pgcentralfoundation/pgrx#system-requirements).
+
+#### Mac
 ```
 brew install postgresql@18
 brew services start postgresql@18
@@ -22,7 +24,7 @@ brew install icu4c pkg-config openssl@3
 export PKG_CONFIG_PATH="/opt/homebrew/opt/icu4c/lib/pkgconfig"
 ```
 
-Linux
+#### Linux
 ```
 curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
   | sudo gpg --dearmor --yes --batch --no-tty \
@@ -34,7 +36,7 @@ sudo apt-get update -y
 sudo apt-get install -y build-essential pkg-config libssl-dev postgresql-server-dev-18 postgresql-18 postgresql-client-18
 ```
 
-3. Install Postgres Extension
+### Install Postgres Extension
 
 ```
 cargo install --locked cargo-pgrx --version="0.16.1"
@@ -42,7 +44,7 @@ cargo pgrx init --pg18 pg_config
 cargo pgrx install -p pg_golden_axe
 ```
 
-4. Test
+### Test
 
 ```
 createuser --superuser --createdb --createrole golden_axe
@@ -50,7 +52,7 @@ createdb golden_axe_test
 cargo test
 ```
 
-5. Run
+### Run
 
 ```
 createdb be
@@ -61,13 +63,13 @@ psql be -f src/sql/roles.sql
 createdb fe
 ```
 
-6. Start frontend `fe`
+#### Start frontend `fe`
 
 ```
 cargo run -p fe
 ```
 
-7. Start backend `be`
+#### Start backend `be`
 
 The backend depends on the account_limits view and the config table provided by the frontend. The backend will not attempt to update the frontend's schema and therefore must initially be ran after `fe`.
 
