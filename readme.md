@@ -14,47 +14,43 @@
 
 Mac
 ```
+brew install postgresql@18
+brew services start postgresql@18
+echo 'export PATH="/opt/homebrew/opt/postgresql@18/bin:$PATH"' >> ~/.zshrc
+
 brew install icu4c pkg-config openssl@3
 export PKG_CONFIG_PATH="/opt/homebrew/opt/icu4c/lib/pkgconfig"
 ```
 
 Linux
 ```
-sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > \
-  /etc/apt/sources.list.d/pgdg.list'
 curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-  | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg
-sudo apt update -y
-sudo apt install -y build-essential pkg-config libssl-dev postgresql-server-dev-17
+  | sudo gpg --dearmor --yes --batch --no-tty \
+    -o /etc/apt/keyrings/postgresql.gpg
+sudo chmod 0644 /etc/apt/keyrings/postgresql.gpg
+echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+        | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+sudo apt-get update -y
+sudo apt-get install -y build-essential pkg-config libssl-dev postgresql-server-dev-18 postgresql-18 postgresql-client-18
 ```
 
-3. Build
+3. Install Postgres Extension
 
 ```
 cargo install --locked cargo-pgrx --version="0.16.1"
-cargo pgrx init --pg17 download
-cargo build
+cargo pgrx init --pg18 pg_config
+cargo pgrx install -p pg_golden_axe
+```
+
+4. Test
+
+```
+createuser --superuser --createdb --createrole golden_axe
+createdb golden_axe_test
 cargo test
 ```
 
-If you get an error indicating that pg_golden_axe is not installed:
-
-```
-cargo pgrx install \
-  -p pg_golden_axe \
-  -c /tmp/golden-axe-pg-test/install/postgresql-17.2.0-aarch64-apple-darwin/bin/pg_config
-```
-
-
-4. Clone and test
-
-```
-git clone git@github.com:indexsupply/golden-axe.git
-cd golden-axe
-cargo test
-```
-
-5. Create databases
+5. Run
 
 ```
 createdb be

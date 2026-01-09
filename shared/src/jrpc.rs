@@ -277,7 +277,8 @@ mod tests {
 
     #[test_log::test(tokio::test)]
     async fn test_block_and_logs() {
-        let url = std::env::var("RPC_URL").unwrap_or_else(|_| "https://eth.merkle.io/".to_string());
+        let url =
+            std::env::var("RPC_URL").unwrap_or_else(|_| "https://rpc.flashbots.net/".to_string());
         let client = super::Client::new(&url);
         let n: u64 = 12_911_679;
 
