@@ -30,6 +30,8 @@ jobs:
 
       - name: Install PostgreSQL 18
         run: |
+          sudo systemctl stop postgresql
+          sudo pg_dropcluster --stop 16 main || true
           sudo install -d -m 0755 /etc/apt/keyrings
           curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
             | sudo gpg --dearmor --yes --batch --no-tty \
