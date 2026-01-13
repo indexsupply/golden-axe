@@ -19,7 +19,7 @@ This will:
 - Build a custom PostgreSQL 18 image with the `pg_golden_axe` extension
 - Build the Rust application (both `be` and `fe`)
 - Start PostgreSQL with databases initialized and schemas automatically loaded
-- Start the frontend service on port 8001
+- Start the frontend service on port 9001
 - Start the backend service on port 8000
 
 **Note:** The database schemas are automatically loaded when PostgreSQL starts for the first time. No manual schema loading is required!
@@ -34,7 +34,7 @@ This will:
 - **Extension:** `pg_golden_axe` (pre-installed)
 
 ### Frontend (`fe`)
-- **Port:** 8001
+- **Port:** 9001 (mapped from container port 8001)
 - **Database:** fe
 - **Binary:** `/app/bin/fe`
 
@@ -159,12 +159,12 @@ If you see errors about `pg_golden_axe` extension not being available:
 
 ### Port already in use
 
-If ports 5432, 8001, or 8000 are already in use, modify the port mappings in `docker-compose.yml`:
+If ports 5432, 9001, or 8000 are already in use, modify the port mappings in `docker-compose.yml`:
 
 ```yaml
 ports:
   - "15432:5432"  # Change host port (PostgreSQL)
-  - "18001:8001"  # Change host port (frontend)
+  - "19001:8001"  # Change host port (frontend)
   - "18000:8000"  # Change host port (backend)
 ```
 
@@ -198,7 +198,8 @@ docker-compose exec fe ping postgres
 ```
 ┌─────────────────┐
 │   Frontend (fe) │
-│   Port: 8001    │
+│   Port: 9001    │
+│  (container: 8001)
 └────────┬────────┘
          │
          ├──────────┐
