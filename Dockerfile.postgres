@@ -1,0 +1,53 @@
+# Dockerfile for PostgreSQL 18 with pg_golden_axe extension
+
+FROM postgres:18-bookworm
+
+# Install build dependencies for pgrx and the extension
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    pkg-config \
+    libssl-dev \
+    postgresql-server-dev-18 \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.88.0
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Set working directory
+WORKDIR /build
+
+# Copy all workspace members (required for workspace to build)
+COPY be ./be
+COPY fe ./fe
+COPY pg_golden_axe ./pg_golden_axe
+COPY shared ./shared
+COPY .cargo ./.cargo
+COPY Cargo.toml ./Cargo.toml
+COPY Cargo.lock ./Cargo.lock
+COPY rust-toolchain.toml ./rust-toolchain.toml
+
+# Install cargo-pgrx
+RUN cargo install --locked cargo-pgrx --version="0.16.1"
+
+# Initialize pgrx with the system's pg_config
+RUN cargo pgrx init --pg18 $(which pg_config)
+
+# Build and install the extension
+WORKDIR /build/pg_golden_axe
+RUN cargo pgrx install --pg-config $(which pg_config) --release
+
+# Clean up build dependencies and artifacts to reduce image size
+WORKDIR /
+RUN apt-get purge -y \
+    build-essential \
+    curl \
+    pkg-config \
+    git \
+    && apt-get autoremove -y \
+    && rm -rf /build /root/.cargo /root/.rustup /var/lib/apt/lists/*
+
+# Switch back to postgres user
+USER postgres

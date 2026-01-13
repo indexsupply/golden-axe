@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  postgres:
+    build:
+      context: .
+      dockerfile: Dockerfile.postgres
+    container_name: golden-axe-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql
+      - ./docker/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
+      - ./be/src/sql:/docker-entrypoint-initdb.d/sql/be:ro
+      - ./fe/src/schema.sql:/docker-entrypoint-initdb.d/sql/fe/schema.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - golden-axe-network
+
+  fe:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: golden-axe-fe
+    command: /app/bin/fe
+    environment:
+      # Frontend database connection
+      PG_URL_FE: postgresql://golden_axe:golden_axe@postgres:5432/fe
+      RUST_LOG: info
+    ports:
+      - "3080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - golden-axe-network
+    restart: unless-stopped
+
+  be:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: golden-axe-be
+    command: /app/bin/be
+    environment:
+      # Backend database connections
+      PG_URL: postgresql://golden_axe:golden_axe@postgres:5432/be
+      PG_URL_RO: postgresql://golden_axe:golden_axe@postgres:5432/be
+      PG_URL_FE: postgresql://golden_axe:golden_axe@postgres:5432/fe?application_name=be
+      RUST_LOG: info
+    ports:
+      - "3081:8081"
+    depends_on:
+      - postgres
+      - fe
+    networks:
+      - golden-axe-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  golden-axe-network:
+    driver: bridge

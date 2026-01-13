@@ -1,0 +1,33 @@
+# Git files
+.git
+.gitignore
+.github
+
+# Documentation
+*.md
+LICENSE
+
+# Docker files
+docker-compose.yml
+Dockerfile
+Dockerfile.postgres
+docker/
+
+# Rust build artifacts
+target/
+**/target/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment files
+.env
+.env.*
+
+# OS files
+.DS_Store
+Thumbs.db
