@@ -19,8 +19,8 @@ This will:
 - Build a custom PostgreSQL 18 image with the `pg_golden_axe` extension
 - Build the Rust application (both `be` and `fe`)
 - Start PostgreSQL with databases initialized and schemas automatically loaded
-- Start the frontend service on port 3080
-- Start the backend service on port 3081
+- Start the frontend service on port 8001
+- Start the backend service on port 8000
 
 **Note:** The database schemas are automatically loaded when PostgreSQL starts for the first time. No manual schema loading is required!
 
@@ -34,12 +34,12 @@ This will:
 - **Extension:** `pg_golden_axe` (pre-installed)
 
 ### Frontend (`fe`)
-- **Port:** 3080 (mapped from container port 8080)
+- **Port:** 8001
 - **Database:** fe
 - **Binary:** `/app/bin/fe`
 
 ### Backend (`be`)
-- **Port:** 3081 (mapped from container port 8081)
+- **Port:** 8000
 - **Database:** be
 - **Binary:** `/app/bin/be`
 
@@ -51,6 +51,7 @@ Environment variables can be configured in the `docker-compose.yml` file:
 ```yaml
 environment:
   PG_URL_FE: postgresql://golden_axe:golden_axe@postgres:5432/fe
+  PORT: "8001"
   RUST_LOG: info
 ```
 
@@ -60,6 +61,7 @@ environment:
   PG_URL: postgresql://golden_axe:golden_axe@postgres:5432/be
   PG_URL_RO: postgresql://golden_axe:golden_axe@postgres:5432/be
   PG_URL_FE: postgresql://golden_axe:golden_axe@postgres:5432/fe?application_name=be
+  LISTEN: "0.0.0.0:8000"
   RUST_LOG: info
 ```
 
@@ -157,13 +159,13 @@ If you see errors about `pg_golden_axe` extension not being available:
 
 ### Port already in use
 
-If ports 5432, 3080, or 3081 are already in use, modify the port mappings in `docker-compose.yml`:
+If ports 5432, 8001, or 8000 are already in use, modify the port mappings in `docker-compose.yml`:
 
 ```yaml
 ports:
   - "15432:5432"  # Change host port (PostgreSQL)
-  - "4080:8080"   # Change host port (frontend)
-  - "4081:8081"   # Change host port (backend)
+  - "18001:8001"  # Change host port (frontend)
+  - "18000:8000"  # Change host port (backend)
 ```
 
 ### Build errors
@@ -196,8 +198,7 @@ docker-compose exec fe ping postgres
 ```
 ┌─────────────────┐
 │   Frontend (fe) │
-│   Port: 3080    │
-│  (container: 8080)
+│   Port: 8001    │
 └────────┬────────┘
          │
          ├──────────┐
@@ -213,8 +214,7 @@ docker-compose exec fe ping postgres
                  │
          ┌───────┴────────┐
          │   Backend (be) │
-         │   Port: 3081   │
-         │  (container: 8081)
+         │   Port: 8000   │
          └────────────────┘
 ```
 

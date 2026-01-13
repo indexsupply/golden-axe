@@ -62,6 +62,9 @@ struct Args {
 
     #[clap(env = "ADMIN_API_SECRET", default_value = "foo")]
     admin_api_secret: String,
+
+    #[arg(long, env = "PORT", default_value = "8001")]
+    port: u16,
 }
 
 #[tokio::main]
@@ -126,7 +129,9 @@ async fn main() -> Result<()> {
         }
     });
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8001").await?;
+    let addr = format!("0.0.0.0:{}", args.port);
+    tracing::info!("frontend listening on {}", addr);
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, service(state)).await?;
     Ok(())
 }

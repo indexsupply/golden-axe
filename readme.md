@@ -29,11 +29,11 @@ export PKG_CONFIG_PATH="/opt/homebrew/opt/icu4c/lib/pkgconfig"
 #### Linux
 ```
 curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-  | sudo gpg --dearmor --yes --batch --no-tty \
+  | gpg --dearmor --yes --batch --no-tty \
     -o /etc/apt/keyrings/postgresql.gpg
-sudo chmod 0644 /etc/apt/keyrings/postgresql.gpg
+ chmod 0644 /etc/apt/keyrings/postgresql.gpg
 echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
-        | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+        |  tee /etc/apt/sources.list.d/pgdg.list >/dev/null
 sudo apt-get update -y
 sudo apt-get install -y build-essential pkg-config libssl-dev postgresql-server-dev-18 postgresql-18 postgresql-client-18
 ```

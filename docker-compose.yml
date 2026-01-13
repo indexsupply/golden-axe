@@ -34,9 +34,10 @@ services:
     environment:
       # Frontend database connection
       PG_URL_FE: postgresql://golden_axe:golden_axe@postgres:5432/fe
+      PORT: "8001"
       RUST_LOG: info
     ports:
-      - "3080:8080"
+      - "8001:8001"
     depends_on:
       postgres:
         condition: service_healthy
@@ -55,9 +56,10 @@ services:
       PG_URL: postgresql://golden_axe:golden_axe@postgres:5432/be
       PG_URL_RO: postgresql://golden_axe:golden_axe@postgres:5432/be
       PG_URL_FE: postgresql://golden_axe:golden_axe@postgres:5432/fe?application_name=be
+      LISTEN: "0.0.0.0:8000"
       RUST_LOG: info
     ports:
-      - "3081:8081"
+      - "8000:8000"
     depends_on:
       - postgres
       - fe

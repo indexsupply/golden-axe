@@ -43,7 +43,7 @@ COPY --from=builder /app/fe/src/schema.sql /app/sql/fe/schema.sql
 COPY --from=builder /app/fe/src/static /app/static
 
 # Expose ports (adjust as needed based on your application)
-EXPOSE 8080 8081
+EXPOSE 8000 8001
 
 # Default command (can be overridden in docker-compose)
 CMD ["/app/bin/be"]
