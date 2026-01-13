@@ -113,6 +113,22 @@ PG_URL=postgres://localhost/be_test LISTEN=0.0.0.0:8000 cargo run -p be
 
 ### Docker Commands
 
+**Environment Setup for Docker:**
+```bash
+# Docker uses different network names (postgres, be, fe) instead of localhost
+# Option 1: Use Docker defaults (no .env file needed)
+docker-compose up --build
+
+# Option 2: Create .env for custom configuration
+cp .env.docker .env     # Start with Docker-specific defaults
+nano .env               # Customize as needed
+docker-compose up --build
+
+# The .env file is automatically loaded by docker-compose
+# Values in docker-compose.yml override .env values
+```
+
+**Common Docker Commands:**
 ```bash
 # Build and start all services (Postgres, fe, be)
 docker-compose up --build

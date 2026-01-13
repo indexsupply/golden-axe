@@ -29,11 +29,15 @@ services:
       dockerfile: Dockerfile
     container_name: golden-axe-fe
     command: /app/bin/fe
+    env_file:
+      - .env
     environment:
-      # Frontend database connection
-      PG_URL_FE: postgresql://golden_axe:golden_axe@postgres:5432/fe
-      PORT: "8001"
-      RUST_LOG: info
+      # Override with Docker-specific values (these take precedence over .env)
+      PG_URL_FE: ${PG_URL_FE:-postgresql://golden_axe:golden_axe@postgres:5432/fe}
+      BE_URL: ${BE_URL:-http://be:8000}
+      FE_URL: ${FE_URL:-http://localhost:9001}
+      PORT: ${PORT:-8001}
+      RUST_LOG: ${RUST_LOG:-info}
     ports:
       - "9001:8001"
     depends_on:
@@ -49,13 +53,15 @@ services:
       dockerfile: Dockerfile
     container_name: golden-axe-be
     command: /app/bin/be
+    env_file:
+      - .env
     environment:
-      # Backend database connections
-      PG_URL: postgresql://golden_axe:golden_axe@postgres:5432/be
-      PG_URL_RO: postgresql://golden_axe:golden_axe@postgres:5432/be
-      PG_URL_FE: postgresql://golden_axe:golden_axe@postgres:5432/fe?application_name=be
-      LISTEN: "0.0.0.0:8000"
-      RUST_LOG: info
+      # Override with Docker-specific values (these take precedence over .env)
+      PG_URL: ${PG_URL:-postgresql://golden_axe:golden_axe@postgres:5432/be}
+      PG_URL_RO: ${PG_URL_RO:-postgresql://golden_axe:golden_axe@postgres:5432/be}
+      PG_URL_FE: ${PG_URL_FE:-postgresql://golden_axe:golden_axe@postgres:5432/fe?application_name=be}
+      LISTEN: ${LISTEN:-0.0.0.0:8000}
+      RUST_LOG: ${RUST_LOG:-info}
     ports:
       - "8000:8000"
     depends_on:
