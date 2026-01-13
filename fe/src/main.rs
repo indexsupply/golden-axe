@@ -31,7 +31,7 @@ struct Args {
     )]
     pg_url: String,
 
-    #[arg(long, env = "BE_URL", default_value = "https://api.indexsupply.net")]
+    #[arg(long, env = "BE_URL", default_value = "http://localhost:8000")]
     be_url: String,
 
     #[arg(
@@ -108,7 +108,7 @@ async fn main() -> Result<()> {
         postmark: postmark::Client::new(args.postmark_key),
         stripe: stripe::Client::new(args.stripe_key),
         stripe_pub_key: args.stripe_pub_key,
-        daimo: daimo::Client::new(args.daimo_key, args.indexsupply_key.clone()),
+        daimo: daimo::Client::new(args.daimo_key, args.indexsupply_key.clone(), args.be_url.clone()),
     };
     state.pool.get().await?.batch_execute(SCHEMA).await?;
 

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::indexsupply::{self, Row};
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Client {
     daimo_key: Option<String>,
     address: String,
@@ -45,12 +45,12 @@ pub struct PaymentLink {
 static INTENT_FINISHED : &str = "IntentFinished(address indexed intentAddr, address indexed destinationAddr, bool indexed success,(uint256 toChainId, (address token, uint256 amount)[] bridgeTokenOutOptions, (address token, uint256 amount) finalCallToken, (address to, uint256 value, bytes data) finalCall, address bridger, address escrow, address refundAddress, uint256 nonce, uint256 expiration) intent)";
 
 impl Client {
-    pub fn new(daimo_key: Option<String>, is_key: Option<String>) -> Client {
+    pub fn new(daimo_key: Option<String>, is_key: Option<String>, be_url: String) -> Client {
         Client {
             address: String::from("0x7531f00DbC616b3466990e615bf01EfF507c88D4"),
             daimo_key,
             reqwest: reqwest::Client::new(),
-            is: indexsupply::Client::new(is_key),
+            is: indexsupply::Client::new(is_key, be_url),
         }
     }
 
@@ -122,6 +122,12 @@ impl Client {
         } else {
             Ok(None)
         }
+    }
+}
+
+impl Default for Client {
+    fn default() -> Self {
+        Client::new(None, None, String::from("http://localhost:8000"))
     }
 }
 

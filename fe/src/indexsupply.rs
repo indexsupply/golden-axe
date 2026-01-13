@@ -1,11 +1,12 @@
 use eyre::{eyre, Context, Result};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Client {
     #[allow(dead_code)]
     key: Option<String>,
     http_client: reqwest::Client,
+    base_url: String,
 }
 
 pub type Row = Vec<serde_json::Value>;
@@ -24,10 +25,11 @@ struct Request<'a> {
 }
 
 impl Client {
-    pub fn new(key: Option<String>) -> Client {
+    pub fn new(key: Option<String>, base_url: String) -> Client {
         Client {
             key,
             http_client: reqwest::Client::new(),
+            base_url,
         }
     }
 
@@ -37,9 +39,10 @@ impl Client {
         signatures: Vec<&str>,
         query: &str,
     ) -> Result<Vec<Row>, shared::Error> {
+        let url = format!("{}/query", self.base_url);
         let resp = self
             .http_client
-            .post("https://api.indexsupply.net/query")
+            .post(&url)
             .query(&[
                 ("chain", chain.to_string()),
                 ("api-key", "8d622273f07ea179e6d50177ef6ca94d".to_string()),
