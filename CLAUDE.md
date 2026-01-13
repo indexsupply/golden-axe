@@ -44,24 +44,45 @@ The system uses two separate PostgreSQL databases:
 ### Local Development Setup
 
 ```bash
-# Install Rust toolchain (if not already installed)
+# 1. Set up environment variables
+cp .env.example .env    # Copy example to .env
+# Edit .env to customize settings (generate SESSION_KEY, set database URLs, etc.)
+nano .env
+source .env             # Load into current shell
+
+# 2. Install Rust toolchain (if not already installed)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# Install PostgreSQL extension tooling
+# 3. Install PostgreSQL extension tooling
 cargo install --locked cargo-pgrx --version="0.16.1"
 cargo pgrx init --pg18 pg_config
 
-# Install the pg_golden_axe extension
+# 4. Install the pg_golden_axe extension
 cargo pgrx install -p pg_golden_axe
 
-# Create test database and user
+# 5. Create databases and user
 createuser --superuser --createdb --createrole golden_axe
+createdb be
+createdb fe
 createdb golden_axe_test
+
+# 6. Load database schemas
+psql be -f be/src/sql/schema.sql
+psql be -f be/src/sql/indexes.sql
+psql be -f be/src/sql/roles.sql
+# Frontend schema loads automatically on startup
+
+# 7. Start the application
+cargo run -p fe  # In one terminal (must start first)
+cargo run -p be  # In another terminal
 ```
 
 ### Running Tests
 
 ```bash
+# Load environment first
+source .env
+
 # Run all tests with output visible
 cargo test -- --no-capture
 
@@ -75,32 +96,19 @@ cargo test -p pg_golden_axe
 cargo test -p be test_name -- --no-capture
 ```
 
-### Database Setup
+### Running with Custom Environment
 
 ```bash
-# Create databases
-createdb be
-createdb fe
+# Option 1: Override specific variables
+BE_URL=https://custom-api.com cargo run -p fe
 
-# Load backend schema
-psql be -f be/src/sql/schema.sql
-psql be -f be/src/sql/indexes.sql
-psql be -f be/src/sql/roles.sql
-
-# Frontend schema is loaded automatically by fe on startup
-```
-
-### Running the Application
-
-```bash
-# Start frontend (must start first!)
+# Option 2: Edit .env and reload
+nano .env
+source .env
 cargo run -p fe
 
-# Start backend (starts in separate terminal)
-cargo run -p be
-
-# Run with custom environment variables
-PG_URL=postgres://localhost/be LISTEN=0.0.0.0:8000 cargo run -p be
+# Option 3: Pass variables directly (one-off)
+PG_URL=postgres://localhost/be_test LISTEN=0.0.0.0:8000 cargo run -p be
 ```
 
 ### Docker Commands
@@ -205,24 +213,48 @@ CREATE TABLE logs_8453 PARTITION OF logs FOR VALUES IN (8453);
 
 ## Environment Variables
 
+### Setup
+
+All environment variables can be configured using the `.env` file:
+
+```bash
+cp .env.example .env   # Copy example configuration
+nano .env              # Edit with your settings
+source .env            # Load variables into current shell
+```
+
+See `.env.example` for all available options with detailed comments.
+
 ### Backend (`be`)
 
+**Required:**
 - `PG_URL`: Main database connection (default: `postgres://localhost/be`)
+- `PG_URL_FE`: Frontend database connection for config/rate limits (required)
+
+**Optional:**
 - `PG_URL_RO`: Read-only database connection (default: uses `PG_URL`)
-- `PG_URL_FE`: Frontend database connection for config/rate limits
 - `LISTEN`: Server listen address (default: `0.0.0.0:8000`)
-- `MAX_PG_CONNS`: Maximum database connections
-- `RUST_LOG`: Logging level (e.g., `info`, `debug`)
+- `MAX_PG_CONNS`: Maximum database connections (default: system-dependent)
+- `RUST_LOG`: Logging level (default: `info`, options: `trace`, `debug`, `info`, `warn`, `error`)
+- `NO_SYNC`: Disable blockchain syncing if set to `"true"` (useful for testing)
 
 ### Frontend (`fe`)
 
+**Required:**
 - `PG_URL_FE`: Frontend database connection (default: `postgres://localhost/fe`)
+- `BE_URL`: Backend API URL (default: `http://localhost:8000`)
+- `FE_URL`: Frontend URL for generated links (default: `http://localhost:8001`)
+- `ADMIN_API_SECRET`: Admin API secret for provisioning endpoints (required)
+
+**Optional:**
 - `PORT`: Server port (default: `8001`)
-- `BE_URL`: Backend API URL for proxying queries
-- `FE_URL`: Frontend URL for generated links
-- `STRIPE_KEY`: Stripe API key for billing
-- `POSTMARK_KEY`: Postmark API key for emails
-- `RUST_LOG`: Logging level
+- `SESSION_KEY`: Hex-encoded session encryption key (auto-generated if not set)
+- `STRIPE_KEY`: Stripe API secret key for payment processing
+- `STRIPE_PUB_KEY`: Stripe public key for frontend
+- `POSTMARK_KEY`: Postmark API key for sending emails
+- `DAIMO_KEY`: Daimo API key for crypto payments
+- `INDEXSUPPLY_KEY`: Index Supply API key for blockchain verification
+- `RUST_LOG`: Logging level (default: `info`)
 
 ## Testing Notes
 

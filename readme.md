@@ -10,6 +10,18 @@
 
 ## Local Setup
 
+### Quick Start
+
+```bash
+# 1. Set up environment variables
+cp .env.example .env    # Copy example configuration
+nano .env               # Edit with your settings
+source .env             # Load into current shell
+
+# 2. Follow platform-specific setup below
+# 3. See CLAUDE.md for detailed documentation
+```
+
 ### Dependencies
 
 [Install rust](https://www.rust-lang.org/tools/install)
