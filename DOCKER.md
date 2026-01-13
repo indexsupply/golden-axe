@@ -227,3 +227,11 @@ docker-compose exec fe ping postgres
 - Database data persists in a Docker volume named `golden-axe_postgres_data`
 - First build may take 10-15 minutes due to Rust compilation and PostgreSQL extension building
 - If you need to reload schemas after changes, you can use `./docker/load-schemas.sh` or delete the volume with `docker-compose down -v` and restart
+
+## Blockchain Syncing
+
+To configure RPC endpoints, monitor sync progress, and tune performance, see **[SYNCING.md](SYNCING.md)** for:
+- Adding custom RPC URLs
+- Monitoring blocks per second
+- Avoiding rate limits
+- Troubleshooting sync issues
