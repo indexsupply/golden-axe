@@ -43,7 +43,7 @@ pub mod handlers {
             .await?
             .into_iter()
             .sorted_by_key(|c| c.name.to_string())
-            .filter(|c| c.enabled)
+            .filter(|c| c.enabled && !c.hidden)
             .collect::<Vec<_>>();
         let resp = Html(state.templates.render(
             "index.html",

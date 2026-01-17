@@ -9,7 +9,7 @@ pub async fn index(State(state): State<web::State>) -> Result<Html<String>, shar
     let chains = chains::list(&pg)
         .await?
         .into_iter()
-        .filter(|c| c.enabled)
+        .filter(|c| c.enabled && !c.hidden)
         .map(|mut c| {
             c.start_block = Some(c.start_block.unwrap_or(1));
             c

@@ -158,6 +158,7 @@ create table if not exists config (
     batch_size int2 not null default 2000,
     concurrency int2 not null default 10,
     popular bool default false,
+    hidden bool default false,
     provision_key text
 );
 

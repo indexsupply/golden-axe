@@ -8,6 +8,8 @@ pub struct Config {
     pub enabled: bool,
     #[serde(default)]
     pub popular: bool,
+    #[serde(default)]
+    pub hidden: bool,
     pub chain: i64,
     pub start_block: Option<i64>,
     #[serde(skip_serializing)]
@@ -116,7 +118,7 @@ pub mod handlers {
 pub async fn list(pg: &tokio_postgres::Client) -> Result<Vec<Config>> {
     Ok(pg
         .query(
-            "select enabled, chain, name, url, start_block, popular from config order by chain",
+            "select enabled, chain, name, url, start_block, popular, hidden from config order by chain",
             &[],
         )
         .await?
@@ -125,6 +127,7 @@ pub async fn list(pg: &tokio_postgres::Client) -> Result<Vec<Config>> {
             name: row.get("name"),
             enabled: row.get("enabled"),
             popular: row.get("popular"),
+            hidden: row.get("hidden"),
             chain: row.get("chain"),
             url: row.get("url"),
             start_block: row.get("start_block"),
