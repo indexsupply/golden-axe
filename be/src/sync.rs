@@ -308,10 +308,11 @@ impl Downloader {
         tracing::Span::current()
             .record("from", from)
             .record("to", to);
-        let (mut blocks, mut logs) = (
-            self.jrpc_client.blocks(from, to).await?,
-            self.jrpc_client.logs(from, to).await?,
+        let (blocks_res, logs_res) = tokio::join!(
+            self.jrpc_client.blocks(from, to),
+            self.jrpc_client.logs(from, to),
         );
+        let (mut blocks, mut logs) = (blocks_res?, logs_res?);
         add_timestamp(&mut blocks, &mut logs);
         validate_blocks(from, to, &blocks)?;
         validate_logs(&blocks, &logs)?;
