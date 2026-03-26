@@ -3,7 +3,12 @@ use std::{
     convert::Infallible,
     fmt::{self, Debug},
     net::SocketAddr,
-    sync::{Arc, Mutex},
+    pin::Pin,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
+    task::{Context, Poll},
 };
 
 use axum::{
@@ -26,7 +31,10 @@ use serde_json::{json, Value};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use url::Url;
 
-use crate::{broadcast, gafe};
+use http_body::Frame;
+use pin_project_lite::pin_project;
+
+use crate::{broadcast, gafe, user_query};
 
 macro_rules! user_error {
     ($e:expr) => {
@@ -127,6 +135,7 @@ pub enum Error {
     User(String),
     Timeout(Option<String>),
     TooManyRequests(Option<String>),
+    TransferExceeded(Option<String>),
 
     Server(Box<dyn std::error::Error + Send + Sync>),
 }
@@ -150,6 +159,10 @@ impl Serialize for Error {
                 state.serialize_field("error", "too_many_requests")?;
                 state.serialize_field("message", &opt_msg)?;
             }
+            Error::TransferExceeded(opt_msg) => {
+                state.serialize_field("error", "transfer_exceeded")?;
+                state.serialize_field("message", &opt_msg)?;
+            }
             Error::Server(err) => {
                 state.serialize_field("error", "server")?;
                 state.serialize_field("message", &err.to_string())?;
@@ -167,6 +180,8 @@ impl std::fmt::Display for Error {
             Error::Timeout(None) => write!(f, "Operation timed out"),
             Error::TooManyRequests(Some(msg)) => write!(f, "Too many requests: {msg}"),
             Error::TooManyRequests(None) => write!(f, "Too many requests"),
+            Error::TransferExceeded(Some(msg)) => write!(f, "Transfer exceeded: {msg}"),
+            Error::TransferExceeded(None) => write!(f, "Transfer limit exceeded"),
             Error::Server(err) => write!(f, "Server error: {err}"),
         }
     }
@@ -218,6 +233,12 @@ impl axum::response::IntoResponse for Error {
             Self::TooManyRequests(msg) => (
                 StatusCode::TOO_MANY_REQUESTS,
                 msg.unwrap_or(String::from("too many requests")),
+            ),
+            Self::TransferExceeded(msg) => (
+                StatusCode::TOO_MANY_REQUESTS,
+                msg.unwrap_or(String::from(
+                    "Transfer limit exceeded. Upgrade at: https://www.indexsupply.net",
+                )),
             ),
             Self::User(msg) => (StatusCode::BAD_REQUEST, msg),
             Self::Server(e) => {
@@ -285,10 +306,21 @@ pub async fn limit(
             "Rate limited. Create or upgrade API Key at: https://www.indexsupply.net",
         ))));
     }
-    match tokio::time::timeout(account_limit.timeout, next.run(request)).await {
-        Ok(response) => Ok(response),
-        Err(_) => Err(Error::Timeout(None)),
-    }
+    let log = request.extensions().get::<user_query::RequestLog>().cloned();
+    let response = match tokio::time::timeout(account_limit.timeout, next.run(request)).await {
+        Ok(response) => response,
+        Err(_) => return Err(Error::Timeout(None)),
+    };
+    let (parts, body) = response.into_parts();
+    let counting = CountingBody {
+        inner: body,
+        count: Arc::new(AtomicU64::new(0)),
+        log,
+    };
+    Ok(axum::http::Response::from_parts(
+        parts,
+        axum::body::Body::new(counting),
+    ))
 }
 
 #[derive(Clone, Copy, Default, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -496,19 +528,45 @@ pub async fn latency_header(
     Ok(response)
 }
 
-pub async fn content_length_header(
-    request: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> Result<axum::response::Response, Error> {
-    let response = next.run(request).await;
-    let span = tracing::Span::current();
-    response
-        .headers()
-        .get("content-length")
-        .and_then(|cl| cl.to_str().ok())
-        .map(|cl| cl.parse::<u64>().ok())
-        .map(|size| span.record("size", size));
-    Ok(response)
+pin_project! {
+    pub struct CountingBody<B> {
+        #[pin]
+        inner: B,
+        count: Arc<AtomicU64>,
+        log: Option<user_query::RequestLog>,
+    }
+}
+
+impl<B> http_body::Body for CountingBody<B>
+where
+    B: http_body::Body<Data = bytes::Bytes>,
+{
+    type Data = B::Data;
+    type Error = B::Error;
+
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        let this = self.project();
+        match this.inner.poll_frame(cx) {
+            Poll::Ready(Some(Ok(frame))) => {
+                if let Some(data) = frame.data_ref() {
+                    this.count.fetch_add(data.len() as u64, Ordering::Relaxed);
+                }
+                Poll::Ready(Some(Ok(frame)))
+            }
+            Poll::Ready(None) => {
+                let total = this.count.load(Ordering::Relaxed);
+                tracing::Span::current().record("size", total);
+                if let Some(log) = this.log.take() {
+                    log.set_bytes(total);
+                }
+                Poll::Ready(None)
+            }
+            other => other,
+        }
+    }
 }
 
 pub async fn log_fields(

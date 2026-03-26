@@ -201,7 +201,6 @@ fn service(config: api::Config) -> IntoMakeServiceWithConnectInfo<Router, Socket
         .layer(axum::middleware::from_fn(api::latency_header))
         .layer(tracing)
         .layer(axum::middleware::from_fn(api::log_fields))
-        .layer(axum::middleware::from_fn(api::content_length_header))
         .layer(HandleErrorLayer::new(api::handle_service_error))
         .load_shed()
         .concurrency_limit(1024)

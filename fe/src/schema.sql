@@ -130,13 +130,15 @@ create table if not exists user_queries(
     status int2,
     qty int2 default 1,
     created_at timestamptz default now(),
-    ip text
+    ip text,
+    bytes int8 default 0
 );
 
 create table if not exists daily_user_queries (
     owner_email text not null,
     day date not null,
     n int8 not null,
+    bytes int8 not null default 0,
     updated_at timestamptz not null default now(),
     primary key (owner_email, day)
 );
@@ -146,6 +148,7 @@ create table if not exists wl_daily_user_queries(
     org text not null,
     day date not null,
     n int8 not null,
+    bytes int8 not null default 0,
     updated_at timestamptz not null default now(),
     primary key (provision_key, org, day)
 );

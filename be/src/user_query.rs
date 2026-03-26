@@ -15,6 +15,7 @@ pub struct Row {
     pub latency: u16,
     pub status: u32,
     pub qty: u16,
+    pub bytes: u64,
 }
 
 impl Row {
@@ -28,6 +29,7 @@ impl Row {
             latency: 0,
             status: 0,
             qty: 1,
+            bytes: 0,
         }
     }
 }
@@ -69,6 +71,12 @@ impl RequestLog {
     pub fn incr(&self) {
         if let Some(row) = self.0.lock().unwrap().rows.iter_mut().next() {
             row.qty += 1
+        }
+    }
+
+    pub fn set_bytes(&self, bytes: u64) {
+        for row in self.0.lock().unwrap().rows.iter_mut() {
+            row.bytes = bytes;
         }
     }
 
@@ -125,8 +133,9 @@ pub async fn insert(pool: deadpool_postgres::Pool, row: Row) {
                         latency,
                         status,
                         ip,
-                        qty
-                    ) values ($1, $2, $3, $4, $5, $6, $7, $8)",
+                        qty,
+                        bytes
+                    ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
                 &[
                     &row.api_key,
                     &U64::from(row.chain),
@@ -136,6 +145,7 @@ pub async fn insert(pool: deadpool_postgres::Pool, row: Row) {
                     &(row.status as i16),
                     &row.ip,
                     &(row.qty as i16),
+                    &(row.bytes as i64),
                 ],
             )
             .await;

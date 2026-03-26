@@ -276,23 +276,29 @@ async fn update_daily_user_queries(
                 q.api_key,
                 k.owner_email,
                 date_trunc('day', q.created_at)::date as day,
-                q.qty
+                q.qty,
+                coalesce(q.bytes, 0) as bytes
               from user_queries q
               join api_keys k on q.api_key = k.secret
               where q.created_at >= date_trunc('day', now())
                 and q.created_at < date_trunc('day', now() + interval '1 day')
             ),
             aggregated as (
-              select owner_email, day, sum(qty)::int8 as total_qty
+              select owner_email, day,
+                sum(qty)::int8 as total_qty,
+                sum(bytes)::int8 as total_bytes
               from one_day
               group by owner_email, day
             ),
             upserted as (
-              insert into daily_user_queries (owner_email, day, n, updated_at)
-              select owner_email, day, total_qty, now()
+              insert into daily_user_queries (owner_email, day, n, bytes, updated_at)
+              select owner_email, day, total_qty, total_bytes, now()
               from aggregated
               on conflict (owner_email, day)
-              do update set n = excluded.n, updated_at = excluded.updated_at
+              do update set
+                n = excluded.n,
+                bytes = excluded.bytes,
+                updated_at = excluded.updated_at
             )
             select count(*)::int8, coalesce(sum(qty), 0)::int8
             from one_day
@@ -321,23 +327,29 @@ async fn update_wl_daily_user_queries(
                 k.provision_key,
                 k.org,
                 date_trunc('day', q.created_at)::date as day,
-                q.qty
+                q.qty,
+                coalesce(q.bytes, 0) as bytes
               from user_queries q
               join wl_api_keys k on q.api_key = k.secret
               where q.created_at >= date_trunc('day', now())
                 and q.created_at < date_trunc('day', now() + interval '1 day')
             ),
             aggregated as (
-              select provision_key, org, day, sum(qty)::int8 as total_qty
+              select provision_key, org, day,
+                sum(qty)::int8 as total_qty,
+                sum(bytes)::int8 as total_bytes
               from one_day
               group by provision_key, org, day
             ),
             upserted as (
-              insert into wl_daily_user_queries (provision_key, org, day, n, updated_at)
-              select provision_key, org, day, total_qty, now()
+              insert into wl_daily_user_queries (provision_key, org, day, n, bytes, updated_at)
+              select provision_key, org, day, total_qty, total_bytes, now()
               from aggregated
               on conflict (provision_key, org, day)
-              do update set n = excluded.n, updated_at = excluded.updated_at
+              do update set
+                n = excluded.n,
+                bytes = excluded.bytes,
+                updated_at = excluded.updated_at
             )
             select count(*)::int8, coalesce(sum(qty), 0)::int8
             from one_day;
