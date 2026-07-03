@@ -13,48 +13,57 @@ where "from" = 0xd8da6bf26964af9d7eed9e03e53415d37aa96045
 """
 
 [[queries]]
-chain = 7777777
-desc = "Nested Tuples: Zora Sparked Comment"
+chain = 1
+desc = "Nested Tuples: Morpho Blue Market Creation"
 events = [
-    "SparkedComment(bytes32 indexed commentId, (address commenter,address contractAddress,uint256 tokenId,bytes32 nonce) commentIdentifier, uint256 sparksQuantity, address sparker, uint256 timestamp, address referrer)",
+    "CreateMarket(bytes32 indexed id, (address loanToken, address collateralToken, address oracle, address irm, uint256 lltv) marketParams)",
 ]
 sql = """
 select
-commentIdentifier->>'commenter' as commenter,
-commentIdentifier->>'contractAddress' as contractAddress,
-commentIdentifier->>'tokenId' as tokenId,
-sparker, timestamp, referrer
-from sparkedcomment
+  id,
+  marketParams->>'loanToken' as loan_token,
+  marketParams->>'collateralToken' as collateral,
+  marketParams->>'lltv' as lltv
+from createmarket
+where address = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb
+order by block_num desc
 limit 100
 """
 
 [[queries]]
-chain = 8453
-desc = "SUM/CASE: ERC20 Token Balances for All Tokens in Wallet"
+chain = 1
+desc = "SUM/CASE: ERC20 Transfers Sent/Received per Token"
 events = ["Transfer(address indexed from, address indexed to, uint256 value)"]
 sql = """
 select
-  max(block_num) block,
   address token,
   sum(
     case
-    when "from" = 0xB9621a707869d45A600acc2851418a1fe60500e7
-    then -value
-    when "to" = 0xB9621a707869d45A600acc2851418a1fe60500e7
-    then value
+    when "from" = 0xd8da6bf26964af9d7eed9e03e53415d37aa96045
+    then 1
     else 0
     end
-  ) balance
+  ) sent,
+  sum(
+    case
+    when "to" = 0xd8da6bf26964af9d7eed9e03e53415d37aa96045
+    then 1
+    else 0
+    end
+  ) received
 from transfer
 where (
-  "to" = 0xB9621a707869d45A600acc2851418a1fe60500e7
-  or "from" = 0xB9621a707869d45A600acc2851418a1fe60500e7
+  "to" = 0xd8da6bf26964af9d7eed9e03e53415d37aa96045
+  or "from" = 0xd8da6bf26964af9d7eed9e03e53415d37aa96045
 )
+and block_num > 25300000
 group by token
+order by 2 desc, 3 desc
+limit 25
 """
 
 [[queries]]
-chain = 8453
+chain = 1
 desc = "ARRAYS: ERC-1155 Transfer Batch"
 events = [
     "TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] amounts)",
@@ -67,12 +76,12 @@ select
   ids,
   amounts
 from transferbatch
-where block_num = 21258465
-and log_idx = 4
+where block_num = 25444605
+and log_idx = 607
 """
 
 [[queries]]
-chain = 8453
+chain = 1
 desc = "COUNT/DISTINCT: Unique Senders/Receivers of ERC-721 Transfers per Block"
 events = [
     "Transfer(address indexed from, address indexed to, uint indexed tokenId)",
@@ -90,8 +99,8 @@ limit 1
 """
 
 [[queries]]
-chain = 84532
-desc = "SELF JOIN: ERC721 Current Token Holders"
+chain = 1
+desc = "SELF JOIN: Recent Nouns Token Holders"
 events = [
     "Transfer(address indexed from, address indexed to, uint indexed tokenId)",
 ]
@@ -102,15 +111,17 @@ left join transfer t2
 on t1.tokenId = t2.tokenId
 and t1.block_num < t2.block_num
 and t1.address = t2.address
-where t1.address = 0xE81b94b09B9dE001b75f2133A0Fb37346f7E8BA4
+where t1.address = 0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03
+and t1.block_num > 25300000
 and t2.tokenId is null
+order by t1.block_num desc
 """
 
 [[queries]]
-chain = 8453
-desc = "Fun: Base Name Registrations"
+chain = 1
+desc = "Fun: ENS Name Registrations"
 events = [
-    "NameRegistered(string name, bytes32 indexed label, address indexed owner, uint256 expires)",
+    "NameRegistered(string name, bytes32 indexed label, address indexed owner, uint256 baseCost, uint256 premium, uint256 expires)",
 ]
 sql = """
 select
@@ -118,19 +129,7 @@ select
     name,
     owner
 from nameregistered
-where address = 0x4ccb0bb02fcaba27e82a56646e81d8c5bc4119a5
+where address = 0x253553366Da8546fC250F225fe3d25d0C782303b
 order by block_num desc
 limit 100
-"""
-
-[[queries]]
-chain = 7777777
-desc = "Fun: Zora Mint Comments from a Random User"
-events = [
-    "MintComment(address indexed sender, address indexed collection, uint256 indexed tokenId, uint256 quantity, string comment)",
-]
-sql = """
-select comment
-from mintcomment
-where sender = 0x1d14d9e297dfbce003f5a8ebcf8cba7faee70b91
 """
