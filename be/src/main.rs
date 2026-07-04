@@ -274,6 +274,7 @@ mod tests {
                 block_number: block.number,
                 block_timestamp: Some(block.timestamp),
                 tx_hash: B256::with_last_byte(0xab),
+                tx_idx: U64::from(0),
                 log_idx: U64::from(1),
             };
             let mut pg = $pool
