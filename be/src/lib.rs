@@ -5,6 +5,7 @@ pub mod api_sql2;
 pub mod broadcast;
 pub mod cursor;
 pub mod gafe;
+pub mod handler;
 pub mod query;
 pub mod s256;
 pub mod sync;
