@@ -33,6 +33,8 @@ pub struct Log {
     pub block_timestamp: Option<U64>,
     #[serde(rename = "transactionHash")]
     pub tx_hash: FixedBytes<32>,
+    #[serde(rename = "transactionIndex")]
+    pub tx_idx: U64,
     #[serde(rename = "logIndex")]
     pub log_idx: U64,
 

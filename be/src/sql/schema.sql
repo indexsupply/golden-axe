@@ -40,6 +40,7 @@ create table if not exists logs (
     block_num int8 not null,
     block_timestamp timestamptz not null,
     log_idx int4 not null,
+    tx_idx int4 not null default 0,
 
     tx_hash bytea not null,
     address bytea not null,
