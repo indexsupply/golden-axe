@@ -12,7 +12,7 @@ use eyre::{eyre, Context, Result};
 use futures::pin_mut;
 use tokio_postgres::{binary_copy::BinaryCopyInWriter, Transaction};
 
-use crate::{api, broadcast};
+use crate::{api, broadcast, handler::BlockHandler};
 
 #[derive(Debug)]
 pub enum Error {
@@ -160,6 +160,7 @@ pub struct Downloader {
     jrpc_client: Arc<jrpc::Client>,
     broadcaster: Arc<broadcast::Channel>,
     partition_max_block: Option<u64>,
+    handler: Option<Arc<dyn BlockHandler>>,
 }
 
 impl Downloader {
@@ -179,7 +180,15 @@ impl Downloader {
             jrpc_client,
             broadcaster,
             partition_max_block: None,
+            handler: None,
         }
+    }
+
+    /// Attach a handler that derives additional state from each synced batch,
+    /// run inside the same transaction as the blocks/txs/logs writes.
+    pub fn with_handler(mut self, handler: Arc<dyn BlockHandler>) -> Downloader {
+        self.handler = Some(handler);
+        self
     }
 
     async fn init_blocks(&mut self) -> Result<(), Error> {
@@ -274,6 +283,10 @@ impl Downloader {
             &[&self.chain, &U64::from(n)],
         )
         .await?;
+        // Revert derived state for the reorged range in the same transaction.
+        if let Some(handler) = &self.handler {
+            handler.on_rollback(&pgtx, self.chain.0, n).await?;
+        }
         pgtx.commit().await.wrap_err("unable to commit tx")?;
         Ok(())
     }
@@ -331,6 +344,13 @@ impl Downloader {
         }
         let mut pg = self.be_pool.get().await.wrap_err("pg pool")?;
         let pgtx = pg.transaction().await?;
+        // Derive handler state before copy_logs consumes `logs`, in the same
+        // transaction so derived state commits atomically with the batch.
+        if let Some(handler) = &self.handler {
+            handler
+                .on_block(&pgtx, self.chain.0, &blocks, &logs)
+                .await?;
+        }
         let num_logs = copy_logs(&pgtx, self.chain, logs).await?;
         let num_txs = copy_txs(&pgtx, self.chain, &blocks).await?;
         let num_blocks = copy_blocks(&pgtx, self.chain, &blocks).await?;

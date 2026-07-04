@@ -1052,6 +1052,7 @@ dependencies = [
  "alloy",
  "assert-json-diff",
  "async-stream",
+ "async-trait",
  "axum",
  "axum-extra",
  "axum-test",

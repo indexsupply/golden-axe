@@ -64,6 +64,7 @@ http-body = "1"
 pin-project-lite = "0.2"
 time = { version = "0.3", features = ["serde", "formatting"] }
 handlebars = "6.3.2"
+async-trait = "0.1"
 
 [dev-dependencies]
 shared = { path = "../shared", features = ["test"] }
